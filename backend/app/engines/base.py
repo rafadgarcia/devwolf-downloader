@@ -87,6 +87,8 @@ class DownloadedFileInfo:
     is_archive: bool = False
     item_count: int = 1
     missing_items: int = 0
+    is_original: bool = False
+    segment_index: Optional[int] = None
 
 
 @dataclass(frozen=True)

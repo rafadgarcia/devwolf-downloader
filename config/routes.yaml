@@ -1,4 +1,4 @@
-# Configuração de roteamento por domínio e tipo de mídia — DropLink
+# Configuração de roteamento por domínio e tipo de mídia — Devwolf Downloader
 # Regras:
 # - Validação estrita por hostname (exato ou subdomínio listado), nunca por substring.
 # - Nenhum extractor genérico indiscriminado para domínios desconhecidos.
@@ -197,6 +197,25 @@ routes:
     experimental: false
     allow_playlists: false
 
+  - id: facebook_reel
+    platform: facebook
+    label: Facebook Reel
+    domains:
+      - facebook.com
+      - www.facebook.com
+      - m.facebook.com
+      - web.facebook.com
+    path_prefixes:
+      - /reel/
+      - /share/r/
+    media_types:
+      - video
+    primary_engine: yt-dlp
+    fallback_engines:
+      - cobalt
+    experimental: false
+    allow_playlists: false
+
   - id: facebook
     platform: facebook
     label: Facebook
@@ -207,6 +226,9 @@ routes:
       - web.facebook.com
       - fb.watch
     path_prefixes:
+      - /share/v/
+      - /watch
+      - /videos/
       - /
     media_types:
       - video

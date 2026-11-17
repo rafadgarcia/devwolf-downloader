@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
-from app.auth.deps import get_db, get_optional_session, require_csrf
+from app.auth.deps import extract_session_token, get_db, get_optional_session, require_csrf
 from app.auth.security import (
     SessionContext,
     authenticate_user,
@@ -67,6 +67,7 @@ def login(
             role=user_row["role"],
         ),
         csrf_token=csrf_token,
+        session_token=raw_token,
     )
 
 
@@ -78,7 +79,7 @@ def logout(
     settings: Settings = Depends(get_settings),
     conn=Depends(get_db),
 ) -> dict[str, bool]:
-    raw_token = request.cookies.get(settings.cookie_name, "")
+    raw_token = extract_session_token(request, settings) or ""
     revoke_session_by_token(conn, raw_token, settings)
     response.delete_cookie(key=settings.cookie_name, path="/")
     return {"ok": True}

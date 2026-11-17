@@ -136,7 +136,7 @@ class CobaltEngine(BaseEngine):
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": "DropLink/1.0",
+            "User-Agent": "DevwolfDownloader/2.0",
         }
         api_key = self.settings.cobalt_api_key.strip()
         if api_key:
@@ -480,7 +480,7 @@ class CobaltEngine(BaseEngine):
                     code=exc.code,
                 ) from exc
 
-            req_headers = {"User-Agent": "DropLink/1.0"}
+            req_headers = {"User-Agent": "DevwolfDownloader/2.0"}
             if is_cobalt_origin and self.settings.cobalt_api_key.strip():
                 req_headers["Authorization"] = f"Api-Key {self.settings.cobalt_api_key.strip()}"
 

@@ -65,8 +65,8 @@ def create_app(custom_settings: Settings | None = None) -> FastAPI:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     app = FastAPI(
-        title="DropLink API",
-        version="1.0.0",
+        title=f"{cfg.app_name} API",
+        version=cfg.app_version,
         docs_url="/api/docs" if cfg.app_env == "development" else None,
         redoc_url=None,
         lifespan=lifespan,
@@ -80,7 +80,7 @@ def create_app(custom_settings: Settings | None = None) -> FastAPI:
         allow_origins=cfg.allowed_origins(),
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "X-CSRF-Token"],
+        allow_headers=["Content-Type", "X-CSRF-Token", "Authorization"],
     )
 
     @app.middleware("http")

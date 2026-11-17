@@ -16,8 +16,10 @@ from app.config import Settings, get_settings
 from app.db import get_connection, run_migrations, transaction, utc_now, utc_now_iso
 from app.engines.base import (
     CancellationToken,
+    DownloadedFileInfo,
     EngineError,
     EngineRequest,
+    EngineResult,
     ErrorCategory,
     ProgressUpdate,
 )
@@ -26,6 +28,7 @@ from app.security.file_guard import ensure_within_dir
 from app.security.url_guard import load_routes_config, validate_and_match_url
 from app.services.cleanup_service import recover_expired_leases, run_cleanup_cycle
 from app.services.job_service import PHASE_LABELS, get_user_settings
+from app.services.media_processor import process_media_for_status
 
 logger = logging.getLogger("droplink.worker")
 
@@ -249,6 +252,57 @@ async def process_job(
             cancellation_token=cancellation_token,
         )
 
+        # Phase 2: Optional WhatsApp Status Mode / segment splitting post-processing
+        row_keys = job_row.keys()
+        status_mode = bool(job_row["status_mode"]) if "status_mode" in row_keys else False
+        segment_duration = job_row["segment_duration"] if "segment_duration" in row_keys else None
+        keep_original = bool(job_row["keep_original"]) if "keep_original" in row_keys else False
+
+        final_files: list[DownloadedFileInfo] = list(result.files)
+        if (status_mode or (segment_duration and segment_duration > 0)) and len(final_files) == 1:
+            primary_file = final_files[0]
+            if primary_file.mime_type.startswith("video/") and not primary_file.is_archive:
+                _on_progress(
+                    ProgressUpdate(
+                        bytes_downloaded=primary_file.size_bytes,
+                        total_bytes=primary_file.size_bytes,
+                        percent=None,
+                        is_indeterminate=True,
+                        phase="processing",
+                        phase_label="Preparando arquivo",
+                    )
+                )
+                proc_workspace = primary_file.path.parent
+                processed = await asyncio.to_thread(
+                    process_media_for_status,
+                    primary_file.path,
+                    proc_workspace,
+                    preferred_filename=primary_file.filename,
+                    status_mode=status_mode,
+                    segment_duration=segment_duration,
+                    keep_original=keep_original,
+                    ffmpeg_bin=settings.ffmpeg_bin,
+                    ffprobe_bin=settings.ffprobe_bin,
+                    max_size_bytes=settings.max_job_size_mb * 1024 * 1024,
+                    timeout_seconds=max(60, settings.max_job_duration_seconds),
+                )
+                final_files = [
+                    DownloadedFileInfo(
+                        path=entry.path,
+                        filename=entry.filename,
+                        mime_type=entry.mime_type,
+                        size_bytes=entry.size_bytes,
+                        sha256=entry.sha256,
+                        duration_seconds=entry.duration_seconds or primary_file.duration_seconds,
+                        is_archive=False,
+                        item_count=1,
+                        missing_items=0,
+                        is_original=entry.is_original,
+                        segment_index=entry.segment_index,
+                    )
+                    for entry in processed.files
+                ]
+
         # Move finalized files into persistent storage
         now_dt = utc_now()
         retention_hours = user_prefs.file_retention_hours or settings.file_retention_hours
@@ -257,7 +311,7 @@ async def process_job(
 
         stored_rows: list[tuple] = []
         total_final_bytes = 0
-        for f_info in result.files:
+        for f_info in final_files:
             file_id = str(uuid.uuid4())
             rel_path = f"{job_id}/{file_id}_{f_info.filename}"
             dest_path = ensure_within_dir(storage_root, storage_root / rel_path)
@@ -277,6 +331,8 @@ async def process_job(
                     int(f_info.is_archive),
                     f_info.item_count,
                     f_info.missing_items,
+                    int(f_info.is_original),
+                    f_info.segment_index,
                     f_info.sha256,
                     now_dt.isoformat(),
                     expires_at,
@@ -289,9 +345,10 @@ async def process_job(
                     """
                     INSERT INTO files (
                         id, job_id, user_id, filename, storage_path, mime_type, size_bytes,
-                        duration_seconds, is_archive, item_count, missing_items, sha256,
+                        duration_seconds, is_archive, item_count, missing_items,
+                        is_original, segment_index, sha256,
                         created_at, expires_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     sr,
                 )

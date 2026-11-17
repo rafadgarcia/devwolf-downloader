@@ -18,6 +18,7 @@ JobStatus = Literal[
     "expired",
 ]
 ThemeType = Literal["dark", "light"]
+ExecutionMode = Literal["auto", "local", "vps"]
 EngineName = Literal["yt-dlp", "gallery-dl", "cobalt"]
 
 
@@ -36,6 +37,7 @@ class AuthMeResponse(BaseModel):
     authenticated: bool
     user: Optional[UserResponse] = None
     csrf_token: Optional[str] = None
+    session_token: Optional[str] = None
 
 
 class ParseUrlRequest(BaseModel):
@@ -60,6 +62,12 @@ class CreateJobRequest(BaseModel):
     quality: JobQuality = "best"
     idempotency_key: Optional[str] = Field(default=None, max_length=128)
     force_manual: bool = False
+    status_mode: bool = False
+    segment_duration: Optional[int] = Field(default=None, ge=1, le=600)
+    keep_original: bool = False
+
+
+JobCreateRequest = CreateJobRequest
 
 
 class JobFileResponse(BaseModel):
@@ -71,6 +79,8 @@ class JobFileResponse(BaseModel):
     is_archive: bool = False
     item_count: int = 1
     missing_items: int = 0
+    is_original: bool = False
+    segment_index: Optional[int] = None
     download_url: str
     expires_at: str
     expired: bool = False
@@ -97,6 +107,9 @@ class JobResponse(BaseModel):
     title: Optional[str] = None
     format: str
     quality: str
+    status_mode: bool = False
+    segment_duration: Optional[int] = None
+    keep_original: bool = False
     status: JobStatus
     phase_label: str
     current_engine: Optional[str] = None
@@ -125,6 +138,9 @@ class HistoryItemResponse(BaseModel):
     title: Optional[str] = None
     format: str
     quality: str
+    status_mode: bool = False
+    segment_duration: Optional[int] = None
+    keep_original: bool = False
     status: JobStatus
     phase_label: str
     selected_engine: Optional[str] = None
@@ -179,6 +195,33 @@ class EnginesOverviewResponse(BaseModel):
     disclaimer: str = "Online significa processo respondendo, não garantia de que todas as plataformas funcionam."
 
 
+class EngineReleaseInfo(BaseModel):
+    engine: str
+    installed_version: Optional[str] = None
+    latest_version: Optional[str] = None
+    update_available: bool = False
+    release_url: Optional[str] = None
+    checked_at: Optional[str] = None
+    source: Optional[str] = None
+
+
+class PlatformCapability(BaseModel):
+    platform: str
+    label: str
+    local_supported: bool
+    remote_supported: bool
+    primary_engine: str
+    fallback_engines: list[str] = Field(default_factory=list)
+    media_types: list[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+
+
+class EnginesReleasesResponse(BaseModel):
+    engines: list[EngineReleaseInfo]
+    capabilities: list[PlatformCapability]
+    checked_at: str
+
+
 class UserSettingsResponse(BaseModel):
     auto_download: bool
     default_quality: JobQuality
@@ -186,6 +229,12 @@ class UserSettingsResponse(BaseModel):
     file_retention_hours: int
     theme: ThemeType
     enabled_engines: list[EngineName]
+    preferred_execution_mode: ExecutionMode = "auto"
+    status_mode_enabled: bool = False
+    status_max_duration_seconds: int = 30
+    status_keep_original: bool = False
+    auto_update_engines: bool = True
+    notifications_enabled: bool = True
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -195,6 +244,12 @@ class UpdateSettingsRequest(BaseModel):
     file_retention_hours: Optional[int] = Field(default=None, ge=1, le=168)
     theme: Optional[ThemeType] = None
     enabled_engines: Optional[list[EngineName]] = None
+    preferred_execution_mode: Optional[ExecutionMode] = None
+    status_mode_enabled: Optional[bool] = None
+    status_max_duration_seconds: Optional[int] = Field(default=None, ge=5, le=300)
+    status_keep_original: Optional[bool] = None
+    auto_update_engines: Optional[bool] = None
+    notifications_enabled: Optional[bool] = None
 
     @field_validator("enabled_engines")
     @classmethod
@@ -202,6 +257,9 @@ class UpdateSettingsRequest(BaseModel):
         if v is not None and len(v) == 0:
             raise ValueError("Pelo menos um motor deve permanecer habilitado.")
         return v
+
+
+SettingsPayload = UpdateSettingsRequest
 
 
 class SharePendingResponse(BaseModel):

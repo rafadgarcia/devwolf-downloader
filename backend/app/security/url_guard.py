@@ -150,11 +150,23 @@ DEFAULT_ROUTES_DICT: dict[str, Any] = {
             "allow_playlists": False,
         },
         {
+            "id": "facebook_reel",
+            "platform": "facebook",
+            "label": "Facebook Reel",
+            "domains": ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com"],
+            "path_prefixes": ["/reel/", "/share/r/"],
+            "media_types": ["video"],
+            "primary_engine": "yt-dlp",
+            "fallback_engines": ["cobalt"],
+            "experimental": False,
+            "allow_playlists": False,
+        },
+        {
             "id": "facebook",
             "platform": "facebook",
             "label": "Facebook",
             "domains": ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.watch"],
-            "path_prefixes": ["/"],
+            "path_prefixes": ["/share/v/", "/watch", "/videos/", "/"],
             "media_types": ["video"],
             "primary_engine": "yt-dlp",
             "fallback_engines": ["cobalt"],
@@ -550,7 +562,7 @@ async def resolve_redirects_safely(
     async with httpx.AsyncClient(
         follow_redirects=False,
         timeout=httpx.Timeout(timeout_seconds),
-        headers={"User-Agent": "DropLink/1.0"},
+        headers={"User-Agent": "DevwolfDownloader/2.0"},
     ) as client:
         for _hop in range(max_hops):
             if require_allowed_domain:

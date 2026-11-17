@@ -18,12 +18,24 @@ def get_db(settings: Settings = Depends(get_settings)):
         conn.close()
 
 
+def extract_session_token(request: Request, settings: Settings) -> str | None:
+    auth_header = request.headers.get("authorization", "")
+    if auth_header:
+        scheme, _, token = auth_header.partition(" ")
+        if scheme.lower() == "bearer" and token.strip():
+            return token.strip()
+    cookie_token = request.cookies.get(settings.cookie_name)
+    if cookie_token:
+        return cookie_token
+    return None
+
+
 def get_optional_session(
     request: Request,
     settings: Settings = Depends(get_settings),
     conn=Depends(get_db),
 ) -> SessionContext | None:
-    raw_token = request.cookies.get(settings.cookie_name)
+    raw_token = extract_session_token(request, settings)
     if not raw_token:
         return None
     return get_session_by_token(conn, raw_token, settings)

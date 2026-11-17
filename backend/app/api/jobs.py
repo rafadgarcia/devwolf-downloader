@@ -199,7 +199,7 @@ def download_job_file(
     if not file_path.is_file():
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Arquivo físico não está mais disponível.")
 
-    safe_download_name = sanitize_filename(row["filename"], default_stem="droplink_media")
+    safe_download_name = sanitize_filename(row["filename"], default_stem="devwolf_media")
     return FileResponse(
         path=str(file_path),
         media_type=row["mime_type"] or "application/octet-stream",

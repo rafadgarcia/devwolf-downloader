@@ -25,10 +25,12 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "DropLink"
+    app_name: str = "Devwolf Downloader"
+    app_version: str = "2.0.0"
     app_env: str = Field(default="development", alias="APP_ENV")
     app_url: str = Field(default="http://localhost:8000", alias="APP_URL")
     cors_origins: str = Field(default="", alias="CORS_ORIGINS")
+    allow_mobile_origins: bool = Field(default=True, alias="ALLOW_MOBILE_ORIGINS")
 
     # Auth & Security
     admin_username: str = Field(default="admin", alias="ADMIN_USERNAME")
@@ -79,6 +81,7 @@ class Settings(BaseSettings):
     ytdlp_bin: str = Field(default="yt-dlp", alias="YTDLP_BIN")
     gallerydl_bin: str = Field(default="gallery-dl", alias="GALLERYDL_BIN")
     ffmpeg_bin: str = Field(default="ffmpeg", alias="FFMPEG_BIN")
+    ffprobe_bin: str = Field(default="ffprobe", alias="FFPROBE_BIN")
 
     def resolved_database_path(self) -> Path:
         if self.database_path:
@@ -124,6 +127,10 @@ class Settings(BaseSettings):
 
     def allowed_origins(self) -> list[str]:
         origins = [self.app_url.rstrip("/")]
+        if self.allow_mobile_origins:
+            for mobile_origin in ("https://localhost", "capacitor://localhost", "http://localhost"):
+                if mobile_origin not in origins:
+                    origins.append(mobile_origin)
         if self.cors_origins:
             for item in self.cors_origins.split(","):
                 cleaned = item.strip().rstrip("/")

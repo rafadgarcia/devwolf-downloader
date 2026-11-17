@@ -40,8 +40,17 @@ PHASE_LABELS: dict[str, str] = {
 ACTIVE_STATUSES = ("queued", "resolving", "downloading", "processing")
 
 
-def compute_dedup_hash(normalized_url: str, fmt: str, quality: str) -> str:
-    payload = f"{normalized_url}|{fmt}|{quality}".encode("utf-8")
+def compute_dedup_hash(
+    normalized_url: str,
+    fmt: str,
+    quality: str,
+    *,
+    status_mode: bool = False,
+    segment_duration: Optional[int] = None,
+    keep_original: bool = False,
+) -> str:
+    seg_part = str(segment_duration) if segment_duration is not None else ""
+    payload = f"{normalized_url}|{fmt}|{quality}|{int(status_mode)}|{seg_part}|{int(keep_original)}".encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -59,6 +68,7 @@ def ensure_free_disk_space(settings: Settings) -> None:
 
 def _row_to_file_response(row: sqlite3.Row, job_id: str, now_iso: str) -> JobFileResponse:
     expired = bool(row["deleted_at"] is not None or row["expires_at"] <= now_iso)
+    keys = row.keys()
     return JobFileResponse(
         id=row["id"],
         filename=row["filename"],
@@ -68,6 +78,8 @@ def _row_to_file_response(row: sqlite3.Row, job_id: str, now_iso: str) -> JobFil
         is_archive=bool(row["is_archive"]),
         item_count=int(row["item_count"]),
         missing_items=int(row["missing_items"]),
+        is_original=bool(row["is_original"]) if "is_original" in keys else False,
+        segment_index=row["segment_index"] if "segment_index" in keys else None,
         download_url=f"/api/jobs/{job_id}/files/{row['id']}",
         expires_at=row["expires_at"],
         expired=expired,
@@ -97,7 +109,7 @@ def build_job_response(
     now_iso = utc_now_iso()
     job_id = job_row["id"]
     file_rows = conn.execute(
-        "SELECT * FROM files WHERE job_id = ? ORDER BY created_at ASC",
+        "SELECT * FROM files WHERE job_id = ? ORDER BY is_original ASC, COALESCE(segment_index, 0) ASC, created_at ASC",
         (job_id,),
     ).fetchall()
     attempt_rows = conn.execute(
@@ -105,6 +117,7 @@ def build_job_response(
         (job_id,),
     ).fetchall()
 
+    keys = job_row.keys()
     return JobResponse(
         id=job_id,
         original_url=job_row["original_url"],
@@ -114,6 +127,9 @@ def build_job_response(
         title=job_row["title"],
         format=job_row["format"],
         quality=job_row["quality"],
+        status_mode=bool(job_row["status_mode"]) if "status_mode" in keys else False,
+        segment_duration=job_row["segment_duration"] if "segment_duration" in keys else None,
+        keep_original=bool(job_row["keep_original"]) if "keep_original" in keys else False,
         status=job_row["status"],
         phase_label=job_row["phase_label"],
         current_engine=job_row["current_engine"],
@@ -156,7 +172,14 @@ def create_job(
         if existing_idem is not None:
             return build_job_response(conn, existing_idem, deduplicated=True)
 
-    dedup_hash = compute_dedup_hash(matched.normalized_url, req.format, req.quality)
+    dedup_hash = compute_dedup_hash(
+        matched.normalized_url,
+        req.format,
+        req.quality,
+        status_mode=req.status_mode,
+        segment_duration=req.segment_duration,
+        keep_original=req.keep_original,
+    )
 
     # Deduplication within active jobs or recent 10-minute window unless force_manual=true
     if not req.force_manual:
@@ -209,10 +232,11 @@ def create_job(
             """
             INSERT INTO jobs (
                 id, user_id, original_url, normalized_url, platform, route_id,
-                format, quality, idempotency_key, dedup_hash,
+                format, quality, status_mode, segment_duration, keep_original,
+                idempotency_key, dedup_hash,
                 status, phase_label, current_engine, bytes_downloaded,
                 is_indeterminate, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0, 1, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0, 1, ?, ?)
             """,
             (
                 job_id,
@@ -223,6 +247,9 @@ def create_job(
                 matched.route.id,
                 req.format,
                 req.quality,
+                int(req.status_mode),
+                req.segment_duration,
+                int(req.keep_original),
                 req.idempotency_key,
                 dedup_hash,
                 PHASE_LABELS["queued"],
@@ -322,7 +349,7 @@ def get_history_for_user(
     items: list[HistoryItemResponse] = []
     for r in rows:
         file_row = conn.execute(
-            "SELECT * FROM files WHERE job_id = ? ORDER BY created_at ASC LIMIT 1",
+            "SELECT * FROM files WHERE job_id = ? ORDER BY is_original ASC, COALESCE(segment_index, 0) ASC, created_at ASC LIMIT 1",
             (r["id"],),
         ).fetchone()
         file_resp = _row_to_file_response(file_row, r["id"], now_iso) if file_row else None
@@ -419,6 +446,7 @@ def get_user_settings(conn: sqlite3.Connection, user_id: str, settings: Settings
     except Exception:
         engines = ["yt-dlp", "gallery-dl", "cobalt"]
 
+    keys = row.keys()
     return UserSettingsResponse(
         auto_download=bool(row["auto_download"]),
         default_quality=row["default_quality"],
@@ -426,6 +454,12 @@ def get_user_settings(conn: sqlite3.Connection, user_id: str, settings: Settings
         file_retention_hours=int(row["file_retention_hours"]),
         theme=row["theme"],
         enabled_engines=engines,
+        preferred_execution_mode=row["preferred_execution_mode"] if "preferred_execution_mode" in keys else "auto",
+        status_mode_enabled=bool(row["status_mode_enabled"]) if "status_mode_enabled" in keys else False,
+        status_max_duration_seconds=int(row["status_max_duration_seconds"]) if "status_max_duration_seconds" in keys else 30,
+        status_keep_original=bool(row["status_keep_original"]) if "status_keep_original" in keys else False,
+        auto_update_engines=bool(row["auto_update_engines"]) if "auto_update_engines" in keys else True,
+        notifications_enabled=bool(row["notifications_enabled"]) if "notifications_enabled" in keys else True,
     )
 
 
@@ -442,6 +476,16 @@ def update_user_settings(
     retention = req.file_retention_hours if req.file_retention_hours is not None else current.file_retention_hours
     theme = req.theme if req.theme is not None else current.theme
     engines = req.enabled_engines if req.enabled_engines is not None else current.enabled_engines
+    exec_mode = req.preferred_execution_mode if req.preferred_execution_mode is not None else current.preferred_execution_mode
+    status_enabled = req.status_mode_enabled if req.status_mode_enabled is not None else current.status_mode_enabled
+    status_max_dur = (
+        req.status_max_duration_seconds
+        if req.status_max_duration_seconds is not None
+        else current.status_max_duration_seconds
+    )
+    status_keep_orig = req.status_keep_original if req.status_keep_original is not None else current.status_keep_original
+    auto_update = req.auto_update_engines if req.auto_update_engines is not None else current.auto_update_engines
+    notifications = req.notifications_enabled if req.notifications_enabled is not None else current.notifications_enabled
 
     with transaction(conn):
         conn.execute(
@@ -453,6 +497,12 @@ def update_user_settings(
                 file_retention_hours = ?,
                 theme = ?,
                 enabled_engines = ?,
+                preferred_execution_mode = ?,
+                status_mode_enabled = ?,
+                status_max_duration_seconds = ?,
+                status_keep_original = ?,
+                auto_update_engines = ?,
+                notifications_enabled = ?,
                 updated_at = ?
             WHERE user_id = ?
             """,
@@ -463,6 +513,12 @@ def update_user_settings(
                 retention,
                 theme,
                 json.dumps(engines),
+                exec_mode,
+                int(status_enabled),
+                status_max_dur,
+                int(status_keep_orig),
+                int(auto_update),
+                int(notifications),
                 utc_now_iso(),
                 user_id,
             ),
