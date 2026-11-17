@@ -1,8 +1,8 @@
 import type { FormatOption, QualityOption } from '../types/api';
 
 export const DEDUPE_WINDOW_MS = 10 * 60 * 1000; // 10 minutos
-const STORAGE_KEY = 'droplink_recent_auto_downloads_v1';
-const ACTIVE_KEY = 'droplink_active_fingerprints_v1';
+const STORAGE_KEY = 'devwolf_recent_auto_downloads_v2';
+const ACTIVE_KEY = 'devwolf_active_fingerprints_v2';
 
 export interface DedupeEntry {
   fingerprint: string;
@@ -13,8 +13,13 @@ export interface DedupeEntry {
 export function buildFingerprint(
   normalizedUrl: string,
   format: FormatOption | string,
-  quality: QualityOption | string
+  quality: QualityOption | string,
+  statusMode = false,
+  segmentDuration: number | null = null
 ): string {
+  if (statusMode) {
+    return `${normalizedUrl}::${format}::${quality}::status::${segmentDuration ?? 0}`;
+  }
   return `${normalizedUrl}::${format}::${quality}`;
 }
 

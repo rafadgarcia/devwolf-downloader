@@ -7,7 +7,12 @@ export type PlatformId =
   | 'reddit'
   | 'pinterest';
 
-export type EngineName = 'yt-dlp' | 'gallery-dl' | 'cobalt';
+export type EngineName = 'yt-dlp' | 'gallery-dl' | 'cobalt' | 'local-ytdlp';
+export type VpsEngineName = 'yt-dlp' | 'gallery-dl' | 'cobalt';
+
+export type ExecutionMode = 'auto' | 'local' | 'vps';
+export type EngineOrigin = 'local' | 'vps';
+export type StatusSegmentDuration = 0 | 30 | 45 | 60;
 
 export type JobStatus =
   | 'queued'
@@ -33,6 +38,8 @@ export interface AuthMeResponse {
   authenticated: boolean;
   user: AuthUser | null;
   csrf_token: string | null;
+  session_token?: string | null;
+  token?: string | null;
 }
 
 export interface JobFile {
@@ -47,6 +54,13 @@ export interface JobFile {
   download_url?: string;
   expires_at?: string;
   expired?: boolean;
+  // Campos locais Android / Modo Status
+  file_path?: string | null;
+  media_uri?: string | null;
+  display_path?: string | null;
+  is_segment?: boolean;
+  segment_index?: number | null;
+  is_original?: boolean;
 }
 
 export interface JobAttempt {
@@ -74,10 +88,20 @@ export interface JobResponse {
   phase_label: string;
   current_engine?: EngineName | string | null;
   selected_engine?: EngineName | string | null;
+  execution_origin?: EngineOrigin;
+  display_engine?: string | null;
   bytes_downloaded: number;
   total_bytes: number | null;
   percent: number | null;
   is_indeterminate: boolean;
+  speed_bytes_per_sec?: number | null;
+  eta_seconds?: number | null;
+  status_mode?: boolean;
+  segment_duration?: number | null;
+  keep_original?: boolean;
+  source_share_id?: string | null;
+  from_share_intent?: boolean;
+  fallback_notice?: string | null;
   error_code?: string | null;
   error_message?: string | null;
   deduplicated?: boolean;
@@ -101,10 +125,14 @@ export interface HistoryItem {
   status: JobStatus;
   phase_label: string;
   selected_engine?: EngineName | string | null;
+  execution_origin?: EngineOrigin;
+  display_engine?: string | null;
+  status_mode?: boolean;
   error_message?: string | null;
   created_at: string;
   completed_at?: string | null;
   file?: JobFile | null;
+  files?: JobFile[];
   has_active_file: boolean;
   file_expired: boolean;
 }
@@ -115,6 +143,9 @@ export interface CreateJobPayload {
   quality: QualityOption;
   idempotency_key: string;
   force_manual?: boolean;
+  status_mode?: boolean;
+  segment_duration?: number | null;
+  keep_original?: boolean;
 }
 
 export interface HistoryResponse {
@@ -143,8 +174,10 @@ export interface CobaltUpdaterStatus {
 }
 
 export interface EngineInfo {
-  engine: EngineName;
+  engine: VpsEngineName;
   installed_version?: string | null;
+  latest_version?: string | null;
+  update_available?: boolean;
   health: EngineHealthState | string;
   circuit_state: CircuitBreakerState | string;
   consecutive_failures?: number;
@@ -163,19 +196,77 @@ export interface EnginesResponse {
   disclaimer?: string;
 }
 
+export interface EngineReleaseInfo {
+  engine: string;
+  installed_version?: string | null;
+  latest_version?: string | null;
+  update_available: boolean;
+  release_url?: string | null;
+  checked_at?: string | null;
+  source?: string | null;
+}
+
+export interface PlatformCapabilityInfo {
+  platform: PlatformId | string;
+  label: string;
+  local_supported: boolean;
+  remote_supported: boolean;
+  primary_engine: string;
+  fallback_engines: string[];
+  media_types: string[];
+  notes?: string | null;
+}
+
+export interface EngineReleasesResponse {
+  engines: EngineReleaseInfo[];
+  capabilities: PlatformCapabilityInfo[];
+  checked_at: string;
+}
+
+export interface LocalEngineStatus {
+  available: boolean;
+  ytdlpVersion: string | null;
+  latestYtdlpVersion: string | null;
+  updateAvailable: boolean;
+  ffmpegVersion: string | null;
+  previousVersion: string | null;
+  lastCheckAt: string | null;
+  lastUpdateAt: string | null;
+  activeDownloads: number;
+  canUpdate: boolean;
+  lastError: string | null;
+}
+
+export interface PlatformSessionInfo {
+  platform: PlatformId | string;
+  configured: boolean;
+  updatedAt: string | null;
+}
+
 export interface UserSettings {
   auto_download: boolean;
   default_quality: QualityOption;
   data_saver: boolean;
   file_retention_hours: number;
   theme: ThemeMode;
-  enabled_engines: EngineName[];
+  enabled_engines: VpsEngineName[];
+  // Phase 2 — Híbrido, Modo Status & Android
+  preferred_execution_mode: ExecutionMode;
+  status_mode_enabled: boolean;
+  status_max_duration_seconds: StatusSegmentDuration;
+  status_keep_original: boolean;
+  auto_update_engines: boolean;
+  notifications_enabled: boolean;
+  vps_url: string;
 }
 
 export interface PendingSharePayload {
+  id?: string;
   title: string;
   text: string;
   url: string;
   error?: string | null;
   receivedAt?: number;
+  autoStart?: boolean;
+  fromNativeIntent?: boolean;
 }

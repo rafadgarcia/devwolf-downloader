@@ -14,10 +14,14 @@ describe('deduplicação de 10 minutos e jobs ativos', () => {
     window.localStorage.clear();
   });
 
-  it('gera fingerprint distinto para opções diferentes da mesma URL', () => {
+  it('gera fingerprint distinto para opções diferentes e Modo Status da mesma URL', () => {
     const fpBest = buildFingerprint('https://www.instagram.com/reel/ABC', 'auto', 'best');
     const fpAudio = buildFingerprint('https://www.instagram.com/reel/ABC', 'audio', 'audio');
+    const fpStatus30 = buildFingerprint('https://www.instagram.com/reel/ABC', 'auto', 'best', true, 30);
+    const fpStatus60 = buildFingerprint('https://www.instagram.com/reel/ABC', 'auto', 'best', true, 60);
     expect(fpBest).not.toBe(fpAudio);
+    expect(fpBest).not.toBe(fpStatus30);
+    expect(fpStatus30).not.toBe(fpStatus60);
   });
 
   it('bloqueia auto-download duplicado dentro da janela de 10 minutos e libera após expirar', () => {

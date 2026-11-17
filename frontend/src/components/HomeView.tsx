@@ -1,5 +1,13 @@
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
-import { Check, ClipboardPaste, Download, Sparkles, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  ClipboardPaste,
+  Download,
+  Film,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import type { FormatOption, JobResponse, QualityOption, UserSettings } from '../types/api';
 import { PLATFORM_META } from '../utils/format';
 import { parseAndValidateUrl } from '../utils/url';
@@ -15,20 +23,30 @@ interface HomeViewProps {
   onFormatChange: (format: FormatOption) => void;
   onQualityChange: (quality: QualityOption) => void;
   settings: UserSettings;
+  isNativeAndroid: boolean;
   onboardingDone: boolean;
   onOnboardingChoice: (enableAuto: boolean) => void;
   onToggleAutoDownload: () => void;
+  onToggleStatusMode: () => void;
   onExplicitPaste: () => Promise<void>;
   onSubmitManualDownload: (rawUrl: string) => Promise<void>;
   onCancelJob: (jobId: string) => Promise<void>;
   onRetryJob: (url: string) => Promise<void>;
+  onReturnToSourceApp?: () => Promise<void>;
+  showReturnToSourceApp?: boolean;
   clipboardGuidance: string | null;
   statusNotice: string | null;
   submitting: boolean;
   activeJob: JobResponse | null;
   engineSwitchNotice: string | null;
-  connectionMode: 'sse' | 'polling' | 'idle';
+  connectionMode: 'sse' | 'polling' | 'local' | 'idle';
 }
+
+const MODE_LABELS: Record<UserSettings['preferred_execution_mode'], string> = {
+  auto: 'Automático',
+  local: 'Local (Android)',
+  vps: 'Remoto (VPS)',
+};
 
 export function HomeView({
   urlInput,
@@ -39,13 +57,17 @@ export function HomeView({
   onFormatChange,
   onQualityChange,
   settings,
+  isNativeAndroid,
   onboardingDone,
   onOnboardingChoice,
   onToggleAutoDownload,
+  onToggleStatusMode,
   onExplicitPaste,
   onSubmitManualDownload,
   onCancelJob,
   onRetryJob,
+  onReturnToSourceApp,
+  showReturnToSourceApp,
   clipboardGuidance,
   statusNotice,
   submitting,
@@ -66,7 +88,7 @@ export function HomeView({
       return;
     }
     if (!parsedPreview) {
-      setSubmitError('URL inválida ou plataforma não suportada pelo DropLink.');
+      setSubmitError('URL inválida ou plataforma não suportada pelo Devwolf Downloader.');
       return;
     }
     try {
@@ -85,11 +107,30 @@ export function HomeView({
 
   return (
     <div className="space-y-4">
-      <div className="pt-1 text-center">
+      <div className="flex items-center justify-between pt-1">
         <p className="text-sm font-medium tracking-tight text-zinc-600 dark:text-zinc-300">
           Copiou. Abriu. Baixou.
         </p>
+        <span className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-600 dark:border-zinc-800 dark:bg-[#1C1C20] dark:text-zinc-300">
+          Modo: {MODE_LABELS[settings.preferred_execution_mode]}
+        </span>
       </div>
+
+      {isNativeAndroid && showReturnToSourceApp && onReturnToSourceApp && (
+        <div className="flex items-center justify-between gap-2 rounded-2xl border border-[#A3E635]/30 bg-[#A3E635]/10 px-3.5 py-2.5">
+          <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
+            Link recebido por compartilhamento
+          </span>
+          <button
+            type="button"
+            onClick={() => void onReturnToSourceApp()}
+            className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-xl bg-[#A3E635] px-3 text-xs font-semibold text-zinc-950 transition hover:bg-[#84CC16]"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>Voltar ao app de origem</span>
+          </button>
+        </div>
+      )}
 
       {!onboardingDone && <OnboardingBanner onChoose={onOnboardingChoice} />}
 
@@ -143,7 +184,7 @@ export function HomeView({
         </div>
 
         <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
-          <div className="min-h-[24px] flex items-center gap-2">
+          <div className="flex min-h-[24px] items-center gap-2">
             {parsedPreview && (
               <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#A3E635]/30 bg-[#A3E635]/15 px-2.5 py-1 text-xs font-medium text-[#4d7c0f] dark:text-[#A3E635]">
                 <Check className="h-3.5 w-3.5" aria-hidden="true" />
@@ -222,37 +263,75 @@ export function HomeView({
           job={activeJob}
           engineSwitchNotice={engineSwitchNotice}
           connectionMode={connectionMode}
+          isNativeAndroid={isNativeAndroid}
           onCancel={(id) => void onCancelJob(id)}
           onRetry={(url) => void onRetryJob(url)}
+          onReturnToSourceApp={onReturnToSourceApp}
         />
       )}
 
-      <div className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-[#1C1C20]">
-        <div className="flex items-center gap-2.5">
-          <Sparkles className="h-4 w-4 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
-          <div>
-            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-              Download automático
-            </p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Detecta link ao abrir ou colar
-            </p>
+      <div className="divide-y divide-zinc-200 rounded-2xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-[#1C1C20]">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <Film className="h-4 w-4 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                Modo Status (WhatsApp)
+              </p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {settings.status_mode_enabled
+                  ? settings.status_max_duration_seconds > 0
+                    ? `H.264/AAC MP4 • cortes de ${settings.status_max_duration_seconds}s`
+                    : 'H.264/AAC MP4 compatível com Status'
+                  : 'Converte apenas quando necessário, sem marca d’água'}
+              </p>
+            </div>
           </div>
+
+          <button
+            type="button"
+            role="switch"
+            aria-label="Modo Status (WhatsApp)"
+            aria-checked={settings.status_mode_enabled}
+            onClick={onToggleStatusMode}
+            className={`inline-flex min-h-[44px] min-w-[68px] items-center justify-center rounded-xl px-3 text-xs font-bold transition ${
+              settings.status_mode_enabled
+                ? 'bg-[#A3E635] text-zinc-950'
+                : 'border border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-400'
+            }`}
+          >
+            {settings.status_mode_enabled ? 'ON' : 'OFF'}
+          </button>
         </div>
 
-        <button
-          type="button"
-          role="switch"
-          aria-checked={settings.auto_download}
-          onClick={onToggleAutoDownload}
-          className={`inline-flex min-h-[44px] min-w-[68px] items-center justify-center rounded-xl px-3 text-xs font-bold transition ${
-            settings.auto_download
-              ? 'bg-[#A3E635] text-zinc-950'
-              : 'border border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-400'
-          }`}
-        >
-          {settings.auto_download ? 'ON' : 'OFF'}
-        </button>
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="h-4 w-4 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                Download automático
+              </p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Detecta link ao abrir ou colar
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            role="switch"
+            aria-label="Download automático"
+            aria-checked={settings.auto_download}
+            onClick={onToggleAutoDownload}
+            className={`inline-flex min-h-[44px] min-w-[68px] items-center justify-center rounded-xl px-3 text-xs font-bold transition ${
+              settings.auto_download
+                ? 'bg-[#A3E635] text-zinc-950'
+                : 'border border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-400'
+            }`}
+          >
+            {settings.auto_download ? 'ON' : 'OFF'}
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap justify-center gap-1.5 pt-1">

@@ -16,12 +16,12 @@ export function OnboardingBanner({ onChoose }: OnboardingBannerProps) {
         </div>
         <div className="flex-1">
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-            Detectar links ao abrir o DropLink?
+            Detectar links ao abrir o Devwolf Downloader?
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
-            Quando permitido pelo navegador, o DropLink lê o link copiado ao focar o app,
-            normaliza localmente e inicia o download automaticamente. Texto comum ou desconhecido
-            nunca é enviado ao servidor.
+            Quando permitido pelo dispositivo ou navegador, o Devwolf Downloader lê o link copiado ao
+            focar o app, normaliza localmente e inicia o download automaticamente. Texto comum ou
+            desconhecido nunca é enviado ao servidor.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button

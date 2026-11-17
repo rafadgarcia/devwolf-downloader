@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { nativeBridge } from '../services/nativeBridge';
 import { extractSupportedUrlsFromText, type ParsedPlatformUrl } from '../utils/url';
 
 export type ClipboardPermissionStatus =
@@ -42,11 +43,14 @@ export function useClipboardAutoDetect({
         return false;
       }
 
+      const isNative = nativeBridge.isNativePlatform();
+
       if (
-        typeof navigator === 'undefined' ||
-        !navigator.clipboard ||
-        typeof navigator.clipboard.readText !== 'function' ||
-        !window.isSecureContext
+        !isNative &&
+        (typeof navigator === 'undefined' ||
+          !navigator.clipboard ||
+          typeof navigator.clipboard.readText !== 'function' ||
+          !window.isSecureContext)
       ) {
         setPermissionStatus('unsupported');
         setGuidanceMessage('Toque em Colar para importar um link');
@@ -59,7 +63,12 @@ export function useClipboardAutoDetect({
 
       mutexRef.current = true;
       try {
-        if (!explicitUserGesture && navigator.permissions && typeof navigator.permissions.query === 'function') {
+        if (
+          !isNative &&
+          !explicitUserGesture &&
+          navigator.permissions &&
+          typeof navigator.permissions.query === 'function'
+        ) {
           try {
             const status = await navigator.permissions.query({
               name: 'clipboard-read' as PermissionName,
@@ -71,21 +80,23 @@ export function useClipboardAutoDetect({
             }
             if (status.state === 'prompt') {
               setPermissionStatus('prompt');
-              // Não disparar diálogo repetido em eventos passivos; orientar gesto explícito
               setGuidanceMessage('Toque em Colar para importar um link');
               return false;
             }
             setPermissionStatus('granted');
           } catch {
-            // Navegador não implementa consulta 'clipboard-read' — prossegue para tentativa controlada se focado
+            // Navegador não implementa consulta 'clipboard-read'
           }
         }
 
-        if (!explicitUserGesture && !document.hasFocus()) {
+        if (!isNative && !explicitUserGesture && !document.hasFocus()) {
           return false;
         }
 
-        const rawText = await navigator.clipboard.readText();
+        const rawText = isNative
+          ? await nativeBridge.readClipboard()
+          : await navigator.clipboard.readText();
+
         if (!rawText || !rawText.trim()) {
           setPermissionStatus('empty');
           if (explicitUserGesture) {

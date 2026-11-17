@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canUseLocalYtdlpForRequest,
   extractSupportedUrlsFromText,
   normalizeUrl,
   parseAndValidateUrl,
@@ -38,12 +39,34 @@ describe('parseAndValidateUrl & normalizeUrl', () => {
     expect(parsed?.normalizedUrl).toBe('https://instagram.com/reel/Teste123');
   });
 
-  it('detecta TikTok, X/Twitter, Reddit, Pinterest e Facebook', () => {
+  it('detecta TikTok, X/Twitter, Reddit, Pinterest e Facebook (/share/r/, /share/v/, fb.watch)', () => {
     expect(parseAndValidateUrl('https://vm.tiktok.com/ZM12345/')?.platform).toBe('tiktok');
     expect(parseAndValidateUrl('https://x.com/user/status/123456?s=20')?.platform).toBe('twitter');
     expect(parseAndValidateUrl('https://redd.it/abc123')?.platform).toBe('reddit');
     expect(parseAndValidateUrl('https://pin.it/abc123')?.platform).toBe('pinterest');
-    expect(parseAndValidateUrl('https://fb.watch/abc123/')?.platform).toBe('facebook');
+
+    const fbWatch = parseAndValidateUrl('https://fb.watch/abc123/');
+    expect(fbWatch?.platform).toBe('facebook');
+    expect(fbWatch?.routeLabel).toBe('Facebook Vídeo');
+
+    const fbShareReel = parseAndValidateUrl('https://www.facebook.com/share/r/1AbCdEf/?mibextid=wwXIfr');
+    expect(fbShareReel?.platform).toBe('facebook');
+    expect(fbShareReel?.routeLabel).toBe('Facebook Reel');
+    expect(fbShareReel?.normalizedUrl).toBe('https://www.facebook.com/share/r/1AbCdEf?mibextid=wwXIfr');
+
+    const fbShareVideo = parseAndValidateUrl('https://www.facebook.com/share/v/9XyZ123/');
+    expect(fbShareVideo?.platform).toBe('facebook');
+    expect(fbShareVideo?.routeLabel).toBe('Facebook Vídeo');
+  });
+
+  it('indica compatibilidade com motor local yt-dlp corretamente', () => {
+    const reel = parseAndValidateUrl('https://www.instagram.com/reel/ABC123/')!;
+    expect(canUseLocalYtdlpForRequest(reel, 'auto')).toBe(true);
+    expect(canUseLocalYtdlpForRequest(reel, 'image')).toBe(false);
+
+    const pin = parseAndValidateUrl('https://pin.it/abc123')!;
+    expect(canUseLocalYtdlpForRequest(pin, 'auto')).toBe(false);
+    expect(pin.prefersVpsFirst).toBe(true);
   });
 
   it('rejeita domínios impostores, credenciais embutidas, IPs e rotas proibidas', () => {

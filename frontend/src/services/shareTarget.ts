@@ -1,9 +1,11 @@
 import type { PendingSharePayload } from '../types/api';
 import { api } from './api';
 
-const SHARE_CACHE = 'droplink-share-pending-v1';
-const SHARE_KEY = '/__droplink_pending_share__';
-const SESSION_STORAGE_KEY = 'droplink_pending_share_session_v1';
+const SHARE_CACHE = 'devwolf-share-pending-v2';
+const SHARE_KEY = '/__devwolf_pending_share__';
+const LEGACY_SHARE_CACHE = 'droplink-share-pending-v1';
+const LEGACY_SHARE_KEY = '/__droplink_pending_share__';
+const SESSION_STORAGE_KEY = 'devwolf_pending_share_session_v2';
 
 export function savePendingShareToSession(payload: PendingSharePayload): void {
   try {
@@ -38,9 +40,16 @@ export async function consumeClientShareCache(): Promise<PendingSharePayload | n
   try {
     const cache = await window.caches.open(SHARE_CACHE);
     const match = await cache.match(SHARE_KEY);
-    if (!match) return null;
-    const payload = (await match.json()) as PendingSharePayload;
-    await cache.delete(SHARE_KEY);
+    if (match) {
+      const payload = (await match.json()) as PendingSharePayload;
+      await cache.delete(SHARE_KEY);
+      return payload;
+    }
+    const legacyCache = await window.caches.open(LEGACY_SHARE_CACHE);
+    const legacyMatch = await legacyCache.match(LEGACY_SHARE_KEY);
+    if (!legacyMatch) return null;
+    const payload = (await legacyMatch.json()) as PendingSharePayload;
+    await legacyCache.delete(LEGACY_SHARE_KEY);
     return payload;
   } catch {
     return null;

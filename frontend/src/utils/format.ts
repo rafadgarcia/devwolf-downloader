@@ -1,4 +1,4 @@
-import type { EngineHealthState, JobStatus, PlatformId } from '../types/api';
+import type { EngineHealthState, EngineOrigin, JobStatus, PlatformId } from '../types/api';
 
 export const PLATFORM_META: Record<
   PlatformId,
@@ -64,6 +64,28 @@ export function getPhaseLabel(status: JobStatus): string {
   }
 }
 
+export function formatDisplayEngine(
+  engine: string | null | undefined,
+  origin?: EngineOrigin | string | null
+): string {
+  if (!engine) {
+    return origin === 'local' ? 'Local • yt-dlp Android' : 'VPS';
+  }
+  if (engine === 'local-ytdlp' || origin === 'local') {
+    return 'Local • yt-dlp Android';
+  }
+  switch (engine) {
+    case 'cobalt':
+      return 'VPS • Cobalt';
+    case 'yt-dlp':
+      return 'VPS • yt-dlp';
+    case 'gallery-dl':
+      return 'VPS • gallery-dl';
+    default:
+      return origin === 'vps' ? `VPS • ${engine}` : engine;
+  }
+}
+
 export function getEngineHealthLabel(health: EngineHealthState): {
   label: string;
   className: string;
@@ -104,6 +126,14 @@ export function formatBytes(bytes: number | null | undefined): string {
   if (mb < 1024) return `${mb.toFixed(1)} MB`;
   const gb = mb / 1024;
   return `${gb.toFixed(2)} GB`;
+}
+
+export function formatSpeed(bytesPerSec: number | null | undefined): string {
+  if (!bytesPerSec || Number.isNaN(bytesPerSec) || bytesPerSec <= 0) {
+    return '';
+  }
+  const formatted = formatBytes(bytesPerSec);
+  return formatted ? `${formatted}/s` : '';
 }
 
 export function formatDuration(seconds: number | null | undefined): string {

@@ -1,13 +1,13 @@
-/* DropLink Service Worker
+/* Devwolf Downloader Service Worker
  * Regras de segurança e privacidade:
  * - Cacheia apenas assets estáticos do app shell (nunca /api/*, histórico ou arquivos de mídia).
  * - Intercepta POST /share-target em cliente para preservar o link compartilhado localmente
  *   sem vazar URLs sensíveis em query strings ou logs do servidor, redirecionando para /?shared=1.
  */
 
-const SHELL_CACHE = 'droplink-shell-v1';
-const SHARE_CACHE = 'droplink-share-pending-v1';
-const SHARE_KEY = '/__droplink_pending_share__';
+const SHELL_CACHE = 'devwolf-shell-v2';
+const SHARE_CACHE = 'devwolf-share-pending-v2';
+const SHARE_KEY = '/__devwolf_pending_share__';
 
 const SHELL_ASSETS = [
   '/',

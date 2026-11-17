@@ -1,4 +1,4 @@
-import type { PlatformId } from '../types/api';
+import type { FormatOption, PlatformId } from '../types/api';
 
 export interface ParsedPlatformUrl {
   originalUrl: string;
@@ -9,6 +9,8 @@ export interface ParsedPlatformUrl {
   hostname: string;
   pathname: string;
   isExperimental?: boolean;
+  supportsLocalYtdlp: boolean;
+  prefersVpsFirst: boolean;
 }
 
 interface DomainRule {
@@ -127,26 +129,80 @@ function isIpLiteral(hostname: string): boolean {
   return false;
 }
 
-function getRouteLabel(platform: PlatformId, pathname: string): { label: string; experimental?: boolean } {
+function getRouteInfo(
+  platform: PlatformId,
+  hostname: string,
+  pathname: string
+): {
+  label: string;
+  experimental?: boolean;
+  supportsLocalYtdlp: boolean;
+  prefersVpsFirst: boolean;
+} {
   if (platform === 'instagram') {
     if (pathname.startsWith('/reel/') || pathname.startsWith('/reels/')) {
-      return { label: 'Instagram Reel' };
+      return { label: 'Instagram Reel', supportsLocalYtdlp: true, prefersVpsFirst: false };
     }
     if (pathname.startsWith('/p/') || pathname.startsWith('/tv/')) {
-      return { label: 'Instagram Post' };
+      // Posts/carrosséis de imagem funcionam melhor via gallery-dl/Cobalt na VPS,
+      // mas ainda podem tentar yt-dlp se o usuário pedir vídeo ou estiver offline.
+      return { label: 'Instagram Post', supportsLocalYtdlp: true, prefersVpsFirst: true };
     }
     if (pathname.startsWith('/stories/')) {
-      return { label: 'Instagram Stories (experimental)', experimental: true };
+      return {
+        label: 'Instagram Stories (experimental)',
+        experimental: true,
+        supportsLocalYtdlp: false,
+        prefersVpsFirst: true,
+      };
     }
   }
   if (platform === 'youtube') {
     if (pathname.startsWith('/shorts/')) {
-      return { label: 'YouTube Shorts' };
+      return { label: 'YouTube Shorts', supportsLocalYtdlp: true, prefersVpsFirst: false };
     }
-    return { label: 'YouTube' };
+    return { label: 'YouTube', supportsLocalYtdlp: true, prefersVpsFirst: false };
+  }
+  if (platform === 'facebook') {
+    if (
+      pathname.startsWith('/share/r/') ||
+      pathname.startsWith('/reel/') ||
+      pathname.startsWith('/reels/')
+    ) {
+      return { label: 'Facebook Reel', supportsLocalYtdlp: true, prefersVpsFirst: false };
+    }
+    if (
+      hostname === 'fb.watch' ||
+      pathname.startsWith('/share/v/') ||
+      pathname.startsWith('/watch') ||
+      pathname.includes('/videos/')
+    ) {
+      return { label: 'Facebook Vídeo', supportsLocalYtdlp: true, prefersVpsFirst: false };
+    }
+    return { label: 'Facebook', supportsLocalYtdlp: true, prefersVpsFirst: false };
+  }
+  if (platform === 'pinterest') {
+    return { label: 'Pinterest', supportsLocalYtdlp: false, prefersVpsFirst: true };
+  }
+  if (platform === 'twitter') {
+    return { label: 'X / Twitter', supportsLocalYtdlp: true, prefersVpsFirst: false };
   }
   const rule = PLATFORM_RULES.find((item) => item.platform === platform);
-  return { label: rule?.platformLabel ?? platform };
+  return {
+    label: rule?.platformLabel ?? platform,
+    supportsLocalYtdlp: true,
+    prefersVpsFirst: false,
+  };
+}
+
+export function canUseLocalYtdlpForRequest(
+  parsed: ParsedPlatformUrl,
+  format: FormatOption
+): boolean {
+  if (format === 'image') {
+    return false;
+  }
+  return parsed.supportsLocalYtdlp;
 }
 
 function coerceKnownSchemelessCandidate(candidate: string): string {
@@ -257,7 +313,7 @@ export function parseAndValidateUrl(rawInput: string): ParsedPlatformUrl | null 
     normalized.pathname = normalized.pathname.slice(0, -1);
   }
 
-  const routeInfo = getRouteLabel(matchedRule.platform, pathname);
+  const routeInfo = getRouteInfo(matchedRule.platform, hostname, pathname);
 
   return {
     originalUrl: cleaned,
@@ -268,6 +324,8 @@ export function parseAndValidateUrl(rawInput: string): ParsedPlatformUrl | null 
     hostname,
     pathname,
     isExperimental: routeInfo.experimental,
+    supportsLocalYtdlp: routeInfo.supportsLocalYtdlp,
+    prefersVpsFirst: routeInfo.prefersVpsFirst,
   };
 }
 

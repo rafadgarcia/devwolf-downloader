@@ -3,18 +3,31 @@ import {
   Copy,
   Download,
   Edit3,
+  ExternalLink,
+  MessageCircle,
   RefreshCw,
   Search,
   Trash2,
 } from 'lucide-react';
-import { api } from '../services/api';
 import { triggerBrowserDownload } from '../hooks/useJobProgress';
-import type { HistoryItem, PlatformId } from '../types/api';
-import { formatBytes, formatDateTime, getPhaseLabel, PLATFORM_META } from '../utils/format';
+import { api } from '../services/api';
+import { mergeUnifiedHistory, removeLocalJob } from '../services/localQueue';
+import { nativeBridge } from '../services/nativeBridge';
+import type { HistoryItem, JobResponse, PlatformId } from '../types/api';
+import {
+  formatBytes,
+  formatDateTime,
+  formatDisplayEngine,
+  getPhaseLabel,
+  PLATFORM_META,
+} from '../utils/format';
 
 interface HistoryViewProps {
+  localJobs: JobResponse[];
+  vpsAuthenticated: boolean;
   onRepeatDownload: (url: string) => Promise<void>;
   onEditUrl: (url: string) => void;
+  onLocalJobDeleted?: (jobId: string) => void;
 }
 
 const PLATFORM_FILTERS: { id: string; label: string }[] = [
@@ -28,7 +41,13 @@ const PLATFORM_FILTERS: { id: string; label: string }[] = [
   { id: 'pinterest', label: 'Pinterest' },
 ];
 
-export function HistoryView({ onRepeatDownload, onEditUrl }: HistoryViewProps) {
+export function HistoryView({
+  localJobs,
+  vpsAuthenticated,
+  onRepeatDownload,
+  onEditUrl,
+  onLocalJobDeleted,
+}: HistoryViewProps) {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [query, setQuery] = useState('');
   const [platform, setPlatform] = useState('all');
@@ -39,25 +58,36 @@ export function HistoryView({ onRepeatDownload, onEditUrl }: HistoryViewProps) {
   const loadHistory = useCallback(async () => {
     setLoading(true);
     setError(null);
-    try {
-      const res = await api.getHistory({
-        q: query.trim() || undefined,
-        platform,
-        page: 1,
-        page_size: 40,
-      });
-      setItems(res.items ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar histórico.');
-    } finally {
-      setLoading(false);
+    let vpsItems: HistoryItem[] = [];
+
+    if (vpsAuthenticated) {
+      try {
+        const res = await api.getHistory({
+          q: query.trim() || undefined,
+          platform,
+          page: 1,
+          page_size: 40,
+        });
+        vpsItems = res.items ?? [];
+      } catch (err) {
+        if (localJobs.length === 0) {
+          setError(err instanceof Error ? err.message : 'Erro ao carregar histórico da VPS.');
+        }
+      }
     }
-  }, [platform, query]);
+
+    const merged = mergeUnifiedHistory(localJobs, vpsItems, {
+      q: query.trim() || undefined,
+      platform,
+    });
+    setItems(merged);
+    setLoading(false);
+  }, [localJobs, platform, query, vpsAuthenticated]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadHistory();
-    }, 200);
+    }, 180);
     return () => window.clearTimeout(timer);
   }, [loadHistory]);
 
@@ -71,10 +101,23 @@ export function HistoryView({ onRepeatDownload, onEditUrl }: HistoryViewProps) {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (item: HistoryItem) => {
     try {
-      await api.deleteHistory(id);
-      setItems((prev) => prev.filter((item) => item.id !== id));
+      if (item.execution_origin === 'local') {
+        if (item.file?.media_uri || item.file?.file_path) {
+          await nativeBridge
+            .deleteMedia({
+              uri: item.file.media_uri || undefined,
+              filePath: item.file.file_path || undefined,
+            })
+            .catch(() => false);
+        }
+        removeLocalJob(item.id);
+        onLocalJobDeleted?.(item.id);
+      } else if (vpsAuthenticated) {
+        await api.deleteHistory(item.id);
+      }
+      setItems((prev) => prev.filter((entry) => entry.id !== item.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível remover o item.');
     }
@@ -157,8 +200,16 @@ export function HistoryView({ onRepeatDownload, onEditUrl }: HistoryViewProps) {
               ];
             const isExpired = item.status === 'expired' || item.file_expired;
             const activeFile = item.file;
-            const canDownloadExisting =
-              item.status === 'ready' && item.has_active_file && !isExpired && Boolean(activeFile);
+            const hasLocalDeviceFile = Boolean(activeFile?.media_uri || activeFile?.file_path);
+            const canDownloadRemote =
+              item.status === 'ready' &&
+              item.has_active_file &&
+              !isExpired &&
+              Boolean(activeFile) &&
+              !hasLocalDeviceFile;
+            const engineBadge =
+              item.display_engine ||
+              formatDisplayEngine(item.selected_engine, item.execution_origin);
 
             return (
               <li
@@ -177,12 +228,10 @@ export function HistoryView({ onRepeatDownload, onEditUrl }: HistoryViewProps) {
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    {item.selected_engine && (
-                      <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-600 dark:bg-[#101012] dark:text-zinc-300">
-                        {item.selected_engine}
-                      </span>
-                    )}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-600 dark:bg-[#101012] dark:text-zinc-300">
+                      {engineBadge}
+                    </span>
                     <span
                       className={`text-xs font-medium ${
                         item.status === 'ready' && !isExpired
@@ -218,7 +267,46 @@ export function HistoryView({ onRepeatDownload, onEditUrl }: HistoryViewProps) {
                 )}
 
                 <div className="mt-3 flex flex-wrap gap-1.5">
-                  {canDownloadExisting && activeFile && (
+                  {hasLocalDeviceFile && activeFile && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void nativeBridge.shareMedia({
+                            uris: activeFile.media_uri ? [activeFile.media_uri] : undefined,
+                            filePaths: activeFile.file_path ? [activeFile.file_path] : undefined,
+                            mimeType: activeFile.mime_type,
+                            title: item.title || activeFile.filename,
+                            targetWhatsApp: true,
+                          })
+                        }
+                        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#A3E635] px-3 text-xs font-semibold text-zinc-950 transition hover:bg-[#84CC16]"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span>Status / WhatsApp</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void nativeBridge.openMedia({
+                            uri: activeFile.media_uri || undefined,
+                            filePath: activeFile.file_path || undefined,
+                            mimeType: activeFile.mime_type,
+                          })
+                        }
+                        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span>
+                          Abrir
+                          {activeFile.size_bytes ? ` (${formatBytes(activeFile.size_bytes)})` : ''}
+                        </span>
+                      </button>
+                    </>
+                  )}
+
+                  {canDownloadRemote && activeFile && (
                     <button
                       type="button"
                       onClick={() =>
@@ -263,7 +351,7 @@ export function HistoryView({ onRepeatDownload, onEditUrl }: HistoryViewProps) {
 
                   <button
                     type="button"
-                    onClick={() => void handleDelete(item.id)}
+                    onClick={() => void handleDelete(item)}
                     aria-label="Remover do histórico"
                     className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-zinc-300 px-3 text-xs font-medium text-zinc-600 transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-500 dark:border-zinc-700 dark:text-zinc-400 dark:hover:text-red-400"
                   >

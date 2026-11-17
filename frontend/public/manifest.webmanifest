@@ -1,7 +1,7 @@
 {
-  "name": "DropLink",
-  "short_name": "DropLink",
-  "description": "Copiou. Abriu. Baixou. Downloader pessoal self-hosted.",
+  "name": "Devwolf Downloader",
+  "short_name": "Devwolf",
+  "description": "Copiou. Abriu. Baixou. Downloader pessoal híbrido.",
   "lang": "pt-BR",
   "start_url": "/",
   "scope": "/",

@@ -1,12 +1,18 @@
 import type {
   AuthMeResponse,
   CreateJobPayload,
+  EngineReleasesResponse,
   EnginesResponse,
   HistoryResponse,
   JobResponse,
   PendingSharePayload,
   UserSettings,
 } from '../types/api';
+import {
+  loadVpsBearerToken,
+  normalizeVpsUrl,
+  saveVpsBearerToken,
+} from './settingsStorage';
 
 export class ApiError extends Error {
   status: number;
@@ -21,6 +27,8 @@ export class ApiError extends Error {
 }
 
 let csrfToken: string | null = null;
+let bearerToken: string | null = typeof window !== 'undefined' ? loadVpsBearerToken() : null;
+let vpsBaseUrl = '';
 let unauthorizedHandler: (() => void) | null = null;
 
 export function setCsrfToken(token: string | null): void {
@@ -31,8 +39,57 @@ export function getCsrfToken(): string | null {
   return csrfToken;
 }
 
+export function setBearerToken(token: string | null): void {
+  bearerToken = token;
+  if (typeof window !== 'undefined') {
+    saveVpsBearerToken(token);
+  }
+}
+
+export function getBearerToken(): string | null {
+  return bearerToken;
+}
+
+export function setVpsBaseUrl(url: string): void {
+  vpsBaseUrl = normalizeVpsUrl(url);
+}
+
+export function getVpsBaseUrl(): string {
+  return vpsBaseUrl;
+}
+
+export function buildApiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return vpsBaseUrl ? `${vpsBaseUrl}${normalizedPath}` : normalizedPath;
+}
+
+export function isCrossOriginVps(): boolean {
+  if (!vpsBaseUrl || typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    return new URL(vpsBaseUrl).origin !== window.location.origin;
+  } catch {
+    return true;
+  }
+}
+
 export function setUnauthorizedHandler(handler: (() => void) | null): void {
   unauthorizedHandler = handler;
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (bearerToken) {
+    headers['Authorization'] = `Bearer ${bearerToken}`;
+  }
+  if (csrfToken) {
+    headers['X-CSRF-Token'] = csrfToken;
+  }
+  return headers;
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -47,11 +104,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set('Content-Type', 'application/json');
   }
 
+  if (bearerToken && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${bearerToken}`);
+  }
+
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && csrfToken) {
     headers.set('X-CSRF-Token', csrfToken);
   }
 
-  const response = await fetch(path, {
+  const response = await fetch(buildApiUrl(path), {
     ...init,
     method,
     headers,
@@ -88,6 +149,10 @@ export const api = {
     if (res.csrf_token) {
       csrfToken = res.csrf_token;
     }
+    const token = res.session_token ?? res.token;
+    if (token) {
+      setBearerToken(token);
+    }
     return res;
   },
 
@@ -99,6 +164,10 @@ export const api = {
     if (res.csrf_token) {
       csrfToken = res.csrf_token;
     }
+    const token = res.session_token ?? res.token;
+    if (token) {
+      setBearerToken(token);
+    }
     return res;
   },
 
@@ -107,6 +176,7 @@ export const api = {
       await request('/api/auth/logout', { method: 'POST' });
     } finally {
       csrfToken = null;
+      setBearerToken(null);
     }
   },
 
@@ -154,14 +224,28 @@ export const api = {
     return request<EnginesResponse>('/api/engines');
   },
 
+  async getEngineReleases(): Promise<EngineReleasesResponse> {
+    return request<EngineReleasesResponse>('/api/engines/releases');
+  },
+
   async getSettings(): Promise<UserSettings> {
     return request<UserSettings>('/api/settings');
   },
 
   async updateSettings(patch: Partial<UserSettings>): Promise<UserSettings> {
+    // Enviar apenas campos compatíveis com VPS (sem expor vps_url local)
+    // e respeitar intervalo 5..300 do backend para status_max_duration_seconds
+    const { vps_url: _omitVpsUrl, ...rest } = patch;
+    const serverPatch: Record<string, unknown> = { ...rest };
+    if (
+      typeof serverPatch.status_max_duration_seconds === 'number' &&
+      serverPatch.status_max_duration_seconds < 5
+    ) {
+      delete serverPatch.status_max_duration_seconds;
+    }
     return request<UserSettings>('/api/settings', {
       method: 'PATCH',
-      body: JSON.stringify(patch),
+      body: JSON.stringify(serverPatch),
     });
   },
 
@@ -194,5 +278,5 @@ export const api = {
 };
 
 export function getJobFileDownloadUrl(jobId: string, fileId: string): string {
-  return `/api/jobs/${encodeURIComponent(jobId)}/files/${encodeURIComponent(fileId)}`;
+  return buildApiUrl(`/api/jobs/${encodeURIComponent(jobId)}/files/${encodeURIComponent(fileId)}`);
 }
