@@ -63,3 +63,8 @@
 ### Disco cheio ou novos jobs recusados
 - Por segurança, o worker recusa novos jobs quando o espaço livre cai abaixo de `MIN_FREE_DISK_MB` (padrão `2048` MB / 2 GB).
 - Verifique retenção (`FILE_RETENTION_HOURS=24`) e espaço em disco (`df -h`).
+
+### App Android (`com.devwolf.downloader`) — Diagnóstico Híbrido
+- **Motor Local não atualiza**: o atualizador do `yt-dlp` no Android bloqueia atualizações enquanto houver downloads ativos. Aguarde a conclusão ou cancele os downloads na fila.
+- **Conexão com VPS no app Android**: em `Ajustes`, configure o endereço HTTPS da VPS. O app utiliza autenticação por Bearer token (`Authorization: Bearer ...`) e `X-CSRF-Token` compatível com a origem `https://localhost` do Capacitor (`ALLOW_MOBILE_ORIGINS=true` no backend).
+- **Galeria / Modo Status**: mídias são salvas em `Movies/Devwolf Downloader`, `Pictures/Devwolf Downloader` e `Music/Devwolf Downloader` via `MediaStore`. Se um vídeo estiver em codec incompatível (ex.: VP9/AV1/WebM), o Modo Status transcodifica automaticamente para MP4 (`H.264` + `AAC`) preservando a proporção.

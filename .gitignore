@@ -68,3 +68,17 @@ Thumbs.db
 *.swo
 .vscode/
 .idea/
+
+# Android / Gradle local artifacts
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+android/.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.keystore
+*.jks

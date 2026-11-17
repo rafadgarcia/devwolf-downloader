@@ -28,3 +28,8 @@
 ## 7. Frontend Servido na Mesma Origem
 - **Decisão**: Servir o build estático da PWA (`frontend/dist`) na mesma origem da API FastAPI (ou atrás do mesmo proxy reverso da VPS).
 - **Motivo**: Simplifica cookies `SameSite`, política CSP, SSE sem CORS complexo e o endpoint `/share-target` do Android.
+
+## 8. Arquitetura Híbrida Android (Capacitor + Motor Nativo Kotlin) — Fase 2
+- **Decisão**: Empacotar a interface React/Vite em app Android nativo via Capacitor (`com.devwolf.downloader`, esquema `https://localhost`) com plugin nativo Kotlin `DevwolfNative` integrando `youtubedl-android` (`yt-dlp` + `FFmpeg` + `aria2c`), Foreground Service (`dataSync`), MediaStore (`Devwolf Downloader`), `ACTION_SEND` Sharesheet e cofre criptografado (`EncryptedSharedPreferences`).
+- **Motivo**: Permite execução 100% local no dispositivo quando desejado ou offline da VPS, mantém a VPS como motor remoto com fallback automático (`Automático` / `Local` / `VPS`) e habilita Modo Status (WhatsApp) e entrega direta na galeria do Android sem depender apenas das limitações de PWA.
+- **Segurança**: Sessões opcionais armazenadas localmente nunca são enviadas à VPS; comunicação com a VPS suporta Bearer token de sessão para evitar restrições de cookie cross-origin no WebView Capacitor.

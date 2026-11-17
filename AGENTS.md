@@ -1,17 +1,20 @@
-# AGENTS.md — DropLink
+# AGENTS.md — Devwolf Downloader (antigo DropLink)
 
-Normas permanentes de desenvolvimento, propriedade de arquivos, contratos entre componentes e invariantes de segurança. Fonte de verdade de produto: `DropLink-PROJETO.md`.
+Normas permanentes de desenvolvimento, propriedade de arquivos, contratos entre componentes e invariantes de segurança. Fonte de verdade de produto: `DropLink-PROJETO.md` (Fase 1) e especificações da Fase 2 (App Híbrido Android `com.devwolf.downloader`).
 
 ## 1. Regras Gerais e Idioma
+- Nome oficial da aplicação: **Devwolf Downloader** (`com.devwolf.downloader`).
 - Interface do usuário e documentação principal: **Português do Brasil (`pt-BR`)**.
 - Não alterar infraestrutura real de VPS (containers, volumes, proxies, certificados) sem inventário read-only prévio e autorização explícita.
 - Reutilizar a instância existente do Cobalt via `COBALT_API_URL` (e `COBALT_API_KEY` opcional). Nunca destruir ou substituir containers existentes.
 - Não implementar acesso a mídias privadas, contorno de DRM, login de terceiros por padrão ou resolução de CAPTCHA.
 
 ## 2. Matriz de Propriedade de Arquivos (Swarm)
-- `@devops`: `.gitignore`, `.env.example`, `compose.yml`, `README.md`, `AGENTS.md`, `TASKS.md`, `DECISIONS.md`, `config/routes.yaml`, `ops/*`, `docs/*`, `graphify-out/*`.
-- `@backend`: `backend/**` (`app/`, `migrations/`, `tests/`, `requirements.*`, `Dockerfile`).
-- `@frontend`: `frontend/**` (`src/`, `public/`, `index.html`, `package.json`, `vite.config.ts`, `Dockerfile`).
+- **Fase 1**: `@devops` (`.gitignore`, `.env.example`, `compose.yml`, `README.md`, `AGENTS.md`, `TASKS.md`, `DECISIONS.md`, `config/routes.yaml`, `ops/*`, `docs/*`, `graphify-out/*`), `@backend` (`backend/**`), `@frontend` (`frontend/**`).
+- **Fase 2 (App Híbrido Android)**:
+  - `@android`: `android/**`, `frontend/capacitor.config.ts`, `.github/workflows/**`, `AGENTS.md`, `TASKS.md`, `DECISIONS.md`, `CHANGELOG.md`, `README.md`, `docs/**`, `.gitignore`, `graphify-out/**`.
+  - `@backend-2`: `backend/**`, `config/routes.yaml`.
+  - `@frontend-2`: `frontend/**` (exceto `frontend/capacitor.config.ts`).
 
 ## 3. Contratos de API e Estados
 

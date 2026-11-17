@@ -37,3 +37,10 @@ Checklist de acompanhamento do projeto.
 ## Etapa 5 — Graphify e Verificação Integrada
 - [x] Gerar grafo AST/estrutural em `graphify-out/` (`graph.json` e `GRAPH_REPORT.md`)
 - [x] Validar `docker compose config`, sintaxe dos scripts bash (`bash -n`) e estrutura integrada
+
+## Etapa 6 — Fase 2: Devwolf Downloader Híbrido (Android + VPS)
+- [x] Criar repositório privado `rafadgarcia/devwolf-downloader` e publicar baseline `v1.0.0`
+- [x] Configurar ambiente Android SDK/JDK/Capacitor e publicar contrato `DevwolfNative`
+- [x] Implementar camada nativa Kotlin (`android/`): `yt-dlp` + `FFmpeg`, Modo Status, MediaStore, `ACTION_SEND`, Foreground Service, notificações, updater/rollback e cofre `EncryptedSharedPreferences`
+- [x] Atualizar backend (`CORS`/`Bearer`, Modo Status FFmpeg, rotas Facebook `/share/r/`) e frontend (UI híbrida, Modo Status, histórico unificado)
+- [x] Build do APK (`assembleDebug`), testes unitários (`pytest`, `vitest`, `testDebugUnitTest`), CI/CD GitHub Actions e Release `v2.0.0` com APK anexado

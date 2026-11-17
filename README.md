@@ -1,23 +1,23 @@
-# DropLink — Downloader Universal Self-Hosted
+# Devwolf Downloader — Downloader Universal Híbrido (Android + Self-Hosted VPS)
 
 **Copiou. Abriu. Baixou.**
 
-O **DropLink** é uma PWA pessoal self-hosted para baixar vídeos, fotos e carrosséis públicos autorizados de múltiplas plataformas (Instagram, TikTok, YouTube, X/Twitter, Facebook, Reddit e Pinterest), orquestrando automaticamente **yt-dlp**, **gallery-dl** e uma instância existente do **Cobalt**, com fallback inteligente e atualização controlada.
+O **Devwolf Downloader** (`com.devwolf.downloader`) é um aplicativo híbrido (App Android nativo via Capacitor + PWA Web self-hosted) para baixar vídeos, fotos, áudios e carrosséis públicos autorizados de múltiplas plataformas (Instagram, Facebook Reels/vídeos, TikTok, YouTube, X/Twitter, Reddit e Pinterest), operando com **motor local no dispositivo (`yt-dlp` + `FFmpeg` + `aria2c`)**, **orquestração remota na VPS (`Cobalt` + `yt-dlp` + `gallery-dl`)** e **Modo Status (WhatsApp)**.
 
 ---
 
 ## Principais Recursos
 
-- **PWA Mobile-First (`pt-BR`)**: tema escuro padrão (`#101012` / `#A3E635`), área de toque >= 44 px e tema claro opcional.
-- **Clipboard Inteligente**: leitura opcional em `mount`/`focus`/`visibilitychange` (debounce 500 ms + mutex, sem polling contínuo). Extração e normalização de URL **100% locais** no navegador; nunca envia texto bruto do clipboard ao servidor. Se houver múltiplas URLs válidas, solicita escolha explícita.
-- **Web Share Target (Android)**: recebe links compartilhados via menu do sistema (`POST /share-target`), inclusive quando a URL vem dentro do campo `text`, mantendo proteção de sessão e deduplicação.
-- **Roteamento Estrito & Proteção SSRF**: allowlist explícita em [`config/routes.yaml`](config/routes.yaml), rejeição de IPs privados/loopback/link-local, credenciais embutidas, domínios impostores e validação de redirects/DNS.
-- **Orquestração & Fallback**:
-  - Fila persistente em **SQLite WAL** com leases atômicos e recuperação pós-reinício.
-  - Worker separado com **yt-dlp**, **gallery-dl** (empacotando carrosséis em `.zip` único) e adaptador HTTP para **Cobalt**.
-  - Circuit breaker por motor (5 minutos após 3 falhas consecutivas de infraestrutura) e fallback ordenado para falhas recuperáveis (nunca insiste em mídia privada, CAPTCHA ou bloqueio de acesso).
-- **Progresso Real (SSE + Polling Fallback)**: exibe apenas bytes/percentuais reais ou spinner indeterminado quando o tamanho total é desconhecido.
-- **Atualização Segura do Cobalt (sem Watchtower)**: timer `systemd` no host verifica digest da tag major fixada (`ghcr.io/imputnet/cobalt:11`), drena jobs Cobalt ativos com status em JSON read-only, valida readiness em 90s e realiza **rollback automático** com cooldown em caso de falha.
+- **App Android Nativo (`com.devwolf.downloader`) + PWA (`pt-BR`)**: tema escuro padrão (`#101012` / `#A3E635`), área de toque >= 44 px e tema claro opcional.
+- **Execução Híbrida (`Automático` / `Local` / `VPS`)**:
+  - **Motor Local (Android)**: executa `yt-dlp` + `FFmpeg` diretamente no aparelho via `youtubedl-android`, funcionando offline da VPS com progresso real em tempo real, Foreground Service (`dataSync`) e notificações com **Cancelar**, **Compartilhar no Status / App** e **Abrir**.
+  - **Motor Remoto (VPS)**: conecta via sessão/Bearer token à sua instância self-hosted com Cobalt, `yt-dlp` e `gallery-dl` (baixando automaticamente para o álbum da galeria no Android).
+  - **Modo Automático**: prioriza o motor local no Android com fallback automático para a VPS em falhas técnicas recuperáveis.
+- **Modo Status (WhatsApp)**: converte vídeos incompatíveis para MP4 (`H.264` + `AAC` + `faststart`) preservando a proporção original (sem recompressão via `-c copy` quando já compatível), sem marca d'água e com corte opcional em segmentos de N segundos.
+- **Receptor Nativo de Compartilhamento (`ACTION_SEND`) & Galeria (`MediaStore`)**: aparece diretamente no menu Compartilhar do Android e salva mídias no álbum `Devwolf Downloader` (`Movies/`, `Pictures/`, `Music/`).
+- **Atualização & Rollback Seguros**: atualizador local de `yt-dlp` no Android (bloqueado durante downloads ativos, com backup/rollback) e timer `systemd` no host para Cobalt (`ops/update-cobalt.sh`) com rollback automático.
+- **Cofre Local Criptografado**: suporte opcional a sessões/cookies por plataforma no Android via `EncryptedSharedPreferences` + Android Keystore (nunca enviado à VPS).
+- **Clipboard Inteligente & Proteção SSRF**: leitura opcional local no cliente; allowlist estrita em [`config/routes.yaml`](config/routes.yaml), rejeição de IPs privados/loopback/link-local e validação de redirects/DNS.
 
 ---
 
@@ -116,6 +116,22 @@ cd frontend
 npm install
 npm test
 npm run build
+```
+
+### App Android Híbrido (JDK 21 + Android SDK + Capacitor)
+```bash
+cd frontend
+npm install
+npm run build
+npx cap sync android
+
+cd ../android
+./gradlew testDebugUnitTest assembleDebug
+# APK gerado em: android/app/build/outputs/apk/debug/app-debug.apk
+```
+Para instalar via USB (`adb`):
+```bash
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ---
