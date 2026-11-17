@@ -9,23 +9,51 @@ android {
         applicationId "com.devwolf.downloader"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 20000
-        versionName "2.0.0"
+        versionCode 30000
+        versionName "3.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-
-        ndk {
-            abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
-        }
 
         aaptOptions {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
 
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a", "armeabi-v7a", "x86_64"
+            universalApk true
+        }
+    }
+
+    signingConfigs {
+        releaseCustom {
+            def customStore = System.getenv("RELEASE_STORE_FILE")
+            if (customStore != null && !customStore.trim().isEmpty()) {
+                storeFile file(customStore)
+                storePassword System.getenv("RELEASE_STORE_PASSWORD")
+                keyAlias System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
-        release {
+        debug {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            def customStore = System.getenv("RELEASE_STORE_FILE")
+            if (customStore != null && !customStore.trim().isEmpty() && file(customStore).exists()) {
+                signingConfig signingConfigs.releaseCustom
+            } else {
+                signingConfig signingConfigs.debug
+            }
         }
     }
 
@@ -63,6 +91,8 @@ dependencies {
     implementation "androidx.work:work-runtime-ktx:2.10.0"
     implementation "androidx.security:security-crypto:1.1.0-alpha06"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0"
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+    implementation "org.jsoup:jsoup:1.18.3"
 
     // Local yt-dlp + FFmpeg + aria2c engine
     implementation "io.github.junkfood02.youtubedl-android:library:$youtubedlAndroidVersion"
@@ -74,6 +104,7 @@ dependencies {
 
     testImplementation "junit:junit:$junitVersion"
     testImplementation "org.json:json:20250517"
+    testImplementation "com.squareup.okhttp3:mockwebserver:4.12.0"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
 }

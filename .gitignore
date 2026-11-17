@@ -82,3 +82,9 @@ android/.cxx/
 *.dex
 *.keystore
 *.jks
+
+# Reverse engineering proprietary/binary artifacts (never commit)
+docs/Rposty.apk
+docs/rev-eng/work/
+docs/rev-eng/sources/
+docs/rev-eng/evidence/jadx-export.log

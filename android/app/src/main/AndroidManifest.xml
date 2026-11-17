@@ -52,6 +52,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".InstagramSessionActivity"
+            android:exported="false"
+            android:label="Conectar Instagram"
+            android:theme="@style/AppTheme.NoActionBar" />
+
         <service
             android:name=".DevwolfDownloadService"
             android:exported="false"

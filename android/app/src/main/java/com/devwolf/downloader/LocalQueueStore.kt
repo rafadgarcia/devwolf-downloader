@@ -54,7 +54,8 @@ class LocalQueueStore(context: Context) {
                     job.put("status", "failed")
                     job.put("phaseLabel", "Falhou")
                     job.put("error", "Download interrompido pelo sistema. Toque para tentar novamente.")
-                    job.put("errorCode", "INTERRUPTED")
+                    job.put("errorCode", "EXTRACTION_FAILED")
+                    job.put("technicalReason", "Processo interrompido durante execução em segundo plano.")
                     job.put("updatedAt", Instant.now().toString())
                     changed = true
                 }

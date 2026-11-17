@@ -1,10 +1,15 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import type {
+  CarouselItemStatus,
+  CarouselMediaType,
+  DiagnosticsReport,
   FormatOption,
+  JobPerformanceMetrics,
   LocalEngineStatus,
   PlatformId,
   PlatformSessionInfo,
   QualityOption,
+  UpdateChannel,
 } from '../types/api';
 
 export interface ShareIntentPayload {
@@ -18,23 +23,32 @@ export interface ShareIntentPayload {
 
 export interface LocalOutputFile {
   id: string;
+  index?: number;
+  type?: CarouselMediaType;
   fileName: string;
-  filePath: string;
+  filePath?: string | null;
   mediaUri: string | null;
   displayPath: string | null;
   mimeType: string;
+  width?: number | null;
+  height?: number | null;
   sizeBytes: number;
-  durationSeconds: number | null;
-  isSegment: boolean;
-  segmentIndex: number | null;
-  isOriginal: boolean;
+  bytesDownloaded?: number;
+  percent?: number | null;
+  status?: CarouselItemStatus;
+  durationSeconds?: number | null;
+  isSegment?: boolean;
+  segmentIndex?: number | null;
+  isOriginal?: boolean;
 }
 
 export interface LocalDownloadProgressEvent {
   jobId: string;
   status: 'queued' | 'resolving' | 'downloading' | 'processing' | 'ready' | 'failed' | 'cancelled';
   phaseLabel: string;
-  engine: 'local-ytdlp';
+  engine?: string;
+  engineVersion?: string | null;
+  strategyUsed?: string | null;
   bytesDownloaded: number;
   totalBytes: number | null;
   percent: number | null;
@@ -45,7 +59,10 @@ export interface LocalDownloadProgressEvent {
   platform?: string | null;
   error?: string | null;
   errorCode?: string | null;
+  technicalReason?: string | null;
+  metrics?: JobPerformanceMetrics | null;
   files?: LocalOutputFile[];
+  items?: LocalOutputFile[];
 }
 
 export interface LocalDownloadSnapshot {
@@ -58,6 +75,9 @@ export interface LocalDownloadSnapshot {
   keepOriginal?: boolean;
   status: LocalDownloadProgressEvent['status'];
   phaseLabel: string;
+  engine?: string | null;
+  engineVersion?: string | null;
+  strategyUsed?: string | null;
   bytesDownloaded: number;
   totalBytes: number | null;
   percent: number | null;
@@ -68,7 +88,10 @@ export interface LocalDownloadSnapshot {
   platform?: string | null;
   error?: string | null;
   errorCode?: string | null;
+  technicalReason?: string | null;
+  metrics?: JobPerformanceMetrics | null;
   files?: LocalOutputFile[];
+  items?: LocalOutputFile[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -94,15 +117,6 @@ export interface DevwolfNativePlugin {
     mimeType: string;
     title?: string;
   }): Promise<{ mediaUri: string; displayPath: string; fileName: string; sizeBytes: number }>;
-  downloadRemoteFileToGallery(opts: {
-    url: string;
-    headers?: Record<string, string>;
-    fileName?: string;
-    mimeType?: string;
-    statusMode?: boolean;
-    segmentDurationSeconds?: number | null;
-    keepOriginal?: boolean;
-  }): Promise<{ files: LocalOutputFile[] }>;
   shareMedia(opts: {
     uris?: string[];
     filePaths?: string[];
@@ -115,7 +129,7 @@ export interface DevwolfNativePlugin {
   deleteMedia(opts: { uri?: string; filePath?: string }): Promise<{ deleted: boolean }>;
   getLocalEngineStatus(): Promise<Omit<LocalEngineStatus, 'available'>>;
   updateLocalEngine(opts?: {
-    channel?: 'stable' | 'nightly';
+    channel?: UpdateChannel;
   }): Promise<{
     updated: boolean;
     version: string | null;
@@ -127,7 +141,13 @@ export interface DevwolfNativePlugin {
     version: string | null;
     message: string;
   }>;
+  getDiagnosticsReport(): Promise<DiagnosticsReport>;
   clearTempCache(): Promise<{ freedBytes: number; filesRemoved: number }>;
+  openInstagramLoginWebView(): Promise<{
+    saved: boolean;
+    updatedAt?: string | null;
+    message?: string | null;
+  }>;
   getPlatformSessions(): Promise<{
     sessions: Array<{ platform: string; configured: boolean; updatedAt: string | null }>;
   }>;
@@ -232,7 +252,7 @@ export const nativeBridge = {
     keepOriginal?: boolean;
   }): Promise<{ jobId: string; status: string }> {
     if (!isNativePlatform()) {
-      throw new Error('Motor local disponível apenas no aplicativo Android.');
+      throw new Error('Motor de download local disponível no aplicativo Android do Devwolf Downloader.');
     }
     return DevwolfNative.startLocalDownload(opts);
   },
@@ -264,20 +284,6 @@ export const nativeBridge = {
   }): Promise<{ mediaUri: string; displayPath: string; fileName: string; sizeBytes: number } | null> {
     if (!isNativePlatform()) return null;
     return DevwolfNative.saveToGallery(opts);
-  },
-
-  async downloadRemoteFileToGallery(opts: {
-    url: string;
-    headers?: Record<string, string>;
-    fileName?: string;
-    mimeType?: string;
-    statusMode?: boolean;
-    segmentDurationSeconds?: number | null;
-    keepOriginal?: boolean;
-  }): Promise<LocalOutputFile[]> {
-    if (!isNativePlatform()) return [];
-    const res = await DevwolfNative.downloadRemoteFileToGallery(opts);
-    return Array.isArray(res?.files) ? res.files : [];
   },
 
   async shareMedia(opts: {
@@ -338,15 +344,22 @@ export const nativeBridge = {
       return {
         available: false,
         ytdlpVersion: null,
+        wrapperVersion: null,
         latestYtdlpVersion: null,
         updateAvailable: false,
+        updateChannel: 'stable',
         ffmpegVersion: null,
+        gallerydlVersion: null,
+        gallerydlAvailable: false,
+        dnrAvailable: false,
+        dnrStrategies: ['EmbedCaptioned', 'WebPageJson', 'AuthorizedWebApi'],
+        dnrAvgResolutionMs: null,
         previousVersion: null,
         lastCheckAt: null,
         lastUpdateAt: null,
         activeDownloads: 0,
         canUpdate: false,
-        lastError: 'Disponível somente no aplicativo Android nativo.',
+        lastError: 'Disponível no aplicativo Android nativo.',
       };
     }
     try {
@@ -359,20 +372,27 @@ export const nativeBridge = {
       return {
         available: false,
         ytdlpVersion: null,
+        wrapperVersion: null,
         latestYtdlpVersion: null,
         updateAvailable: false,
+        updateChannel: 'stable',
         ffmpegVersion: null,
+        gallerydlVersion: null,
+        gallerydlAvailable: false,
+        dnrAvailable: false,
+        dnrStrategies: [],
+        dnrAvgResolutionMs: null,
         previousVersion: null,
         lastCheckAt: null,
         lastUpdateAt: null,
         activeDownloads: 0,
         canUpdate: false,
-        lastError: err instanceof Error ? err.message : 'Falha ao consultar motor local.',
+        lastError: err instanceof Error ? err.message : 'Falha ao consultar motores locais.',
       };
     }
   },
 
-  async updateLocalEngine(channel: 'stable' | 'nightly' = 'stable') {
+  async updateLocalEngine(channel: UpdateChannel = 'stable') {
     if (!isNativePlatform()) {
       throw new Error('Atualização do motor local disponível apenas no Android.');
     }
@@ -386,11 +406,31 @@ export const nativeBridge = {
     return DevwolfNative.rollbackLocalEngine();
   },
 
+  async getDiagnosticsReport(): Promise<DiagnosticsReport | null> {
+    if (!isNativePlatform()) return null;
+    try {
+      return await DevwolfNative.getDiagnosticsReport();
+    } catch {
+      return null;
+    }
+  },
+
   async clearTempCache(): Promise<{ freedBytes: number; filesRemoved: number }> {
     if (!isNativePlatform()) {
       return { freedBytes: 0, filesRemoved: 0 };
     }
     return DevwolfNative.clearTempCache();
+  },
+
+  async openInstagramLoginWebView(): Promise<{
+    saved: boolean;
+    updatedAt?: string | null;
+    message?: string | null;
+  }> {
+    if (!isNativePlatform()) {
+      throw new Error('Login via WebView oficial disponível apenas no aplicativo Android.');
+    }
+    return DevwolfNative.openInstagramLoginWebView();
   },
 
   async getPlatformSessions(): Promise<PlatformSessionInfo[]> {

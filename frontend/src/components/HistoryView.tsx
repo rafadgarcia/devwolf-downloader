@@ -1,30 +1,32 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Copy,
-  Download,
   Edit3,
   ExternalLink,
+  Film,
+  Image as ImageIcon,
   MessageCircle,
+  Music,
   RefreshCw,
   Search,
+  Share2,
   Trash2,
 } from 'lucide-react';
-import { triggerBrowserDownload } from '../hooks/useJobProgress';
-import { api } from '../services/api';
-import { mergeUnifiedHistory, removeLocalJob } from '../services/localQueue';
+import { filterLocalHistory, removeLocalJob } from '../services/localQueue';
 import { nativeBridge } from '../services/nativeBridge';
-import type { HistoryItem, JobResponse, PlatformId } from '../types/api';
+import type { CarouselItemState, HistoryItem, JobFile, JobResponse, PlatformId } from '../types/api';
+import { getUserFacingErrorMessage } from '../utils/errorContract';
 import {
   formatBytes,
   formatDateTime,
   formatDisplayEngine,
+  formatResolution,
   getPhaseLabel,
   PLATFORM_META,
 } from '../utils/format';
 
 interface HistoryViewProps {
   localJobs: JobResponse[];
-  vpsAuthenticated: boolean;
   onRepeatDownload: (url: string) => Promise<void>;
   onEditUrl: (url: string) => void;
   onLocalJobDeleted?: (jobId: string) => void;
@@ -41,9 +43,35 @@ const PLATFORM_FILTERS: { id: string; label: string }[] = [
   { id: 'pinterest', label: 'Pinterest' },
 ];
 
+function toCarouselItem(file: JobFile, idx: number, status: HistoryItem['status']): CarouselItemState {
+  const mime = (file.mime_type || '').toLowerCase();
+  const type =
+    file.type ??
+    (mime.startsWith('image/') ? 'image' : mime.startsWith('audio/') ? 'audio' : 'video');
+  return {
+    id: file.id,
+    index: file.index ?? idx + 1,
+    type,
+    fileName: file.filename,
+    mimeType: file.mime_type,
+    width: file.width ?? null,
+    height: file.height ?? null,
+    sizeBytes: file.size_bytes ?? 0,
+    bytesDownloaded: file.bytes_downloaded ?? file.size_bytes ?? 0,
+    percent: file.percent ?? (status === 'ready' ? 100 : null),
+    status: file.status ?? (status === 'ready' ? 'ready' : 'failed'),
+    mediaUri: file.media_uri ?? null,
+    displayPath: file.display_path ?? null,
+    filePath: file.file_path ?? null,
+    durationSeconds: file.duration_seconds ?? null,
+    isSegment: file.is_segment,
+    segmentIndex: file.segment_index ?? null,
+    isOriginal: file.is_original,
+  };
+}
+
 export function HistoryView({
   localJobs,
-  vpsAuthenticated,
   onRepeatDownload,
   onEditUrl,
   onLocalJobDeleted,
@@ -55,39 +83,21 @@ export function HistoryView({
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const loadHistory = useCallback(async () => {
+  const loadHistory = useCallback(() => {
     setLoading(true);
     setError(null);
-    let vpsItems: HistoryItem[] = [];
-
-    if (vpsAuthenticated) {
-      try {
-        const res = await api.getHistory({
-          q: query.trim() || undefined,
-          platform,
-          page: 1,
-          page_size: 40,
-        });
-        vpsItems = res.items ?? [];
-      } catch (err) {
-        if (localJobs.length === 0) {
-          setError(err instanceof Error ? err.message : 'Erro ao carregar histórico da VPS.');
-        }
-      }
-    }
-
-    const merged = mergeUnifiedHistory(localJobs, vpsItems, {
+    const filtered = filterLocalHistory(localJobs, {
       q: query.trim() || undefined,
       platform,
     });
-    setItems(merged);
+    setItems(filtered);
     setLoading(false);
-  }, [localJobs, platform, query, vpsAuthenticated]);
+  }, [localJobs, platform, query]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void loadHistory();
-    }, 180);
+      loadHistory();
+    }, 120);
     return () => window.clearTimeout(timer);
   }, [loadHistory]);
 
@@ -103,24 +113,42 @@ export function HistoryView({
 
   const handleDelete = async (item: HistoryItem) => {
     try {
-      if (item.execution_origin === 'local') {
-        if (item.file?.media_uri || item.file?.file_path) {
+      const filesToDelete = item.files && item.files.length > 0 ? item.files : item.file ? [item.file] : [];
+      for (const f of filesToDelete) {
+        if (f.media_uri || f.file_path) {
           await nativeBridge
             .deleteMedia({
-              uri: item.file.media_uri || undefined,
-              filePath: item.file.file_path || undefined,
+              uri: f.media_uri || undefined,
+              filePath: f.file_path || undefined,
             })
             .catch(() => false);
         }
-        removeLocalJob(item.id);
-        onLocalJobDeleted?.(item.id);
-      } else if (vpsAuthenticated) {
-        await api.deleteHistory(item.id);
       }
+      removeLocalJob(item.id);
+      onLocalJobDeleted?.(item.id);
       setItems((prev) => prev.filter((entry) => entry.id !== item.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível remover o item.');
     }
+  };
+
+  const handleShareAllItems = async (
+    title: string,
+    carouselItems: CarouselItemState[],
+    targetWhatsApp: boolean
+  ) => {
+    const ready = carouselItems.filter((c) => Boolean(c.mediaUri || c.filePath));
+    const list = ready.filter((c) => !c.isOriginal);
+    const finalList = list.length > 0 ? list : ready;
+    if (finalList.length === 0) return;
+
+    await nativeBridge.shareMedia({
+      uris: finalList.map((c) => c.mediaUri).filter((u): u is string => Boolean(u)),
+      filePaths: finalList.map((c) => c.filePath).filter((p): p is string => Boolean(p)),
+      mimeType: finalList.length === 1 ? finalList[0].mimeType : '*/*',
+      title,
+      targetWhatsApp,
+    });
   };
 
   return (
@@ -129,7 +157,7 @@ export function HistoryView({
         <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Histórico</h2>
         <button
           type="button"
-          onClick={() => void loadHistory()}
+          onClick={loadHistory}
           className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-zinc-600 transition hover:bg-zinc-200/70 dark:text-zinc-300 dark:hover:bg-[#1C1C20]"
         >
           <RefreshCw className="h-4 w-4" aria-hidden="true" />
@@ -198,18 +226,23 @@ export function HistoryView({
                   ? (item.platform as PlatformId)
                   : 'instagram'
               ];
-            const isExpired = item.status === 'expired' || item.file_expired;
-            const activeFile = item.file;
-            const hasLocalDeviceFile = Boolean(activeFile?.media_uri || activeFile?.file_path);
-            const canDownloadRemote =
-              item.status === 'ready' &&
-              item.has_active_file &&
-              !isExpired &&
-              Boolean(activeFile) &&
-              !hasLocalDeviceFile;
+            const carouselItems: CarouselItemState[] = (
+              item.items && item.items.length > 0
+                ? item.items
+                : (item.files ?? (item.file ? [item.file] : [])).map((f, idx) =>
+                    toCarouselItem(f, idx, item.status)
+                  )
+            )
+              .filter((c) => !c.fileName.toLowerCase().endsWith('.zip'))
+              .slice()
+              .sort((a, b) => a.index - b.index);
+
+            const readyCarousel = carouselItems.filter((c) => Boolean(c.mediaUri || c.filePath));
+            const primaryItem = readyCarousel[0] ?? null;
+            const isMulti = carouselItems.length > 1;
+            const hasVideo = readyCarousel.some((c) => c.type === 'video');
             const engineBadge =
-              item.display_engine ||
-              formatDisplayEngine(item.selected_engine, item.execution_origin);
+              item.display_engine || formatDisplayEngine(item.selected_engine, 'local');
 
             return (
               <li
@@ -234,14 +267,14 @@ export function HistoryView({
                     </span>
                     <span
                       className={`text-xs font-medium ${
-                        item.status === 'ready' && !isExpired
+                        item.status === 'ready'
                           ? 'text-[#4d7c0f] dark:text-[#A3E635]'
                           : item.status === 'failed'
                           ? 'text-red-500 dark:text-red-400'
                           : 'text-zinc-500 dark:text-zinc-400'
                       }`}
                     >
-                      {isExpired ? 'Expirado' : item.phase_label || getPhaseLabel(item.status)}
+                      {item.phase_label || getPhaseLabel(item.status)}
                     </span>
                   </div>
                 </div>
@@ -254,72 +287,156 @@ export function HistoryView({
                   {item.normalized_url || item.original_url}
                 </p>
 
-                {isExpired && (
-                  <p className="mt-2 text-xs text-amber-600 dark:text-amber-300">
-                    Arquivo expirado no servidor. Você pode reprocessar o link novamente.
+                {item.status === 'failed' && (item.error_code || item.error_message) && (
+                  <p className="mt-1.5 text-xs text-red-500 dark:text-red-400">
+                    {getUserFacingErrorMessage(item.error_code, item.error_message)}
                   </p>
                 )}
 
-                {item.status === 'failed' && item.error_message && (
-                  <p className="mt-1.5 text-xs text-red-500 dark:text-red-400">
-                    {item.error_message}
-                  </p>
+                {isMulti && readyCarousel.length > 0 && (
+                  <ul className="mt-3 space-y-1.5">
+                    {carouselItems.map((c) => {
+                      const kindLabel =
+                        c.isOriginal
+                          ? 'Original'
+                          : c.isSegment && c.segmentIndex
+                          ? `Parte ${c.segmentIndex}`
+                          : `${c.type === 'image' ? 'Foto' : c.type === 'audio' ? 'Áudio' : 'Vídeo'} ${c.index}/${carouselItems.length}`;
+                      const resolution = formatResolution(c.width, c.height);
+                      const ItemIcon =
+                        c.type === 'image' ? ImageIcon : c.type === 'audio' ? Music : Film;
+                      const canAct = Boolean(c.mediaUri || c.filePath);
+
+                      return (
+                        <li
+                          key={c.id}
+                          className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-[#101012]"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1 font-medium text-zinc-800 dark:text-zinc-200">
+                                <ItemIcon className="h-3.5 w-3.5 text-[#65a30d] dark:text-[#A3E635]" />
+                                <span>{kindLabel}</span>
+                              </span>
+                              {resolution && (
+                                <span className="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-[10px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                                  {resolution}
+                                </span>
+                              )}
+                            </div>
+                            <p className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">
+                              {c.fileName}
+                              {c.sizeBytes ? ` • ${formatBytes(c.sizeBytes)}` : ''}
+                            </p>
+                          </div>
+
+                          {canAct && (
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void nativeBridge.openMedia({
+                                    uri: c.mediaUri || undefined,
+                                    filePath: c.filePath || undefined,
+                                    mimeType: c.mimeType,
+                                  })
+                                }
+                                className="min-h-[36px] rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:bg-[#1C1C20] dark:text-zinc-200"
+                              >
+                                Abrir
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void nativeBridge.shareMedia({
+                                    uris: c.mediaUri ? [c.mediaUri] : undefined,
+                                    filePaths: c.filePath ? [c.filePath] : undefined,
+                                    mimeType: c.mimeType,
+                                    title: item.title || c.fileName,
+                                  })
+                                }
+                                className="min-h-[36px] rounded-lg bg-[#A3E635]/20 px-2.5 text-xs font-semibold text-[#4d7c0f] dark:text-[#A3E635]"
+                              >
+                                Compartilhar
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
                 )}
 
                 <div className="mt-3 flex flex-wrap gap-1.5">
-                  {hasLocalDeviceFile && activeFile && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void nativeBridge.shareMedia({
-                            uris: activeFile.media_uri ? [activeFile.media_uri] : undefined,
-                            filePaths: activeFile.file_path ? [activeFile.file_path] : undefined,
-                            mimeType: activeFile.mime_type,
-                            title: item.title || activeFile.filename,
-                            targetWhatsApp: true,
-                          })
-                        }
-                        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#A3E635] px-3 text-xs font-semibold text-zinc-950 transition hover:bg-[#84CC16]"
-                      >
-                        <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
-                        <span>Status / WhatsApp</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void nativeBridge.openMedia({
-                            uri: activeFile.media_uri || undefined,
-                            filePath: activeFile.file_path || undefined,
-                            mimeType: activeFile.mime_type,
-                          })
-                        }
-                        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                        <span>
-                          Abrir
-                          {activeFile.size_bytes ? ` (${formatBytes(activeFile.size_bytes)})` : ''}
-                        </span>
-                      </button>
-                    </>
-                  )}
-
-                  {canDownloadRemote && activeFile && (
+                  {readyCarousel.length > 0 && hasVideo && (
                     <button
                       type="button"
                       onClick={() =>
-                        triggerBrowserDownload(item.id, activeFile.id, activeFile.filename)
+                        void handleShareAllItems(
+                          item.title || 'Devwolf Downloader',
+                          carouselItems,
+                          true
+                        )
                       }
                       className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#A3E635] px-3 text-xs font-semibold text-zinc-950 transition hover:bg-[#84CC16]"
                     >
-                      <Download className="h-3.5 w-3.5" aria-hidden="true" />
-                      <span>
-                        Baixar novamente
-                        {activeFile.size_bytes ? ` (${formatBytes(activeFile.size_bytes)})` : ''}
-                      </span>
+                      <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>Status / WhatsApp</span>
                     </button>
+                  )}
+
+                  {isMulti && readyCarousel.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleShareAllItems(
+                          item.title || 'Devwolf Downloader',
+                          carouselItems,
+                          false
+                        )
+                      }
+                      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                      <Share2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>Compartilhar todos</span>
+                    </button>
+                  ) : (
+                    primaryItem && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void nativeBridge.openMedia({
+                              uri: primaryItem.mediaUri || undefined,
+                              filePath: primaryItem.filePath || undefined,
+                              mimeType: primaryItem.mimeType,
+                            })
+                          }
+                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                          <span>
+                            Abrir
+                            {primaryItem.sizeBytes ? ` (${formatBytes(primaryItem.sizeBytes)})` : ''}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void nativeBridge.shareMedia({
+                              uris: primaryItem.mediaUri ? [primaryItem.mediaUri] : undefined,
+                              filePaths: primaryItem.filePath ? [primaryItem.filePath] : undefined,
+                              mimeType: primaryItem.mimeType,
+                              title: item.title || primaryItem.fileName,
+                            })
+                          }
+                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        >
+                          <Share2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          <span>Compartilhar</span>
+                        </button>
+                      </>
+                    )
                   )}
 
                   <button
@@ -328,7 +445,7 @@ export function HistoryView({
                     className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
                   >
                     <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>{isExpired ? 'Reprocessar' : 'Repetir'}</span>
+                    <span>Repetir</span>
                   </button>
 
                   <button

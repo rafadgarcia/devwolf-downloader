@@ -1,79 +1,103 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-  Globe,
+  Activity,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Copy,
   HardDrive,
   KeyRound,
+  LogIn,
   ShieldCheck,
   Smartphone,
   Trash2,
 } from 'lucide-react';
 import { nativeBridge } from '../services/nativeBridge';
-import { normalizeVpsUrl } from '../services/settingsStorage';
 import type {
-  ExecutionMode,
-  PlatformId,
+  DiagnosticsReport,
+  JobResponse,
   PlatformSessionInfo,
   QualityOption,
   StatusSegmentDuration,
   ThemeMode,
+  UpdateChannel,
   UserSettings,
-  VpsEngineName,
 } from '../types/api';
-import { formatBytes } from '../utils/format';
+import { sanitizeDiagnosticText } from '../utils/errorContract';
+import { formatBytes, formatDateTime, formatMs } from '../utils/format';
 
 interface SettingsViewProps {
   settings: UserSettings;
   isNativeAndroid: boolean;
-  vpsAuthenticated: boolean;
+  latestJob: JobResponse | null;
   onUpdateSettings: (patch: Partial<UserSettings>) => Promise<void>;
-  onRequestVpsLogin: () => void;
 }
-
-const ALL_ENGINES: { id: VpsEngineName; label: string; desc: string }[] = [
-  { id: 'yt-dlp', label: 'yt-dlp (VPS)', desc: 'Vídeos, Reels, Shorts e áudio' },
-  { id: 'gallery-dl', label: 'gallery-dl (VPS)', desc: 'Fotos, posts e carrosséis' },
-  { id: 'cobalt', label: 'Cobalt (VPS)', desc: 'Instância própria configurada no servidor' },
-];
-
-const EXECUTION_MODES: { id: ExecutionMode; label: string; desc: string }[] = [
-  { id: 'auto', label: 'Automático', desc: 'Prioriza Motor Local no Android com fallback para VPS' },
-  { id: 'local', label: 'Local (Dispositivo)', desc: 'Somente yt-dlp + FFmpeg no Android (offline da VPS)' },
-  { id: 'vps', label: 'Remoto (VPS)', desc: 'Executa na VPS (Cobalt, yt-dlp, gallery-dl)' },
-];
-
-const VAULT_PLATFORMS: { id: PlatformId; label: string }[] = [
-  { id: 'instagram', label: 'Instagram' },
-  { id: 'youtube', label: 'YouTube' },
-  { id: 'tiktok', label: 'TikTok' },
-  { id: 'facebook', label: 'Facebook' },
-  { id: 'twitter', label: 'X / Twitter' },
-];
 
 export function SettingsView({
   settings,
   isNativeAndroid,
-  vpsAuthenticated,
+  latestJob,
   onUpdateSettings,
-  onRequestVpsLogin,
 }: SettingsViewProps) {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [vpsUrlDraft, setVpsUrlDraft] = useState(settings.vps_url);
   const [sessions, setSessions] = useState<PlatformSessionInfo[]>([]);
-  const [vaultPlatform, setVaultPlatform] = useState<PlatformId>('instagram');
-  const [vaultCookie, setVaultCookie] = useState('');
+  const [showManualCookie, setShowManualCookie] = useState(false);
+  const [manualCookie, setManualCookie] = useState('');
   const [cacheClearing, setCacheClearing] = useState(false);
 
-  useEffect(() => {
-    setVpsUrlDraft(settings.vps_url);
-  }, [settings.vps_url]);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [diagReport, setDiagReport] = useState<DiagnosticsReport | null>(null);
+  const [diagCopied, setDiagCopied] = useState(false);
+
+  const loadSessions = useCallback(async () => {
+    if (!isNativeAndroid) return;
+    const list = await nativeBridge.getPlatformSessions();
+    setSessions(list);
+  }, [isNativeAndroid]);
+
+  const loadDiagnostics = useCallback(async () => {
+    const [report, engineStatus] = await Promise.all([
+      nativeBridge.getDiagnosticsReport(),
+      isNativeAndroid ? nativeBridge.getLocalEngineStatus() : Promise.resolve(null),
+    ]);
+
+    if (report) {
+      setDiagReport(report);
+      return;
+    }
+
+    const metrics = latestJob?.metrics;
+    setDiagReport({
+      engineUsed: metrics?.engineUsed ?? latestJob?.current_engine ?? latestJob?.selected_engine ?? null,
+      engineVersion: metrics?.engineVersion ?? latestJob?.engine_version ?? engineStatus?.ytdlpVersion ?? null,
+      lastUpdateAt: engineStatus?.lastUpdateAt ?? null,
+      strategyUsed: metrics?.strategyUsed ?? latestJob?.strategy_used ?? null,
+      resolutionMs: metrics?.resolutionMs ?? null,
+      ttfbMs: metrics?.ttfbMs ?? null,
+      transferMs: metrics?.transferMs ?? null,
+      processingMs: metrics?.processingMs ?? null,
+      galleryPublishMs: metrics?.galleryPublishMs ?? null,
+      totalJobMs: metrics?.totalJobMs ?? null,
+      httpRequestCount: metrics?.httpRequestCount ?? null,
+      errorCode: latestJob?.error_code ?? null,
+      technicalReason: latestJob?.technical_reason ?? latestJob?.error_message ?? null,
+      sanitizedLog: null,
+      generatedAt: latestJob?.updated_at ?? null,
+    });
+  }, [isNativeAndroid, latestJob]);
 
   useEffect(() => {
-    if (!isNativeAndroid) return;
-    void nativeBridge.getPlatformSessions().then(setSessions);
-  }, [isNativeAndroid]);
+    void loadSessions();
+  }, [loadSessions]);
+
+  useEffect(() => {
+    if (diagnosticsOpen) {
+      void loadDiagnostics();
+    }
+  }, [diagnosticsOpen, loadDiagnostics]);
 
   const patch = async (key: string, partial: Partial<UserSettings>) => {
     setSavingKey(key);
@@ -88,58 +112,53 @@ export function SettingsView({
     }
   };
 
-  const toggleEngine = (engine: VpsEngineName) => {
-    const exists = settings.enabled_engines.includes(engine);
-    const next = exists
-      ? settings.enabled_engines.filter((e) => e !== engine)
-      : [...settings.enabled_engines, engine];
-    if (next.length === 0) {
-      setError('Mantenha pelo menos um motor da VPS habilitado.');
-      return;
-    }
-    void patch('enabled_engines', { enabled_engines: next });
-  };
+  const instagramSession = sessions.find((s) => s.platform === 'instagram' && s.configured);
 
-  const handleSaveVpsUrl = async () => {
+  const handleOpenInstagramWebView = async () => {
     setError(null);
     setNotice(null);
-    const trimmed = vpsUrlDraft.trim();
-    if (trimmed && !normalizeVpsUrl(trimmed)) {
-      setError('Endereço da VPS inválido. Use http:// ou https://.');
-      return;
+    try {
+      const res = await nativeBridge.openInstagramLoginWebView();
+      await loadSessions();
+      if (res.saved) {
+        setNotice(res.message || 'Sessão opcional do Instagram salva com criptografia no aparelho.');
+      } else if (res.message) {
+        setNotice(res.message);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Não foi possível abrir o WebView do Instagram.'
+      );
     }
-    await patch('vps_url', { vps_url: normalizeVpsUrl(trimmed) });
-    setNotice('Endereço da VPS salvo.');
   };
 
-  const handleSaveVaultCookie = async () => {
-    if (!vaultCookie.trim()) {
+  const handleSaveManualCookie = async () => {
+    if (!manualCookie.trim()) {
       setError('Cole o cabeçalho de sessão/cookie antes de salvar no cofre local.');
       return;
     }
     setError(null);
     setNotice(null);
     try {
-      await nativeBridge.savePlatformSession(vaultPlatform, vaultCookie.trim());
-      setVaultCookie('');
-      const refreshed = await nativeBridge.getPlatformSessions();
-      setSessions(refreshed);
-      setNotice(`Sessão local de ${vaultPlatform} salva com criptografia no dispositivo.`);
+      await nativeBridge.savePlatformSession('instagram', manualCookie.trim());
+      setManualCookie('');
+      setShowManualCookie(false);
+      await loadSessions();
+      setNotice('Sessão opcional do Instagram salva com criptografia no dispositivo.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar sessão no cofre local.');
     }
   };
 
-  const handleRevokeVault = async (platform: PlatformId | string) => {
+  const handleRevokeInstagramSession = async () => {
     setError(null);
     setNotice(null);
     try {
-      await nativeBridge.revokePlatformSession(platform);
-      const refreshed = await nativeBridge.getPlatformSessions();
-      setSessions(refreshed);
-      setNotice(`Sessão local de ${platform} revogada.`);
+      await nativeBridge.revokePlatformSession('instagram');
+      await loadSessions();
+      setNotice('Sessão do Instagram encerrada e removida do aparelho.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao revogar sessão.');
+      setError(err instanceof Error ? err.message : 'Erro ao excluir sessão.');
     }
   };
 
@@ -158,6 +177,40 @@ export function SettingsView({
       setError(err instanceof Error ? err.message : 'Falha ao limpar cache temporário.');
     } finally {
       setCacheClearing(false);
+    }
+  };
+
+  const handleCopySanitizedLog = async () => {
+    const payload = {
+      app: 'Devwolf Downloader',
+      engineUsed: diagReport?.engineUsed ?? null,
+      engineVersion: diagReport?.engineVersion ?? null,
+      strategyUsed: diagReport?.strategyUsed ?? null,
+      lastUpdateAt: diagReport?.lastUpdateAt ?? null,
+      timingsMs: {
+        resolution: diagReport?.resolutionMs ?? null,
+        ttfb: diagReport?.ttfbMs ?? null,
+        transfer: diagReport?.transferMs ?? null,
+        processing: diagReport?.processingMs ?? null,
+        galleryPublish: diagReport?.galleryPublishMs ?? null,
+        total: diagReport?.totalJobMs ?? null,
+      },
+      httpRequestCount: diagReport?.httpRequestCount ?? null,
+      errorCode: diagReport?.errorCode ?? null,
+      technicalReason: diagReport?.technicalReason
+        ? sanitizeDiagnosticText(diagReport.technicalReason)
+        : null,
+      sanitizedLog: diagReport?.sanitizedLog
+        ? sanitizeDiagnosticText(diagReport.sanitizedLog)
+        : null,
+    };
+    const text = sanitizeDiagnosticText(JSON.stringify(payload, null, 2));
+    try {
+      await navigator.clipboard.writeText(text);
+      setDiagCopied(true);
+      window.setTimeout(() => setDiagCopied(false), 2000);
+    } catch {
+      setError('Não foi possível copiar o log para a área de transferência.');
     }
   };
 
@@ -180,46 +233,6 @@ export function SettingsView({
         </div>
       )}
 
-      {/* Motor preferencial */}
-      <section className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-[#1C1C20]">
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-          Motor preferencial
-        </h3>
-        <div className="mt-3 space-y-2">
-          {EXECUTION_MODES.map((mode) => {
-            const active = settings.preferred_execution_mode === mode.id;
-            return (
-              <button
-                key={mode.id}
-                type="button"
-                onClick={() => void patch('preferred_execution_mode', { preferred_execution_mode: mode.id })}
-                className={`flex min-h-[52px] w-full items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left transition ${
-                  active
-                    ? 'border-[#A3E635] bg-[#A3E635]/10'
-                    : 'border-zinc-200 bg-zinc-50 hover:border-zinc-400 dark:border-zinc-800 dark:bg-[#101012]'
-                }`}
-              >
-                <div>
-                  <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                    {mode.label}
-                  </p>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">{mode.desc}</p>
-                </div>
-                <span
-                  className={`rounded-lg px-2.5 py-1 text-[11px] font-bold ${
-                    active
-                      ? 'bg-[#A3E635] text-zinc-950'
-                      : 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
-                  }`}
-                >
-                  {active ? 'ATIVO' : 'USAR'}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
       {/* Modo Status (WhatsApp) */}
       <section className="divide-y divide-zinc-200 rounded-2xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-[#1C1C20]">
         <div className="flex items-center justify-between gap-4 p-4">
@@ -228,7 +241,7 @@ export function SettingsView({
               Modo Status (WhatsApp)
             </p>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Garante H.264 + AAC em MP4 sem recomprimir vídeos já compatíveis
+              Garante H.264 + AAC em MP4 sem recompressão desnecessária
             </p>
           </div>
           <button
@@ -318,7 +331,7 @@ export function SettingsView({
               Download automático
             </p>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Iniciar job ao detectar link válido no clipboard ou compartilhamento
+              Iniciar download ao detectar link válido no clipboard ou compartilhamento
             </p>
           </div>
           <button
@@ -370,10 +383,10 @@ export function SettingsView({
         <div className="flex items-center justify-between gap-4 p-4">
           <div>
             <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-              Atualização automática dos motores
+              Atualização automática do yt-dlp
             </p>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Verificar novas versões do yt-dlp local quando sem downloads ativos
+              Verificar novas versões do motor local quando sem downloads ativos
             </p>
           </div>
           <button
@@ -394,6 +407,33 @@ export function SettingsView({
           >
             {settings.auto_update_engines ? 'ON' : 'OFF'}
           </button>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 p-4">
+          <div>
+            <label
+              htmlFor="setting-update-channel"
+              className="text-sm font-medium text-zinc-900 dark:text-zinc-100"
+            >
+              Canal de atualização do yt-dlp
+            </label>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Stable (recomendado) ou Nightly (correções recentes)
+            </p>
+          </div>
+          <select
+            id="setting-update-channel"
+            value={settings.update_channel}
+            onChange={(e) =>
+              void patch('update_channel', {
+                update_channel: e.target.value as UpdateChannel,
+              })
+            }
+            className="min-h-[44px] rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 outline-none dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200"
+          >
+            <option value="stable">Stable</option>
+            <option value="nightly">Nightly</option>
+          </select>
         </div>
 
         <div className="flex items-center justify-between gap-4 p-4">
@@ -453,36 +493,6 @@ export function SettingsView({
         <div className="flex items-center justify-between gap-4 p-4">
           <div>
             <label
-              htmlFor="setting-retention"
-              className="text-sm font-medium text-zinc-900 dark:text-zinc-100"
-            >
-              Retenção de arquivos (VPS)
-            </label>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Tempo até limpeza automática no servidor
-            </p>
-          </div>
-          <select
-            id="setting-retention"
-            value={settings.file_retention_hours}
-            onChange={(e) =>
-              void patch('file_retention_hours', {
-                file_retention_hours: Number(e.target.value),
-              })
-            }
-            className="min-h-[44px] rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 outline-none dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200"
-          >
-            <option value={6}>6 horas</option>
-            <option value={12}>12 horas</option>
-            <option value={24}>24 horas</option>
-            <option value={48}>48 horas</option>
-            <option value={72}>72 horas</option>
-          </select>
-        </div>
-
-        <div className="flex items-center justify-between gap-4 p-4">
-          <div>
-            <label
               htmlFor="setting-theme"
               className="text-sm font-medium text-zinc-900 dark:text-zinc-100"
             >
@@ -504,164 +514,93 @@ export function SettingsView({
         </div>
       </section>
 
-      {/* Endereço da VPS */}
+      {/* Sessão opcional do Instagram */}
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-[#1C1C20]">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Globe className="h-4 w-4 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Endereço da VPS
-            </h3>
-          </div>
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">
-            {vpsAuthenticated ? 'Conectada' : 'Desconectada'}
-          </span>
-        </div>
-        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Deixe vazio na PWA (mesma origem) ou informe a URL HTTPS da sua VPS no aplicativo Android.
-        </p>
-        <div className="mt-3 flex gap-2">
-          <input
-            type="url"
-            inputMode="url"
-            aria-label="Endereço da VPS"
-            placeholder="https://downloader.seudominio.com"
-            value={vpsUrlDraft}
-            onChange={(e) => setVpsUrlDraft(e.target.value)}
-            className="min-h-[44px] flex-1 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-sm text-zinc-900 outline-none focus:border-[#A3E635] dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-100"
-          />
-          <button
-            type="button"
-            onClick={() => void handleSaveVpsUrl()}
-            className="min-h-[44px] rounded-xl bg-[#A3E635] px-4 text-xs font-semibold text-zinc-950 transition hover:bg-[#84CC16]"
-          >
-            Salvar
-          </button>
-        </div>
-        {!vpsAuthenticated && (
-          <button
-            type="button"
-            onClick={onRequestVpsLogin}
-            className="mt-2.5 min-h-[44px] rounded-xl border border-zinc-300 bg-zinc-50 px-4 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200"
-          >
-            Autenticar na VPS agora
-          </button>
-        )}
-      </section>
-
-      {/* Motores habilitados na VPS */}
-      <section className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-[#1C1C20]">
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-          Motores habilitados na VPS
-        </h3>
-        <div className="mt-3 space-y-2">
-          {ALL_ENGINES.map((engine) => {
-            const enabled = settings.enabled_engines.includes(engine.id);
-            return (
-              <div
-                key={engine.id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3.5 py-2.5 dark:border-zinc-800 dark:bg-[#101012]"
-              >
-                <div>
-                  <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                    {engine.label}
-                  </p>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">{engine.desc}</p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={enabled}
-                  onClick={() => toggleEngine(engine.id)}
-                  className={`min-h-[44px] min-w-[68px] rounded-xl px-3 text-xs font-bold transition ${
-                    enabled
-                      ? 'bg-[#A3E635] text-zinc-950'
-                      : 'border border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-[#1C1C20] dark:text-zinc-400'
-                  }`}
-                >
-                  {enabled ? 'ON' : 'OFF'}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Cofre local de sessões seguras (somente Android) */}
-      {isNativeAndroid && (
-        <section className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-[#1C1C20]">
-          <div className="flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
             <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Sessões locais seguras (cofre no dispositivo)
+              Sessão opcional do Instagram
             </h3>
           </div>
-          <p className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-            <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-[#65a30d] dark:text-[#A3E635]" />
-            <span>
-              Criptografado localmente via EncryptedSharedPreferences. Cookies nunca são enviados à
-              VPS.
-            </span>
-          </p>
+          <span
+            className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${
+              instagramSession
+                ? 'bg-[#A3E635]/15 text-[#4d7c0f] dark:text-[#A3E635]'
+                : 'bg-zinc-100 text-zinc-600 dark:bg-[#101012] dark:text-zinc-400'
+            }`}
+          >
+            {instagramSession ? 'Conectada' : 'Opcional'}
+          </span>
+        </div>
 
-          <div className="mt-3 space-y-2">
-            <div className="flex gap-2">
-              <select
-                aria-label="Plataforma da sessão local"
-                value={vaultPlatform}
-                onChange={(e) => setVaultPlatform(e.target.value as PlatformId)}
-                className="min-h-[44px] rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 outline-none dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200"
-              >
-                {VAULT_PLATFORMS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="password"
-                aria-label="Cookie de sessão local"
-                placeholder="Cole o cookie apenas para uso local…"
-                value={vaultCookie}
-                onChange={(e) => setVaultCookie(e.target.value)}
-                className="min-h-[44px] flex-1 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs text-zinc-900 outline-none focus:border-[#A3E635] dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-100"
-              />
-              <button
-                type="button"
-                onClick={() => void handleSaveVaultCookie()}
-                className="min-h-[44px] rounded-xl bg-[#A3E635] px-3.5 text-xs font-semibold text-zinc-950 transition hover:bg-[#84CC16]"
-              >
-                Salvar
-              </button>
-            </div>
+        <p className="mt-1.5 flex items-start gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+          <ShieldCheck
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#65a30d] dark:text-[#A3E635]"
+            aria-hidden="true"
+          />
+          <span>
+            Mídias públicas não exigem login. Caso queira baixar publicações que exijam sessão
+            autenticada, os cookies ficam criptografados exclusivamente no aparelho
+            (EncryptedSharedPreferences).
+          </span>
+        </p>
 
-            {sessions.some((s) => s.configured) && (
-              <ul className="space-y-1.5 pt-1">
-                {sessions
-                  .filter((s) => s.configured)
-                  .map((s) => (
-                    <li
-                      key={s.platform}
-                      className="flex items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-[#101012]"
-                    >
-                      <span className="font-medium capitalize text-zinc-800 dark:text-zinc-200">
-                        {s.platform} • Configurada
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => void handleRevokeVault(s.platform)}
-                        className="inline-flex min-h-[44px] items-center gap-1 rounded-lg px-2.5 text-xs font-medium text-red-500 hover:bg-red-500/10"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                        <span>Revogar</span>
-                      </button>
-                    </li>
-                  ))}
-              </ul>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!isNativeAndroid}
+            onClick={() => void handleOpenInstagramWebView()}
+            className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#A3E635] px-4 text-xs font-semibold text-zinc-950 transition hover:bg-[#84CC16] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <LogIn className="h-4 w-4" aria-hidden="true" />
+            <span>Entrar com WebView Oficial do Instagram</span>
+          </button>
+
+          {instagramSession && (
+            <button
+              type="button"
+              onClick={() => void handleRevokeInstagramSession()}
+              className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 text-xs font-semibold text-red-600 transition hover:bg-red-500/20 dark:text-red-300"
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              <span>Encerrar e Excluir Sessão</span>
+            </button>
+          )}
+        </div>
+
+        {isNativeAndroid && (
+          <div className="mt-2.5">
+            <button
+              type="button"
+              onClick={() => setShowManualCookie((v) => !v)}
+              className="text-xs font-medium text-zinc-500 underline-offset-2 hover:underline dark:text-zinc-400"
+            >
+              {showManualCookie ? 'Ocultar entrada manual' : 'Inserir cookie manualmente (opcional)'}
+            </button>
+
+            {showManualCookie && (
+              <div className="mt-2 flex gap-2">
+                <input
+                  type="password"
+                  aria-label="Cookie de sessão local do Instagram"
+                  placeholder="sessionid=...; csrftoken=..."
+                  value={manualCookie}
+                  onChange={(e) => setManualCookie(e.target.value)}
+                  className="min-h-[44px] flex-1 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs text-zinc-900 outline-none focus:border-[#A3E635] dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSaveManualCookie()}
+                  className="min-h-[44px] rounded-xl border border-zinc-300 bg-zinc-100 px-3.5 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200"
+                >
+                  Salvar
+                </button>
+              </div>
             )}
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
       {/* Limpeza de cache temporário */}
       <section className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-[#1C1C20]">
@@ -686,12 +625,138 @@ export function SettingsView({
         </button>
       </section>
 
+      {/* Área de Diagnóstico e Performance (colapsável) */}
+      <section className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-[#1C1C20]">
+        <button
+          type="button"
+          aria-expanded={diagnosticsOpen}
+          onClick={() => setDiagnosticsOpen((open) => !open)}
+          className="flex min-h-[52px] w-full items-center justify-between gap-3 px-4 py-3 text-left"
+        >
+          <div className="flex items-center gap-2.5">
+            <Activity className="h-4 w-4 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                Diagnóstico e Performance
+              </p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Métricas locais do último download e log sanitizado
+              </p>
+            </div>
+          </div>
+          {diagnosticsOpen ? (
+            <ChevronUp className="h-4 w-4 text-zinc-400" aria-hidden="true" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-zinc-400" aria-hidden="true" />
+          )}
+        </button>
+
+        {diagnosticsOpen && (
+          <div className="border-t border-zinc-200 px-4 pb-4 pt-3 dark:border-zinc-800">
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+              <div>
+                <dt className="text-zinc-500 dark:text-zinc-400">Motor utilizado</dt>
+                <dd className="font-mono font-medium text-zinc-800 dark:text-zinc-200">
+                  {diagReport?.engineUsed || '—'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500 dark:text-zinc-400">Versão do motor</dt>
+                <dd className="font-mono font-medium text-zinc-800 dark:text-zinc-200">
+                  {diagReport?.engineVersion || '—'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500 dark:text-zinc-400">Estratégia</dt>
+                <dd className="font-mono font-medium text-zinc-800 dark:text-zinc-200">
+                  {diagReport?.strategyUsed || '—'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500 dark:text-zinc-400">Última atualização</dt>
+                <dd className="font-medium text-zinc-800 dark:text-zinc-200">
+                  {formatDateTime(diagReport?.lastUpdateAt)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500 dark:text-zinc-400">Resolução</dt>
+                <dd className="font-mono text-zinc-800 dark:text-zinc-200">
+                  {formatMs(diagReport?.resolutionMs)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500 dark:text-zinc-400">TTFB</dt>
+                <dd className="font-mono text-zinc-800 dark:text-zinc-200">
+                  {formatMs(diagReport?.ttfbMs)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500 dark:text-zinc-400">Transferência</dt>
+                <dd className="font-mono text-zinc-800 dark:text-zinc-200">
+                  {formatMs(diagReport?.transferMs)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500 dark:text-zinc-400">Galeria (MediaStore)</dt>
+                <dd className="font-mono text-zinc-800 dark:text-zinc-200">
+                  {formatMs(diagReport?.galleryPublishMs)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500 dark:text-zinc-400">Requisições HTTP</dt>
+                <dd className="font-mono text-zinc-800 dark:text-zinc-200">
+                  {diagReport?.httpRequestCount !== null && diagReport?.httpRequestCount !== undefined
+                    ? diagReport.httpRequestCount
+                    : '—'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500 dark:text-zinc-400">Tempo total</dt>
+                <dd className="font-mono text-zinc-800 dark:text-zinc-200">
+                  {formatMs(diagReport?.totalJobMs)}
+                </dd>
+              </div>
+            </dl>
+
+            {(diagReport?.errorCode || diagReport?.technicalReason) && (
+              <div className="mt-3 rounded-xl border border-red-500/25 bg-red-500/10 p-2.5 text-xs text-red-600 dark:text-red-300">
+                <p className="font-mono font-semibold">
+                  {diagReport.errorCode || 'ERRO'}
+                </p>
+                {diagReport.technicalReason && (
+                  <p className="mt-0.5 break-words">
+                    {sanitizeDiagnosticText(diagReport.technicalReason)}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => void handleCopySanitizedLog()}
+              className="mt-3 inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-4 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              {diagCopied ? (
+                <>
+                  <Check className="h-4 w-4 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
+                  <span>Log sanitizado copiado!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="h-4 w-4" aria-hidden="true" />
+                  <span>Copiar log sanitizado</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      </section>
+
       <section className="flex items-start gap-2.5 rounded-2xl border border-zinc-200 bg-white p-4 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-[#1C1C20] dark:text-zinc-400">
         <Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
         <p className="leading-relaxed">
-          No aplicativo Android, o Devwolf Downloader recebe links diretamente do menu Compartilhar
-          e salva os arquivos no álbum &ldquo;Devwolf Downloader&rdquo; da Galeria. Na web,
-          instale como PWA pelo Chrome para ativar o compartilhamento rápido.
+          O Devwolf Downloader executa 100% localmente no Android, recebe links diretamente do menu
+          Compartilhar e salva fotos e vídeos no álbum &ldquo;Devwolf Downloader&rdquo; da Galeria.
         </p>
       </section>
     </div>

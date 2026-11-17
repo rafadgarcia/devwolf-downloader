@@ -1,0 +1,27 @@
+{
+  "scope": "Detector real do frontend com mensagens extraídas do Android; sem rede",
+  "source": "frontend/src/services/hybridOrchestrator.ts",
+  "sha256": "95c66559e27ac02b8837788745ce1fcb8337bfb47835e941467e0bcca01f149e",
+  "cases": [
+    {
+      "code": "TERMINAL_AUTH",
+      "message": "Conteúdo privado ou exige autenticação na plataforma.",
+      "terminalRecognized": false
+    },
+    {
+      "code": "TERMINAL_DRM",
+      "message": "Mídia protegida por DRM não suportada.",
+      "terminalRecognized": true
+    },
+    {
+      "code": "TERMINAL_UNAVAILABLE",
+      "message": "Mídia indisponível ou removida na origem.",
+      "terminalRecognized": true
+    },
+    {
+      "code": "TERMINAL_RATE_LIMIT",
+      "message": "Limite de requisições atingido pela plataforma. Aguarde antes de tentar novamente.",
+      "terminalRecognized": false
+    }
+  ]
+}

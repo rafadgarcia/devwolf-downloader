@@ -7,12 +7,30 @@ export type PlatformId =
   | 'reddit'
   | 'pinterest';
 
-export type EngineName = 'yt-dlp' | 'gallery-dl' | 'cobalt' | 'local-ytdlp';
-export type VpsEngineName = 'yt-dlp' | 'gallery-dl' | 'cobalt';
+export type EngineName =
+  | 'dnr'
+  | 'yt-dlp'
+  | 'gallery-dl'
+  | 'local-ytdlp'
+  | 'local-pinterest'
+  | 'local-reddit';
 
-export type ExecutionMode = 'auto' | 'local' | 'vps';
-export type EngineOrigin = 'local' | 'vps';
+export type EngineOrigin = 'local';
+export type UpdateChannel = 'stable' | 'nightly';
 export type StatusSegmentDuration = 0 | 30 | 45 | 60;
+
+export type DevwolfErrorCode =
+  | 'AUTH_REQUIRED'
+  | 'PRIVATE_MEDIA'
+  | 'RATE_LIMITED'
+  | 'CAPTCHA_REQUIRED'
+  | 'MEDIA_UNAVAILABLE'
+  | 'UNSUPPORTED_MEDIA'
+  | 'CANCELLED'
+  | 'STORAGE_ERROR'
+  | 'EXTRACTOR_OUTDATED'
+  | 'EXTRACTION_FAILED'
+  | 'NETWORK_ERROR';
 
 export type JobStatus =
   | 'queued'
@@ -24,37 +42,50 @@ export type JobStatus =
   | 'cancelled'
   | 'expired';
 
+export type CarouselMediaType = 'video' | 'image' | 'audio';
+export type CarouselItemStatus = 'queued' | 'downloading' | 'ready' | 'failed';
+
 export type QualityOption = 'best' | '1080p' | '720p' | '480p' | 'audio';
 export type FormatOption = 'auto' | 'video' | 'audio' | 'image';
 export type ThemeMode = 'dark' | 'light';
 
-export interface AuthUser {
+export interface CarouselItemState {
   id: string;
-  username: string;
-  role?: string;
-}
-
-export interface AuthMeResponse {
-  authenticated: boolean;
-  user: AuthUser | null;
-  csrf_token: string | null;
-  session_token?: string | null;
-  token?: string | null;
+  index: number;
+  type: CarouselMediaType;
+  fileName: string;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+  sizeBytes: number;
+  bytesDownloaded: number;
+  percent: number | null;
+  status: CarouselItemStatus;
+  mediaUri: string | null;
+  displayPath: string | null;
+  filePath?: string | null;
+  durationSeconds?: number | null;
+  isSegment?: boolean;
+  segmentIndex?: number | null;
+  isOriginal?: boolean;
 }
 
 export interface JobFile {
   id: string;
+  index?: number;
+  type?: CarouselMediaType;
   filename: string;
   mime_type: string;
+  width?: number | null;
+  height?: number | null;
   size_bytes: number;
+  bytes_downloaded?: number;
+  percent?: number | null;
+  status?: CarouselItemStatus;
   duration_seconds?: number | null;
   is_archive?: boolean;
   item_count?: number;
   missing_items?: number;
-  download_url?: string;
-  expires_at?: string;
-  expired?: boolean;
-  // Campos locais Android / Modo Status
   file_path?: string | null;
   media_uri?: string | null;
   display_path?: string | null;
@@ -63,16 +94,35 @@ export interface JobFile {
   is_original?: boolean;
 }
 
-export interface JobAttempt {
-  id?: string;
-  attempt_number: number;
-  engine: EngineName | string;
-  status: string;
-  error_category?: string | null;
-  error_code?: string | null;
-  error_message?: string | null;
-  started_at?: string | null;
-  ended_at?: string | null;
+export interface JobPerformanceMetrics {
+  engineUsed?: string | null;
+  engineVersion?: string | null;
+  strategyUsed?: string | null;
+  resolutionMs?: number | null;
+  ttfbMs?: number | null;
+  transferMs?: number | null;
+  processingMs?: number | null;
+  galleryPublishMs?: number | null;
+  totalJobMs?: number | null;
+  httpRequestCount?: number | null;
+}
+
+export interface DiagnosticsReport {
+  engineUsed: string | null;
+  engineVersion: string | null;
+  lastUpdateAt: string | null;
+  strategyUsed: string | null;
+  resolutionMs: number | null;
+  ttfbMs: number | null;
+  transferMs: number | null;
+  processingMs: number | null;
+  galleryPublishMs: number | null;
+  totalJobMs: number | null;
+  httpRequestCount: number | null;
+  errorCode: DevwolfErrorCode | string | null;
+  technicalReason: string | null;
+  sanitizedLog: string | null;
+  generatedAt?: string | null;
 }
 
 export interface JobResponse {
@@ -90,6 +140,8 @@ export interface JobResponse {
   selected_engine?: EngineName | string | null;
   execution_origin?: EngineOrigin;
   display_engine?: string | null;
+  engine_version?: string | null;
+  strategy_used?: string | null;
   bytes_downloaded: number;
   total_bytes: number | null;
   percent: number | null;
@@ -102,16 +154,17 @@ export interface JobResponse {
   source_share_id?: string | null;
   from_share_intent?: boolean;
   fallback_notice?: string | null;
-  error_code?: string | null;
+  error_code?: DevwolfErrorCode | string | null;
   error_message?: string | null;
+  technical_reason?: string | null;
+  metrics?: JobPerformanceMetrics | null;
   deduplicated?: boolean;
   files: JobFile[];
-  attempts?: JobAttempt[];
+  items?: CarouselItemState[];
   created_at: string;
   updated_at: string;
   started_at?: string | null;
   completed_at?: string | null;
-  expires_at?: string | null;
 }
 
 export interface HistoryItem {
@@ -128,107 +181,29 @@ export interface HistoryItem {
   execution_origin?: EngineOrigin;
   display_engine?: string | null;
   status_mode?: boolean;
+  error_code?: DevwolfErrorCode | string | null;
   error_message?: string | null;
   created_at: string;
   completed_at?: string | null;
   file?: JobFile | null;
   files?: JobFile[];
+  items?: CarouselItemState[];
   has_active_file: boolean;
-  file_expired: boolean;
-}
-
-export interface CreateJobPayload {
-  url: string;
-  format: FormatOption;
-  quality: QualityOption;
-  idempotency_key: string;
-  force_manual?: boolean;
-  status_mode?: boolean;
-  segment_duration?: number | null;
-  keep_original?: boolean;
-}
-
-export interface HistoryResponse {
-  items: HistoryItem[];
-  total: number;
-  page: number;
-  page_size: number;
-  has_more?: boolean;
-}
-
-export type EngineHealthState = 'online' | 'degraded' | 'maintenance' | 'offline';
-export type CircuitBreakerState = 'closed' | 'open' | 'half_open';
-
-export interface CobaltUpdaterStatus {
-  maintenance: boolean;
-  state: string;
-  current_digest?: string | null;
-  current_version?: string | null;
-  previous_digest?: string | null;
-  rejected_digest?: string | null;
-  rejected_until?: string | null;
-  last_check_at?: string | null;
-  last_update_at?: string | null;
-  last_rollback_at?: string | null;
-  last_error?: string | null;
-}
-
-export interface EngineInfo {
-  engine: VpsEngineName;
-  installed_version?: string | null;
-  latest_version?: string | null;
-  update_available?: boolean;
-  health: EngineHealthState | string;
-  circuit_state: CircuitBreakerState | string;
-  consecutive_failures?: number;
-  circuit_retry_at?: string | null;
-  last_success_at?: string | null;
-  last_error_at?: string | null;
-  last_error_message?: string | null;
-  last_checked_at?: string | null;
-  maintenance_mode?: boolean;
-  maintenance_note?: string | null;
-  updater_status?: CobaltUpdaterStatus | null;
-}
-
-export interface EnginesResponse {
-  engines: EngineInfo[];
-  disclaimer?: string;
-}
-
-export interface EngineReleaseInfo {
-  engine: string;
-  installed_version?: string | null;
-  latest_version?: string | null;
-  update_available: boolean;
-  release_url?: string | null;
-  checked_at?: string | null;
-  source?: string | null;
-}
-
-export interface PlatformCapabilityInfo {
-  platform: PlatformId | string;
-  label: string;
-  local_supported: boolean;
-  remote_supported: boolean;
-  primary_engine: string;
-  fallback_engines: string[];
-  media_types: string[];
-  notes?: string | null;
-}
-
-export interface EngineReleasesResponse {
-  engines: EngineReleaseInfo[];
-  capabilities: PlatformCapabilityInfo[];
-  checked_at: string;
 }
 
 export interface LocalEngineStatus {
   available: boolean;
   ytdlpVersion: string | null;
+  wrapperVersion?: string | null;
   latestYtdlpVersion: string | null;
   updateAvailable: boolean;
+  updateChannel?: UpdateChannel;
   ffmpegVersion: string | null;
+  gallerydlVersion?: string | null;
+  gallerydlAvailable?: boolean;
+  dnrAvailable?: boolean;
+  dnrStrategies?: string[];
+  dnrAvgResolutionMs?: number | null;
   previousVersion: string | null;
   lastCheckAt: string | null;
   lastUpdateAt: string | null;
@@ -247,17 +222,13 @@ export interface UserSettings {
   auto_download: boolean;
   default_quality: QualityOption;
   data_saver: boolean;
-  file_retention_hours: number;
   theme: ThemeMode;
-  enabled_engines: VpsEngineName[];
-  // Phase 2 — Híbrido, Modo Status & Android
-  preferred_execution_mode: ExecutionMode;
   status_mode_enabled: boolean;
   status_max_duration_seconds: StatusSegmentDuration;
   status_keep_original: boolean;
   auto_update_engines: boolean;
+  update_channel: UpdateChannel;
   notifications_enabled: boolean;
-  vps_url: string;
 }
 
 export interface PendingSharePayload {

@@ -2,6 +2,22 @@
 
 Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
+## [3.0.0] — Fase 3: Android 100% Local, DNR Instagram, Carrosséis Individuais & Otimização
+
+### Adicionado
+- **Devwolf Native Resolver (`DNR`) para Instagram**: resolvedor nativo em Kotlin com estratégias isoladas e cronometradas (`EmbedCaptionedStrategy`, `WebPageJsonStrategy`, `AuthorizedWebApiStrategy`), normalização estrita de URLs/tracking params e download HTTP direto via `SafeHttpClient` + `HttpMediaDownloader` (validação SSRF/DNS em cada redirect, TTFB e progresso real em bytes).
+- **Resolvedores Locais Zero-Bloat (`GalleryDlLocalResolver`)**: suporte 100% local no dispositivo para Pinterest (imagens, vídeos e carrosséis), Reddit (galerias ordenadas, imagens e fallback `yt-dlp` para `v.redd.it`) e fallback de imagens no Twitter/X.
+- **Contrato Estruturado de 11 Erros (`DevwolfErrorCode`)**: `AUTH_REQUIRED`, `PRIVATE_MEDIA`, `RATE_LIMITED`, `CAPTCHA_REQUIRED`, `MEDIA_UNAVAILABLE`, `UNSUPPORTED_MEDIA`, `CANCELLED`, `STORAGE_ERROR`, `EXTRACTOR_OUTDATED`, `EXTRACTION_FAILED`, `NETWORK_ERROR` com mensagens claras em `pt-BR`.
+- **Login Opcional via WebView Oficial do Instagram (`InstagramSessionActivity`)**: captura segura de sessão apenas para `*.instagram.com` no `SecureVault` (`EncryptedSharedPreferences`) com logout em um toque.
+- **Instrumentação Local (`PerformanceTracker`) e Diagnóstico**: métricas de tempo por etapa (`appOpenMs`, `clipboardDetectMs`, `engineInitMs`, `resolutionMs`, `ttfbMs`, `transferMs`, `processingMs`, `galleryPublishMs`, `totalJobMs`), contagem de requisições HTTP e cópia de log sanitizado nos Ajustes.
+- **Atualizador Real do `yt-dlp` (`LocalEngineManager`)**: leitura da versão real do binário `yt-dlp` (separada do wrapper `0.18.1`), verificação automática na primeira inicialização e a cada 24h, suporte aos canais `Stable` e `Nightly`, bloqueio durante downloads ativos e rollback automático em falha.
+- **Otimização de APK**: ABI splits (`arm64-v8a` ~57,7 MiB com R8 vs ~217 MiB universal) mantendo assinatura compatível para atualização direta sobre a `v2.0.0`.
+
+### Alterado
+- **Experiência 100% Local**: removida toda dependência de VPS, login obrigatório, fallback remoto e seletor Local/VPS da UI e da branch `main` (preservado integralmente em `archive/vps-hybrid` e tag `v2.0.0`).
+- **Execução em Passo Único no `yt-dlp`**: removido o pré-chamado `getInfo(url)`, substituído por `--no-simulate --no-warnings --print before_dl:...` com cookies em arquivo Netscape restrito ao domínio.
+- **Carrosséis Individuais na Galeria e UI**: cada foto/vídeo é salvo individualmente em `Pictures/Devwolf Downloader` / `Movies/Devwolf Downloader` com status, resolução e botões **Abrir** / **Compartilhar** próprios (proibindo registro de `.zip` no `MediaStore`).
+
 ## [2.0.0] — Fase 2: App Híbrido Android
 
 ### Adicionado

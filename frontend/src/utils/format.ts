@@ -1,4 +1,4 @@
-import type { EngineHealthState, EngineOrigin, JobStatus, PlatformId } from '../types/api';
+import type { JobStatus, PlatformId } from '../types/api';
 
 export const PLATFORM_META: Record<
   PlatformId,
@@ -66,52 +66,27 @@ export function getPhaseLabel(status: JobStatus): string {
 
 export function formatDisplayEngine(
   engine: string | null | undefined,
-  origin?: EngineOrigin | string | null
+  _origin?: string | null
 ): string {
-  if (!engine) {
-    return origin === 'local' ? 'Local • yt-dlp Android' : 'VPS';
-  }
-  if (engine === 'local-ytdlp' || origin === 'local') {
-    return 'Local • yt-dlp Android';
-  }
-  switch (engine) {
-    case 'cobalt':
-      return 'VPS • Cobalt';
-    case 'yt-dlp':
-      return 'VPS • yt-dlp';
+  const normalized = (engine ?? '').trim().toLowerCase();
+  switch (normalized) {
+    case 'dnr':
+    case 'instagram-dnr':
+    case 'devwolf-native-resolver':
+      return 'Local • DNR (Instagram)';
     case 'gallery-dl':
-      return 'VPS • gallery-dl';
+    case 'local-gallery-dl':
+      return 'Local • gallery-dl';
+    case 'local-pinterest':
+      return 'Local • Resolvedor Pinterest';
+    case 'local-reddit':
+      return 'Local • Resolvedor Reddit';
+    case 'yt-dlp':
+    case 'local-ytdlp':
+    case '':
+      return 'Local • yt-dlp Android';
     default:
-      return origin === 'vps' ? `VPS • ${engine}` : engine;
-  }
-}
-
-export function getEngineHealthLabel(health: EngineHealthState): {
-  label: string;
-  className: string;
-} {
-  switch (health) {
-    case 'online':
-      return {
-        label: 'Online',
-        className: 'bg-[#A3E635]/15 text-[#A3E635] border-[#A3E635]/30',
-      };
-    case 'degraded':
-      return {
-        label: 'Degradado',
-        className: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-      };
-    case 'maintenance':
-      return {
-        label: 'Manutenção',
-        className: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
-      };
-    case 'offline':
-    default:
-      return {
-        label: 'Offline',
-        className: 'bg-red-500/15 text-red-300 border-red-500/30',
-      };
+      return `Local • ${engine}`;
   }
 }
 
@@ -148,6 +123,23 @@ export function formatDuration(seconds: number | null | undefined): string {
     return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
   return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+export function formatResolution(
+  width: number | null | undefined,
+  height: number | null | undefined
+): string {
+  if (!width || !height || width <= 0 || height <= 0) {
+    return '';
+  }
+  return `${width}×${height}`;
+}
+
+export function formatMs(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || Number.isNaN(ms) || ms < 0) {
+    return '—';
+  }
+  return `${Math.round(ms)} ms`;
 }
 
 export function formatDateTime(iso: string | null | undefined): string {

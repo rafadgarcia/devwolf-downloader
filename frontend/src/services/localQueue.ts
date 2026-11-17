@@ -1,4 +1,7 @@
 import type {
+  CarouselItemState,
+  CarouselItemStatus,
+  CarouselMediaType,
   FormatOption,
   HistoryItem,
   JobFile,
@@ -6,6 +9,7 @@ import type {
   JobStatus,
   QualityOption,
 } from '../types/api';
+import { getUserFacingErrorMessage } from '../utils/errorContract';
 import { formatDisplayEngine, getPhaseLabel } from '../utils/format';
 import type {
   LocalDownloadProgressEvent,
@@ -13,12 +17,15 @@ import type {
   LocalOutputFile,
 } from './nativeBridge';
 
-const LOCAL_QUEUE_STORAGE_KEY = 'devwolf_local_jobs_v2';
+const LOCAL_QUEUE_STORAGE_KEY = 'devwolf_local_jobs_v3';
+const LEGACY_LOCAL_QUEUE_STORAGE_KEY = 'devwolf_local_jobs_v2';
 const MAX_LOCAL_HISTORY_ITEMS = 80;
 
 function readStoredJobs(): JobResponse[] {
   try {
-    const raw = window.localStorage.getItem(LOCAL_QUEUE_STORAGE_KEY);
+    const raw =
+      window.localStorage.getItem(LOCAL_QUEUE_STORAGE_KEY) ??
+      window.localStorage.getItem(LEGACY_LOCAL_QUEUE_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as JobResponse[]) : [];
@@ -39,20 +46,114 @@ function writeStoredJobs(jobs: JobResponse[]): void {
   }
 }
 
-export function mapLocalFilesToJobFiles(files?: LocalOutputFile[]): JobFile[] {
+function inferMediaType(
+  explicitType?: CarouselMediaType,
+  mimeType?: string | null,
+  fileName?: string | null
+): CarouselMediaType {
+  if (explicitType === 'image' || explicitType === 'video' || explicitType === 'audio') {
+    return explicitType;
+  }
+  const mime = (mimeType ?? '').toLowerCase();
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('audio/')) return 'audio';
+  if (mime.startsWith('video/')) return 'video';
+  const name = (fileName ?? '').toLowerCase();
+  if (/\.(jpe?g|png|webp|gif|heic|heif|avif)$/.test(name)) return 'image';
+  if (/\.(mp3|m4a|aac|opus|ogg|wav|flac)$/.test(name)) return 'audio';
+  return 'video';
+}
+
+function normalizeItemStatus(
+  rawStatus?: CarouselItemStatus,
+  hasMedia?: boolean,
+  jobStatus?: JobStatus
+): CarouselItemStatus {
+  if (
+    rawStatus === 'queued' ||
+    rawStatus === 'downloading' ||
+    rawStatus === 'ready' ||
+    rawStatus === 'failed'
+  ) {
+    return rawStatus;
+  }
+  if (hasMedia || jobStatus === 'ready') return 'ready';
+  if (jobStatus === 'failed' || jobStatus === 'cancelled') return 'failed';
+  if (jobStatus === 'downloading' || jobStatus === 'processing') return 'downloading';
+  return 'queued';
+}
+
+export function mapLocalFilesToCarouselItems(
+  files?: LocalOutputFile[],
+  jobStatus?: JobStatus
+): CarouselItemState[] {
   if (!Array.isArray(files)) return [];
-  return files.map((f) => ({
-    id: f.id,
-    filename: f.fileName,
-    mime_type: f.mimeType || 'video/mp4',
-    size_bytes: f.sizeBytes ?? 0,
-    duration_seconds: f.durationSeconds ?? null,
-    file_path: f.filePath,
-    media_uri: f.mediaUri,
-    display_path: f.displayPath,
-    is_segment: f.isSegment,
-    segment_index: f.segmentIndex,
-    is_original: f.isOriginal,
+
+  return files
+    .map((f, idx) => {
+      const index = typeof f.index === 'number' && f.index > 0 ? f.index : idx + 1;
+      const mimeType = f.mimeType || 'application/octet-stream';
+      const type = inferMediaType(f.type, mimeType, f.fileName);
+      const hasMedia = Boolean(f.mediaUri || f.filePath);
+      const status = normalizeItemStatus(f.status, hasMedia, jobStatus);
+      const sizeBytes = f.sizeBytes ?? 0;
+      const bytesDownloaded = f.bytesDownloaded ?? (status === 'ready' ? sizeBytes : 0);
+      const percent =
+        f.percent !== undefined && f.percent !== null
+          ? f.percent
+          : status === 'ready'
+          ? 100
+          : sizeBytes > 0 && bytesDownloaded > 0
+          ? Math.min(100, Math.round((bytesDownloaded / sizeBytes) * 100))
+          : null;
+
+      return {
+        id: f.id || `item-${index}`,
+        index,
+        type,
+        fileName: f.fileName,
+        mimeType,
+        width: f.width ?? null,
+        height: f.height ?? null,
+        sizeBytes,
+        bytesDownloaded,
+        percent,
+        status,
+        mediaUri: f.mediaUri ?? null,
+        displayPath: f.displayPath ?? null,
+        filePath: f.filePath ?? null,
+        durationSeconds: f.durationSeconds ?? null,
+        isSegment: Boolean(f.isSegment),
+        segmentIndex: f.segmentIndex ?? null,
+        isOriginal: Boolean(f.isOriginal),
+      };
+    })
+    .sort((a, b) => a.index - b.index);
+}
+
+export function mapLocalFilesToJobFiles(
+  files?: LocalOutputFile[],
+  jobStatus?: JobStatus
+): JobFile[] {
+  return mapLocalFilesToCarouselItems(files, jobStatus).map((item) => ({
+    id: item.id,
+    index: item.index,
+    type: item.type,
+    filename: item.fileName,
+    mime_type: item.mimeType,
+    width: item.width,
+    height: item.height,
+    size_bytes: item.sizeBytes,
+    bytes_downloaded: item.bytesDownloaded,
+    percent: item.percent,
+    status: item.status,
+    duration_seconds: item.durationSeconds ?? null,
+    file_path: item.filePath ?? null,
+    media_uri: item.mediaUri,
+    display_path: item.displayPath,
+    is_segment: item.isSegment,
+    segment_index: item.segmentIndex ?? null,
+    is_original: item.isOriginal,
   }));
 }
 
@@ -67,8 +168,10 @@ export function createInitialLocalJob(params: {
   segmentDuration?: number | null;
   keepOriginal?: boolean;
   fromShareIntent?: boolean;
+  primaryEngine?: string;
 }): JobResponse {
   const now = new Date().toISOString();
+  const initialEngine = params.primaryEngine ?? (params.platform === 'instagram' ? 'dnr' : 'yt-dlp');
   return {
     id: params.jobId,
     original_url: params.url,
@@ -79,10 +182,10 @@ export function createInitialLocalJob(params: {
     quality: params.quality,
     status: 'queued',
     phase_label: 'Link detectado',
-    current_engine: 'local-ytdlp',
-    selected_engine: 'local-ytdlp',
+    current_engine: initialEngine,
+    selected_engine: initialEngine,
     execution_origin: 'local',
-    display_engine: 'Local • yt-dlp Android',
+    display_engine: formatDisplayEngine(initialEngine, 'local'),
     bytes_downloaded: 0,
     total_bytes: null,
     percent: null,
@@ -94,6 +197,7 @@ export function createInitialLocalJob(params: {
     keep_original: params.keepOriginal ?? false,
     from_share_intent: params.fromShareIntent ?? false,
     files: [],
+    items: [],
     created_at: now,
     updated_at: now,
   };
@@ -105,7 +209,15 @@ export function applyLocalProgressToJob(
 ): JobResponse {
   const now = new Date().toISOString();
   const status: JobStatus = event.status;
-  const files = event.files ? mapLocalFilesToJobFiles(event.files) : existing?.files ?? [];
+  const rawList = event.items ?? event.files;
+  const items = rawList ? mapLocalFilesToCarouselItems(rawList, status) : existing?.items ?? [];
+  const files = rawList ? mapLocalFilesToJobFiles(rawList, status) : existing?.files ?? [];
+  const engine = event.engine || existing?.current_engine || existing?.selected_engine || 'yt-dlp';
+  const errorCode = event.errorCode ?? existing?.error_code ?? null;
+  const errorMessage =
+    status === 'failed' || errorCode || event.error
+      ? getUserFacingErrorMessage(errorCode, event.error ?? existing?.error_message)
+      : null;
 
   return {
     id: event.jobId,
@@ -117,10 +229,12 @@ export function applyLocalProgressToJob(
     quality: existing?.quality ?? 'best',
     status,
     phase_label: event.phaseLabel || getPhaseLabel(status),
-    current_engine: 'local-ytdlp',
-    selected_engine: 'local-ytdlp',
+    current_engine: engine,
+    selected_engine: engine,
     execution_origin: 'local',
-    display_engine: 'Local • yt-dlp Android',
+    display_engine: formatDisplayEngine(engine, 'local'),
+    engine_version: event.engineVersion ?? existing?.engine_version ?? null,
+    strategy_used: event.strategyUsed ?? existing?.strategy_used ?? null,
     bytes_downloaded: event.bytesDownloaded ?? existing?.bytes_downloaded ?? 0,
     total_bytes: event.totalBytes ?? existing?.total_bytes ?? null,
     percent: event.percent ?? existing?.percent ?? null,
@@ -131,17 +245,33 @@ export function applyLocalProgressToJob(
     segment_duration: existing?.segment_duration ?? null,
     keep_original: existing?.keep_original ?? false,
     from_share_intent: existing?.from_share_intent ?? false,
-    error_code: event.errorCode ?? existing?.error_code ?? null,
-    error_message: event.error ?? existing?.error_message ?? null,
+    error_code: errorCode,
+    error_message: errorMessage,
+    technical_reason: event.technicalReason ?? existing?.technical_reason ?? null,
+    metrics: event.metrics ?? existing?.metrics ?? null,
     files,
+    items,
     created_at: existing?.created_at ?? now,
     updated_at: now,
-    completed_at: status === 'ready' || status === 'failed' || status === 'cancelled' ? now : existing?.completed_at ?? null,
+    completed_at:
+      status === 'ready' || status === 'failed' || status === 'cancelled'
+        ? now
+        : existing?.completed_at ?? null,
   };
 }
 
 export function snapshotToJobResponse(snapshot: LocalDownloadSnapshot): JobResponse {
   const now = new Date().toISOString();
+  const rawList = snapshot.items ?? snapshot.files;
+  const items = mapLocalFilesToCarouselItems(rawList, snapshot.status);
+  const files = mapLocalFilesToJobFiles(rawList, snapshot.status);
+  const engine = snapshot.engine || (snapshot.platform === 'instagram' ? 'dnr' : 'yt-dlp');
+  const errorCode = snapshot.errorCode ?? null;
+  const errorMessage =
+    snapshot.status === 'failed' || errorCode || snapshot.error
+      ? getUserFacingErrorMessage(errorCode, snapshot.error)
+      : null;
+
   return {
     id: snapshot.jobId,
     original_url: snapshot.url,
@@ -152,10 +282,12 @@ export function snapshotToJobResponse(snapshot: LocalDownloadSnapshot): JobRespo
     quality: snapshot.quality,
     status: snapshot.status,
     phase_label: snapshot.phaseLabel || getPhaseLabel(snapshot.status),
-    current_engine: 'local-ytdlp',
-    selected_engine: 'local-ytdlp',
+    current_engine: engine,
+    selected_engine: engine,
     execution_origin: 'local',
-    display_engine: 'Local • yt-dlp Android',
+    display_engine: formatDisplayEngine(engine, 'local'),
+    engine_version: snapshot.engineVersion ?? null,
+    strategy_used: snapshot.strategyUsed ?? null,
     bytes_downloaded: snapshot.bytesDownloaded ?? 0,
     total_bytes: snapshot.totalBytes ?? null,
     percent: snapshot.percent ?? null,
@@ -165,9 +297,12 @@ export function snapshotToJobResponse(snapshot: LocalDownloadSnapshot): JobRespo
     status_mode: snapshot.statusMode,
     segment_duration: snapshot.segmentDurationSeconds ?? null,
     keep_original: snapshot.keepOriginal ?? false,
-    error_code: snapshot.errorCode ?? null,
-    error_message: snapshot.error ?? null,
-    files: mapLocalFilesToJobFiles(snapshot.files),
+    error_code: errorCode,
+    error_message: errorMessage,
+    technical_reason: snapshot.technicalReason ?? null,
+    metrics: snapshot.metrics ?? null,
+    files,
+    items,
     created_at: snapshot.createdAt ?? now,
     updated_at: snapshot.updatedAt ?? now,
   };
@@ -225,46 +360,30 @@ export function localJobToHistoryItem(job: JobResponse): HistoryItem {
     quality: job.quality,
     status: job.status,
     phase_label: job.phase_label || getPhaseLabel(job.status),
-    selected_engine: job.selected_engine ?? 'local-ytdlp',
-    execution_origin: job.execution_origin ?? 'local',
-    display_engine:
-      job.display_engine ?? formatDisplayEngine(job.selected_engine, job.execution_origin ?? 'local'),
+    selected_engine: job.selected_engine ?? 'yt-dlp',
+    execution_origin: 'local',
+    display_engine: job.display_engine ?? formatDisplayEngine(job.selected_engine, 'local'),
     status_mode: job.status_mode,
+    error_code: job.error_code ?? null,
     error_message: job.error_message,
     created_at: job.created_at,
     completed_at: job.completed_at,
     file: primaryFile,
     files: job.files,
+    items: job.items,
     has_active_file: Boolean(primaryFile && job.status === 'ready'),
-    file_expired: false,
   };
 }
 
-export function mergeUnifiedHistory(
+export function filterLocalHistory(
   localJobs: JobResponse[],
-  vpsItems: HistoryItem[],
   filter?: { q?: string; platform?: string }
 ): HistoryItem[] {
-  const localItems = localJobs.map(localJobToHistoryItem);
-  const byId = new Map<string, HistoryItem>();
-
-  for (const item of vpsItems) {
-    byId.set(item.id, {
-      ...item,
-      execution_origin: item.execution_origin ?? 'vps',
-      display_engine:
-        item.display_engine ?? formatDisplayEngine(item.selected_engine, item.execution_origin ?? 'vps'),
-    });
-  }
-
-  for (const local of localItems) {
-    byId.set(local.id, local);
-  }
-
   const query = (filter?.q ?? '').trim().toLowerCase();
   const platform = filter?.platform ?? 'all';
 
-  return Array.from(byId.values())
+  return localJobs
+    .map(localJobToHistoryItem)
     .filter((item) => {
       if (platform !== 'all' && item.platform !== platform) {
         return false;

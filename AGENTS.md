@@ -1,67 +1,57 @@
-# AGENTS.md — Devwolf Downloader (antigo DropLink)
+# AGENTS.md — Devwolf Downloader (`com.devwolf.downloader`)
 
-Normas permanentes de desenvolvimento, propriedade de arquivos, contratos entre componentes e invariantes de segurança. Fonte de verdade de produto: `DropLink-PROJETO.md` (Fase 1) e especificações da Fase 2 (App Híbrido Android `com.devwolf.downloader`).
+Normas permanentes de desenvolvimento, propriedade de arquivos, contratos entre componentes e invariantes de segurança para a **Fase 3 (`v3.0.0`)** — App Android 100% local.
+*(A arquitetura híbrida anterior com VPS/Docker/Cobalt permanece preservada na branch `archive/vps-hybrid` e tag `v2.0.0`.)*
 
 ## 1. Regras Gerais e Idioma
 - Nome oficial da aplicação: **Devwolf Downloader** (`com.devwolf.downloader`).
 - Interface do usuário e documentação principal: **Português do Brasil (`pt-BR`)**.
-- Não alterar infraestrutura real de VPS (containers, volumes, proxies, certificados) sem inventário read-only prévio e autorização explícita.
-- Reutilizar a instância existente do Cobalt via `COBALT_API_URL` (e `COBALT_API_KEY` opcional). Nunca destruir ou substituir containers existentes.
-- Não implementar acesso a mídias privadas, contorno de DRM, login de terceiros por padrão ou resolução de CAPTCHA.
+- Execução 100% local no dispositivo Android: zero dependência de VPS, login obrigatório de servidor ou backend remoto.
+- Não implementar contorno de DRM, resolução automática de CAPTCHA, captura de senha ou acesso automatizado não autorizado.
+- Nunca versionar `docs/Rposty.apk`, `docs/rev-eng/work/` ou `docs/rev-eng/sources/` (protegidos via `.gitignore`).
 
-## 2. Matriz de Propriedade de Arquivos (Swarm)
-- **Fase 1**: `@devops` (`.gitignore`, `.env.example`, `compose.yml`, `README.md`, `AGENTS.md`, `TASKS.md`, `DECISIONS.md`, `config/routes.yaml`, `ops/*`, `docs/*`, `graphify-out/*`), `@backend` (`backend/**`), `@frontend` (`frontend/**`).
-- **Fase 2 (App Híbrido Android)**:
-  - `@android`: `android/**`, `frontend/capacitor.config.ts`, `.github/workflows/**`, `AGENTS.md`, `TASKS.md`, `DECISIONS.md`, `CHANGELOG.md`, `README.md`, `docs/**`, `.gitignore`, `graphify-out/**`.
-  - `@backend-2`: `backend/**`, `config/routes.yaml`.
-  - `@frontend-2`: `frontend/**` (exceto `frontend/capacitor.config.ts`).
+## 2. Matriz de Propriedade de Arquivos (Fase 3)
+- **`@instagram-engine`**:
+  - `android/app/src/main/java/com/devwolf/downloader/resolvers/**` (`ResolverContract.kt`, `SafeHttpClient.kt`, `InstagramParsers.kt`, `InstagramNativeResolver.kt`, `HttpMediaDownloader.kt`, `GalleryDlLocalResolver.kt`, `EngineRouter.kt`)
+  - `android/app/src/main/java/com/devwolf/downloader/UrlExtractor.kt`
+  - `android/app/src/main/java/com/devwolf/downloader/SecureVault.kt`
+  - `android/app/src/main/java/com/devwolf/downloader/InstagramSessionActivity.kt`
+  - `android/app/src/test/java/com/devwolf/downloader/resolvers/**`, `UrlExtractorTest.kt`
+  - `docs/DNR-ARCHITECTURE.md`
+- **`@android-performance`**:
+  - `android/app/build.gradle`, `android/build.gradle`, `android/gradle.properties`, `android/app/proguard-rules.pro`
+  - `android/app/src/main/AndroidManifest.xml`
+  - `DevwolfDownloadService.kt`, `DevwolfNativePlugin.kt`, `LocalEngineManager.kt`, `LocalQueueStore.kt`, `MediaStoreHelper.kt`, `StatusModeProcessor.kt`, `PerformanceTracker.kt`
+  - `StatusModeProcessorTest.kt`, `PerformanceAndErrorContractTest.kt`
+  - `.github/workflows/ci.yml`, `AGENTS.md`, `TASKS.md`, `DECISIONS.md`, `CHANGELOG.md`, `README.md`, `graphify-out/**`
+- **`@frontend-integration`**:
+  - `frontend/src/**`, `frontend/public/**`, `frontend/index.html`, `frontend/package.json`
 
-## 3. Contratos de API e Estados
+## 3. Contratos Entre Motores, Bridge Nativo (`DevwolfNative`) e UI
 
-### Autenticação e Segurança
-- Cookie de sessão `HttpOnly`, `SameSite=Lax`, `Secure` (configurável por env `COOKIE_SECURE=true|false` para dev local HTTP).
-- Endpoints:
-  - `POST /api/auth/login` -> `{ "password": "..." }` (ou `{ "username": "...", "password": "..." }` com default admin)
-  - `POST /api/auth/logout` -> encerra sessão
-  - `GET /api/auth/me` -> `{ "authenticated": true, "user": { "id", "username" }, "csrf_token": "..." }`
-- Endpoints de escrita (`POST`, `PATCH`, `DELETE`, exceto `/api/auth/login` e `/share-target`) exigem header `X-CSRF-Token` válido e validação Same-Origin.
+### Roteamento de Motores (`EngineRouter`)
+- **Instagram** (`/reel/`, `/reels/`, `/p/`, `/tv/`, `/stories/`, `/share/`): `DNR` primário (`EmbedCaptionedStrategy` -> `WebPageJsonStrategy` -> `AuthorizedWebApiStrategy`) -> fallback `yt-dlp` somente em erros recuperáveis.
+- **Pinterest** / **Reddit**: resolvedor local Kotlin (`GalleryDlLocalResolver`) -> fallback `yt-dlp` (ex.: DASH `v.redd.it`).
+- **YouTube / Shorts**, **TikTok**, **Facebook**, **Twitter/X**: `yt-dlp` em passo único (`--no-simulate --no-warnings --print before_dl:...`) com fallback para resolvedor local de imagens no Twitter/X.
+- **Inicialização preguiçosa (`lazy`)**: `YoutubeDL`/Python e `FFmpeg` nunca são inicializados em jobs resolvidos pelo DNR ou resolvedores locais (exceto `FFmpeg` sob demanda se Modo Status estiver ativo para vídeo).
 
-### Jobs, Fases e SSE
-- `POST /api/jobs` -> `{ "url": "...", "format": "auto|video|audio|image", "quality": "best|1080p|720p|480p|audio", "idempotency_key": "...", "force_manual": false }`
-- Estados (`status`): `queued`, `resolving`, `downloading`, `processing`, `ready`, `failed`, `cancelled`, `expired`.
-- Fases em pt-BR recomendadas na UI: `"Link detectado"`, `"Procurando mídia"`, `"Baixando"`, `"Preparando arquivo"`, `"Pronto para baixar"`, `"Falhou"`.
-- Progresso honesto: `bytes_downloaded` (`int`), `total_bytes` (`int | null`), `percent` (`float | null`), `is_indeterminate` (`bool`). Nunca simular percentual quando `total_bytes` for desconhecido.
-- `GET /api/jobs/{id}/events`: Server-Sent Events (`text/event-stream`), com fallback automático no frontend para `GET /api/jobs/{id}`.
-- `POST /api/jobs/{id}/cancel`: cancela job ativo e encerra subprocessos/streams.
-- `GET /api/jobs/{id}/files/{file_id}`: download autenticado com `Content-Disposition: attachment; filename="..."` e validação de posse do usuário.
+### Taxonomia Estruturada de Erros (`DevwolfErrorCode`)
+- **Terminais** (interrompem imediatamente, sem retry/fallback):
+  - `AUTH_REQUIRED`, `PRIVATE_MEDIA`, `RATE_LIMITED`, `CAPTCHA_REQUIRED`, `MEDIA_UNAVAILABLE`, `UNSUPPORTED_MEDIA`, `CANCELLED`, `STORAGE_ERROR`.
+- **Recuperáveis** (permitem fallback se houver motor secundário):
+  - `EXTRACTOR_OUTDATED`, `EXTRACTION_FAILED`, `NETWORK_ERROR`.
+- Avisos não fatais do `yt-dlp` (como `WARNING: Your yt-dlp version ... is older than 90 days`) e falhas genéricas de parser nunca podem ser classificados como `PRIVATE_MEDIA`.
 
-### Histórico, Motores, Ajustes e Share Target
-- `GET /api/history` (paginado, filtros `q`, `platform`, `status`) e `DELETE /api/history/{id}`.
-- `GET /api/engines`: status (`online`, `degraded`, `maintenance`, `offline`), versão, circuit breaker, último sucesso, último erro sanitizado e status do atualizador Cobalt.
-- `GET /api/settings` e `PATCH /api/settings`: `auto_download`, `default_quality`, `data_saver`, `file_retention_hours`, `theme`, `enabled_engines`.
-- `POST /share-target`: recebe `application/x-www-form-urlencoded` (`title`, `text`, `url`), extrai URL segura sem criar job antes da autenticação e redireciona para o app autenticado via estado curto/sessão (sem vazar URLs sensíveis em query/logs).
-- `GET /healthz` e `GET /readyz`: liveness e readiness minimalistas.
+### Carrosséis Individuais & MediaStore
+- Carrosséis são sempre representados item a item (`index` 1..N, `type`: `video` | `image` | `audio`, `fileName`, `mimeType`, `width`, `height`, `sizeBytes`, `bytesDownloaded`, `percent`, `status`, `mediaUri`, `displayPath`).
+- Fotos vão para `MediaStore.Images.Media` (`Pictures/Devwolf Downloader`), vídeos para `MediaStore.Video.Media` (`Movies/Devwolf Downloader`) e áudios para `MediaStore.Audio.Media` (`Music/Devwolf Downloader`).
+- Arquivos `.zip` ou MIME desconhecidos são rejeitados pelo `MediaStoreHelper` e nunca registrados como vídeo.
 
-### Contrato do Status de Manutenção do Cobalt (`COBALT_STATUS_FILE`)
-Arquivo JSON escrito atomicamente pelo host (`ops/update-cobalt.sh`) e montado read-only para backend/worker (ex.: `/app/data/cobalt-updater-status.json`):
-```json
-{
-  "maintenance": false,
-  "state": "idle",
-  "current_digest": "sha256:...",
-  "current_version": "11.x",
-  "previous_digest": "sha256:...",
-  "rejected_digest": null,
-  "rejected_until": null,
-  "last_check_at": "2026-11-17T00:00:00Z",
-  "last_update_at": "2026-11-17T00:00:00Z",
-  "last_rollback_at": null,
-  "last_error": null
-}
-```
-Quando `maintenance: true`, o worker não inicia novos jobs no Cobalt e aguarda dreno limitado antes da atualização, mantendo `yt-dlp` e `gallery-dl` ativos.
+### Bridge `DevwolfNative` e Telemetria Local
+- Métodos principais: `readClipboard`, `getPendingShareIntent`, `clearPendingShareIntent`, `returnToSourceApp`, `startLocalDownload`, `cancelLocalDownload`, `getLocalDownloadQueue`, `saveToGallery`, `shareMedia`, `openMedia`, `deleteMedia`, `getLocalEngineStatus`, `updateLocalEngine`, `rollbackLocalEngine`, `getDiagnosticsReport`, `openInstagramLoginWebView`, `getPlatformSessions`, `savePlatformSession`, `revokePlatformSession`, `clearTempCache`.
+- `PerformanceTracker` registra apenas métricas locais (`appOpenMs`, `clipboardDetectMs`, `engineInitMs`, `resolutionMs`, `ttfbMs`, `transferMs`, `processingMs`, `galleryPublishMs`, `totalJobMs`, `httpRequestCount`, `engineUsed`, `strategyUsed`) e sanitiza logs antes de expor `sanitizedLog`.
 
 ## 4. Invariantes de Segurança
-- **SSRF**: parsear URL com biblioteca padrão (`urllib.parse`), exigir `http`/`https`, proibir credenciais embutidas, IPs literais, loopback, redes privadas RFC1918, link-local (`169.254.0.0/16`), IPv6 equivalentes e domínios fora da allowlist de `config/routes.yaml`. Validar cada salto de redirect e resolver DNS com verificação de IP antes da conexão.
-- **Execução segura**: containers/processos sem root; subprocessos sempre com lista de argumentos (`shell=False`); nunca confiar em título remoto como nome de arquivo; prevenir path traversal, symlink escape e zip-slip.
-- **Privacidade**: nunca enviar texto bruto do clipboard ao servidor; service worker não cacheia `/api/*`, histórico ou arquivos de mídia; não logar tokens, cookies ou URLs assinadas.
+- **SSRF**: validar `http`/`https`, proibir credenciais embutidas, IPs literais (IPv4/IPv6/hex/octal/inteiro), loopback, RFC1918, CGNAT, link-local (`169.254.0.0/16`) e validar DNS público em cada salto de redirect (máx. 5 saltos).
+- **Sessão e Cookies**: cookies armazenados apenas em `EncryptedSharedPreferences` + Android Keystore; enviados estritamente ao host de origem (nunca a CDNs terceiros ou logs); logout via WebView apaga `CookieManager`, `WebStorage` e cofre.
+- **Execução segura**: subprocessos (`ffmpeg`/`ffprobe`) sempre via lista de argumentos (`ProcessBuilder`, sem shell); arquivos temporários isolados em `cacheDir/jobs/<jobId>` e removidos no `finally`.

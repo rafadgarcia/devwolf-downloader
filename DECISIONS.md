@@ -33,3 +33,23 @@
 - **Decisão**: Empacotar a interface React/Vite em app Android nativo via Capacitor (`com.devwolf.downloader`, esquema `https://localhost`) com plugin nativo Kotlin `DevwolfNative` integrando `youtubedl-android` (`yt-dlp` + `FFmpeg` + `aria2c`), Foreground Service (`dataSync`), MediaStore (`Devwolf Downloader`), `ACTION_SEND` Sharesheet e cofre criptografado (`EncryptedSharedPreferences`).
 - **Motivo**: Permite execução 100% local no dispositivo quando desejado ou offline da VPS, mantém a VPS como motor remoto com fallback automático (`Automático` / `Local` / `VPS`) e habilita Modo Status (WhatsApp) e entrega direta na galeria do Android sem depender apenas das limitações de PWA.
 - **Segurança**: Sessões opcionais armazenadas localmente nunca são enviadas à VPS; comunicação com a VPS suporta Bearer token de sessão para evitar restrições de cookie cross-origin no WebView Capacitor.
+
+## 9. Migração para App Android 100% Local e Preservação da Fase 2 (`archive/vps-hybrid`) — Fase 3
+- **Decisão**: Remover a dependência de VPS (`backend/`, `ops/`, `compose.yml`, `LoginScreen`, fallback remoto) da branch `main`, mantendo todo o histórico da Fase 2 preservado na branch `archive/vps-hybrid` e na tag `v2.0.0`.
+- **Motivo**: Eliminar pontos de falha externos, latência de rede extra e complexidade de configuração/autenticação de servidor no aplicativo Android pessoal.
+
+## 10. Devwolf Native Resolver (DNR) e Resolvedores Locais Kotlin
+- **Decisão**: Criar resolvedores nativos em Kotlin (`InstagramNativeResolver` com `EmbedCaptionedStrategy`, `WebPageJsonStrategy`, `AuthorizedWebApiStrategy`; e `GalleryDlLocalResolver` para Pinterest, Reddit e imagens do Twitter/X) usando `OkHttp` + `Jsoup` + `HttpMediaDownloader`, inicializando `yt-dlp`/Python e `FFmpeg` de forma estritamente preguiçosa (`lazy`).
+- **Motivo**: Reduz drasticamente o tempo de resolução no Instagram e evita inicializar o runtime Python (`youtubedl-android`) ou empacotar um segundo runtime Python para `gallery-dl` (~50+ MB extras no APK). Para fluxos de vídeo DASH (`v.redd.it`, YouTube, TikTok, Facebook), o `EngineRouter` continua usando `yt-dlp` em passo único (`--no-simulate --no-warnings --print before_dl:...`).
+
+## 11. Taxonomia Estruturada de 11 Códigos de Erro e Separação de Warnings
+- **Decisão**: Substituir classificação por regex solta e códigos ad-hoc pelo enum `DevwolfErrorCode` (`AUTH_REQUIRED`, `PRIVATE_MEDIA`, `RATE_LIMITED`, `CAPTCHA_REQUIRED`, `MEDIA_UNAVAILABLE`, `UNSUPPORTED_MEDIA`, `CANCELLED`, `STORAGE_ERROR`, `EXTRACTOR_OUTDATED`, `EXTRACTION_FAILED`, `NETWORK_ERROR`), filtrando linhas `WARNING:` (incluindo o aviso de 90 dias do `yt-dlp`) antes de classificar erros fatais.
+- **Motivo**: Impedir que falhas genéricas de parser ou avisos de idade do `yt-dlp` sejam exibidos como `PRIVATE_MEDIA` ou disparem fallbacks indevidos após erros terminais.
+
+## 12. Entrega Individual de Carrosséis no MediaStore
+- **Decisão**: Nunca empacotar carrosséis em `.zip` no Android nem registrar arquivos desconhecidos em `MediaStore.Video`. Cada foto/vídeo é baixado e publicado individualmente em `Pictures/Devwolf Downloader` ou `Movies/Devwolf Downloader` preservando a ordem (`01`, `02`, ...).
+- **Motivo**: Compatibilidade direta com a galeria Android e compartilhamento individual ou múltiplo (`ACTION_SEND_MULTIPLE`).
+
+## 13. Redução de APK via ABI Splits + R8 e Continuidade de Assinatura
+- **Decisão**: Habilitar `splits.abi` (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `universalApk true`) e R8 (`minifyEnabled true`, `shrinkResources true`) no build `release`, mantendo assinatura compatível com a keystore de debug usada na `v2.0.0` (SHA-256 `d08e79...74`) quando `RELEASE_STORE_FILE` não estiver definido.
+- **Motivo**: Reduzir o APK para celulares modernos `arm64-v8a` de ~217 MiB para ~58 MiB (~73% menor) mantendo atualização direta por cima da `v2.0.0` sem perda de dados/sessões.

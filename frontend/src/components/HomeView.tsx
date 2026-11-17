@@ -33,20 +33,15 @@ interface HomeViewProps {
   onCancelJob: (jobId: string) => Promise<void>;
   onRetryJob: (url: string) => Promise<void>;
   onReturnToSourceApp?: () => Promise<void>;
+  onOpenSettings?: () => void;
   showReturnToSourceApp?: boolean;
   clipboardGuidance: string | null;
   statusNotice: string | null;
   submitting: boolean;
   activeJob: JobResponse | null;
   engineSwitchNotice: string | null;
-  connectionMode: 'sse' | 'polling' | 'local' | 'idle';
+  connectionMode: 'local' | 'idle';
 }
-
-const MODE_LABELS: Record<UserSettings['preferred_execution_mode'], string> = {
-  auto: 'Automático',
-  local: 'Local (Android)',
-  vps: 'Remoto (VPS)',
-};
 
 export function HomeView({
   urlInput,
@@ -67,6 +62,7 @@ export function HomeView({
   onCancelJob,
   onRetryJob,
   onReturnToSourceApp,
+  onOpenSettings,
   showReturnToSourceApp,
   clipboardGuidance,
   statusNotice,
@@ -112,7 +108,7 @@ export function HomeView({
           Copiou. Abriu. Baixou.
         </p>
         <span className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-600 dark:border-zinc-800 dark:bg-[#1C1C20] dark:text-zinc-300">
-          Modo: {MODE_LABELS[settings.preferred_execution_mode]}
+          Execução: Local (Android)
         </span>
       </div>
 
@@ -267,6 +263,7 @@ export function HomeView({
           onCancel={(id) => void onCancelJob(id)}
           onRetry={(url) => void onRetryJob(url)}
           onReturnToSourceApp={onReturnToSourceApp}
+          onOpenSettings={onOpenSettings}
         />
       )}
 

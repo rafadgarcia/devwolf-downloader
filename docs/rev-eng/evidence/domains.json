@@ -1,0 +1,223 @@
+{
+  "java_files": 11211,
+  "engine_markers": [],
+  "literal_domains": {
+    "accounts.google.com": [
+      "Y2/g.java"
+    ],
+    "admob-gmats.uc.r.appspot.com": [
+      "com/google/android/gms/internal/ads/AbstractC2332za.java"
+    ],
+    "aomedia.org": [
+      "androidx/media3/extractor/metadata/emsg/EventMessage.java"
+    ],
+    "apache.org": [
+      "org/xmlpull/v1/sax2/Driver.java"
+    ],
+    "app-measurement.com": [
+      "A4/f.java",
+      "G6/d.java",
+      "p081k3/H.java"
+    ],
+    "appleid.apple.com": [
+      "Y2/g.java"
+    ],
+    "csi.gstatic.com": [
+      "com/google/android/gms/internal/ads/AbstractC0982bI.java"
+    ],
+    "dashif.org": [
+      "androidx/media3/exoplayer/dash/DashMediaPeriod.java",
+      "androidx/media3/exoplayer/dash/manifest/DashManifestParser.java"
+    ],
+    "default.url": [
+      "androidx/media3/exoplayer/drm/FrameworkMediaDrm.java"
+    ],
+    "developer.android.com": [
+      "androidx/media3/datasource/HttpDataSource.java",
+      "androidx/media3/exoplayer/ExoPlayerImpl.java",
+      "com/google/android/gms/internal/ads/C2158wN.java",
+      "com/google/android/gms/internal/ads/SP.java"
+    ],
+    "developer.apple.com": [
+      "androidx/media3/extractor/metadata/emsg/EventMessage.java"
+    ],
+    "developers.google.com": [
+      "com/google/android/gms/internal/ads/AbstractC1167ei.java",
+      "com/google/android/gms/internal/ads/C0517Eq.java",
+      "com/google/android/gms/internal/ads/C1929sI.java",
+      "com/google/android/gms/internal/ads/QH.java"
+    ],
+    "firebase-settings.crashlytics.com": [
+      "A4/b.java"
+    ],
+    "firebase.google.com": [
+      "A4/b.java",
+      "C4/e.java",
+      "com/google/android/gms/internal/ads/RunnableC0816Ur.java"
+    ],
+    "firebaseinstallations.googleapis.com": [
+      "E4/c.java"
+    ],
+    "fundingchoicesmessages.google.com": [
+      "com/google/android/gms/internal/consent_sdk/C2465b.java"
+    ],
+    "g.co": [
+      "androidx/media3/datasource/RawResourceDataSource.java"
+    ],
+    "github.com": [
+      "P4/l.java",
+      "androidx/media3/session/MediaSessionLegacyStub.java",
+      "com/google/android/gms/internal/ads/C2213xM.java",
+      "com/google/gson/internal/TroubleshootingGuide.java",
+      "p091l4/B0.java"
+    ],
+    "goo.gl": [
+      "p081k3/M1.java"
+    ],
+    "goo.gle": [
+      "com/google/android/gms/ads/internal/client/zzev.java",
+      "com/google/android/gms/internal/ads/C0530Fk.java",
+      "com/google/android/gms/internal/ads/C1732op.java",
+      "com/google/android/gms/internal/ads/C2121vn.java"
+    ],
+    "google.com": [
+      "p081k3/G0.java"
+    ],
+    "googleads.g.doubleclick.net": [
+      "com/google/android/gms/internal/ads/AbstractC0785Te.java",
+      "com/google/android/gms/internal/ads/AbstractC2332za.java"
+    ],
+    "help.instagram.com": [
+      "o8/x0.java"
+    ],
+    "i.instagram.com": [
+      "M0/j.java",
+      "Q8/j.java",
+      "W8/w.java",
+      "videodownloader/instagram/videosaver/fragment/Profile_IGTVFragment.java"
+    ],
+    "imasdk.googleapis.com": [
+      "com/google/android/gms/internal/ads/AbstractC2332za.java"
+    ],
+    "issuetracker.google.com": [
+      "J4/b0.java",
+      "S/C0192t.java",
+      "S/M.java",
+      "S/x0.java"
+    ],
+    "mediation.goog": [
+      "com/google/android/gms/internal/ads/AbstractC2332za.java"
+    ],
+    "ns.adobe.com": [
+      "androidx/media3/extractor/jpeg/JpegMotionPhotoExtractor.java",
+      "com/google/android/gms/internal/ads/H1.java",
+      "p001a0/g.java"
+    ],
+    "pagead2.googlesyndication.com": [
+      "com/google/android/gms/ads/identifier/a.java",
+      "com/google/android/gms/internal/ads/AbstractC2332za.java",
+      "com/google/android/gms/internal/ads/C1530lA.java",
+      "com/google/android/gms/internal/ads/C1642nA.java"
+    ],
+    "play.google.com": [
+      "Q5/a.java",
+      "com/google/android/gms/internal/ads/C2143w8.java",
+      "p000a/a.java",
+      "videodownloader/instagram/videosaver/SettingActivity.java"
+    ],
+    "pubads.g.doubleclick.net": [
+      "com/google/android/gms/internal/ads/AbstractC2332za.java"
+    ],
+    "schemas.android.com": [
+      "com/google/android/material/chip/Chip.java"
+    ],
+    "schemas.microsoft.com": [
+      "androidx/media3/exoplayer/drm/HttpMediaDrmCallback.java"
+    ],
+    "support.google.com": [
+      "G2/B.java"
+    ],
+    "vidtak.net": [
+      "videodownloader/instagram/videosaver/HelpActivity.java",
+      "videodownloader/instagram/videosaver/SettingActivity.java",
+      "videodownloader/instagram/videosaver/utils/AbstractC3244a.java"
+    ],
+    "www.example.com": [
+      "X3/b.java",
+      "com/google/android/gms/internal/ads/C0615Ka.java",
+      "com/google/android/gms/internal/ads/CallableC1527l7.java",
+      "com/google/android/gms/internal/ads/TE.java"
+    ],
+    "www.facebook.com": [
+      "Y2/g.java"
+    ],
+    "www.google.com": [
+      "com/google/android/gms/internal/ads/AbstractC2332za.java",
+      "com/google/android/gms/internal/ads/C1277gg.java",
+      "com/google/android/gms/internal/ads/CallableC1527l7.java",
+      "videodownloader/instagram/videosaver/fragment/Search_HistoryFragment.java"
+    ],
+    "www.googleadservices.com": [
+      "p081k3/F0.java"
+    ],
+    "www.instagram.com": [
+      "A4/b.java",
+      "G2/AbstractC0035e.java",
+      "H8/a.java",
+      "M5/k.java",
+      "P8/d.java",
+      "Q8/j.java",
+      "W8/a.java",
+      "W8/f.java",
+      "X0/g.java",
+      "com/android/model/instagram/NodeIGTVModel.java",
+      "com/android/model/instagram/NodePostModel.java",
+      "com/android/model/instagram/StoriesModel.java",
+      "com/android/model/instagram/v2/V2_ItemPostModel.java",
+      "com/android/model/instagram/v2/V2_ProfileIGTVItemModel.java",
+      "com/android/model/instagram/v3/V3_HighlightsNodeModel.java",
+      "com/android/model/instagram/v3/V3_StoriesModel.java",
+      "com/bumptech/glide/c.java",
+      "com/bumptech/glide/d.java",
+      "o8/C3172e.java",
+      "o8/M.java",
+      "o8/l0.java",
+      "o8/o0.java",
+      "o8/r0.java",
+      "p148s8/b.java",
+      "p191y8/m.java",
+      "videodownloader/instagram/videosaver/LoginActivity.java",
+      "videodownloader/instagram/videosaver/LoginIncognitoActivity.java",
+      "videodownloader/instagram/videosaver/LoginSecondActivity.java",
+      "videodownloader/instagram/videosaver/utils/conver/c.java"
+    ],
+    "www.w3.org": [
+      "androidx/media3/extractor/text/ttml/TtmlParser.java",
+      "com/google/android/gms/internal/ads/L3.java",
+      "org/xmlpull/mxp1/MXParser.java",
+      "org/xmlpull/mxp1_serializer/MXSerializer.java",
+      "org/xmlpull/v1/util/XmlPullUtil.java",
+      "org/xmlpull/v1/wrapper/XmlPullParserWrapper.java",
+      "org/xmlpull/v1/wrapper/XmlSerializerWrapper.java",
+      "org/xmlpull/v1/wrapper/classic/StaticXmlPullParserWrapper.java",
+      "org/xmlpull/v1/wrapper/classic/StaticXmlSerializerWrapper.java"
+    ],
+    "x": [
+      "androidx/media3/exoplayer/drm/FrameworkMediaDrm.java"
+    ],
+    "xml.org": [
+      "org/xmlpull/v1/sax2/Driver.java"
+    ],
+    "xmlpull.org": [
+      "org/xmlpull/mxp1/MXParser.java",
+      "org/xmlpull/mxp1/MXParserCachingStrings.java",
+      "org/xmlpull/mxp1_serializer/MXSerializer.java",
+      "org/xmlpull/v1/XmlPullParser.java",
+      "org/xmlpull/v1/builder/impl/XmlPullBuilderImpl.java",
+      "org/xmlpull/v1/wrapper/classic/StaticXmlSerializerWrapper.java"
+    ],
+    "youtrack.jetbrains.com": [
+      "p013b7/k.java"
+    ]
+  }
+}

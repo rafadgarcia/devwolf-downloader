@@ -1,21 +1,28 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Devwolf Downloader R8 / ProGuard rules
+-keepattributes SourceFile,LineNumberTable,Signature,*Annotation*
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Keep Capacitor bridge, plugins, and @PluginMethod entry points
+-keep class com.getcapacitor.** { *; }
+-keep @com.getcapacitor.annotation.CapacitorPlugin class * { *; }
+-keepclassmembers class * extends com.getcapacitor.Plugin {
+    @com.getcapacitor.annotation.PluginMethod <methods>;
+    @com.getcapacitor.annotation.ActivityCallback <methods>;
+}
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Keep Devwolf native service, plugin, and resolver contract classes
+-keep class com.devwolf.downloader.** { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Keep youtubedl-android runtime & JNI bindings
+-keep class com.yausername.** { *; }
+-dontwarn com.yausername.**
+
+# Keep OkHttp / Okio / Jsoup / Tink cleanly
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-dontwarn org.jsoup.**
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn com.google.api.client.http.**
+-dontwarn org.joda.time.**
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}

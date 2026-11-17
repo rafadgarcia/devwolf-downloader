@@ -3,6 +3,8 @@ package com.devwolf.downloader
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
@@ -17,11 +19,16 @@ data class SavedMediaResult(
     val displayPath: String,
     val fileName: String,
     val sizeBytes: Long,
+    val mimeType: String,
+    val mediaType: String,
+    val width: Int? = null,
+    val height: Int? = null,
 )
 
 /**
  * Integrates with Android Scoped Storage (MediaStore IS_PENDING=1 -> 0 on API 29+)
- * to store media inside the "Devwolf Downloader" gallery album and expose native share/open/delete.
+ * to store individual photos, videos, and audio inside the "Devwolf Downloader" gallery album
+ * and expose native share/open/delete. Never packages or registers .zip archives as video.
  */
 object MediaStoreHelper {
     const val ALBUM_NAME = "Devwolf Downloader"
@@ -39,25 +46,65 @@ object MediaStoreHelper {
         return "$base.$ext"
     }
 
-    fun saveFileToGallery(context: Context, sourceFile: File, mimeType: String, preferredName: String? = null): SavedMediaResult {
-        require(sourceFile.exists() && sourceFile.isFile) { "Arquivo de mídia não encontrado" }
-        val safeName = sanitizeFileName(preferredName ?: sourceFile.name, sourceFile.extension.ifBlank { "mp4" })
+    fun resolveEffectiveMimeType(sourceFile: File, hintMimeType: String?): String {
+        val cleanHint = hintMimeType?.trim()?.lowercase().orEmpty()
+        val guessed = StatusModeProcessor.guessMimeType(sourceFile.name).lowercase()
+        val ext = sourceFile.extension.lowercase()
+        if (ext == "zip" || cleanHint == "application/zip" || cleanHint == "application/x-zip-compressed") {
+            throw IllegalArgumentException("Arquivos ZIP não podem ser registrados como mídia na galeria Android.")
+        }
+        val effective = when {
+            cleanHint.startsWith("image/") || cleanHint.startsWith("video/") || cleanHint.startsWith("audio/") -> cleanHint
+            guessed.startsWith("image/") || guessed.startsWith("video/") || guessed.startsWith("audio/") -> guessed
+            else -> throw IllegalArgumentException("Tipo de arquivo não suportado para galeria: ${sourceFile.name}")
+        }
+        return effective
+    }
 
-        val isImage = mimeType.startsWith("image/")
-        val isAudio = mimeType.startsWith("audio/")
+    fun resolveMediaType(mimeType: String): String = when {
+        mimeType.startsWith("image/") -> "image"
+        mimeType.startsWith("audio/") -> "audio"
+        mimeType.startsWith("video/") -> "video"
+        else -> throw IllegalArgumentException("MIME inválido para mídia: $mimeType")
+    }
+
+    fun saveFileToGallery(
+        context: Context,
+        sourceFile: File,
+        mimeType: String,
+        preferredName: String? = null,
+        widthHint: Int? = null,
+        heightHint: Int? = null,
+    ): SavedMediaResult {
+        require(sourceFile.exists() && sourceFile.isFile) { "Arquivo de mídia não encontrado" }
+        val effectiveMime = resolveEffectiveMimeType(sourceFile, mimeType)
+        val mediaType = resolveMediaType(effectiveMime)
+        val defaultExt = when (mediaType) {
+            "image" -> "jpg"
+            "audio" -> "mp3"
+            else -> "mp4"
+        }
+        val safeName = sanitizeFileName(preferredName ?: sourceFile.name, sourceFile.extension.ifBlank { defaultExt })
+        val (detectedW, detectedH) = if (widthHint != null && heightHint != null) {
+            widthHint to heightHint
+        } else {
+            probeDimensions(sourceFile, mediaType)
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val (collection, relativeDir) = when {
-                isImage -> MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) to "${Environment.DIRECTORY_PICTURES}/$ALBUM_NAME"
-                isAudio -> MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) to "${Environment.DIRECTORY_MUSIC}/$ALBUM_NAME"
+            val (collection, relativeDir) = when (mediaType) {
+                "image" -> MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) to "${Environment.DIRECTORY_PICTURES}/$ALBUM_NAME"
+                "audio" -> MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) to "${Environment.DIRECTORY_MUSIC}/$ALBUM_NAME"
                 else -> MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) to "${Environment.DIRECTORY_MOVIES}/$ALBUM_NAME"
             }
 
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
-                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.MIME_TYPE, effectiveMime)
                 put(MediaStore.MediaColumns.RELATIVE_PATH, relativeDir)
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
+                if (detectedW != null && detectedW > 0) put(MediaStore.MediaColumns.WIDTH, detectedW)
+                if (detectedH != null && detectedH > 0) put(MediaStore.MediaColumns.HEIGHT, detectedH)
             }
 
             val resolver = context.contentResolver
@@ -81,15 +128,19 @@ object MediaStoreHelper {
                     displayPath = "$relativeDir/$safeName",
                     fileName = safeName,
                     sizeBytes = sourceFile.length(),
+                    mimeType = effectiveMime,
+                    mediaType = mediaType,
+                    width = detectedW,
+                    height = detectedH,
                 )
             } catch (e: Exception) {
                 resolver.delete(itemUri, null, null)
                 throw e
             }
         } else {
-            val baseType = when {
-                isImage -> Environment.DIRECTORY_PICTURES
-                isAudio -> Environment.DIRECTORY_MUSIC
+            val baseType = when (mediaType) {
+                "image" -> Environment.DIRECTORY_PICTURES
+                "audio" -> Environment.DIRECTORY_MUSIC
                 else -> Environment.DIRECTORY_MOVIES
             }
             @Suppress("DEPRECATION")
@@ -97,14 +148,46 @@ object MediaStoreHelper {
             targetDir.mkdirs()
             val destFile = File(targetDir, safeName)
             sourceFile.copyTo(destFile, overwrite = true)
-            MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), arrayOf(mimeType), null)
+            MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), arrayOf(effectiveMime), null)
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", destFile)
             return SavedMediaResult(
                 mediaUri = uri.toString(),
                 displayPath = "$baseType/$ALBUM_NAME/$safeName",
                 fileName = safeName,
                 sizeBytes = destFile.length(),
+                mimeType = effectiveMime,
+                mediaType = mediaType,
+                width = detectedW,
+                height = detectedH,
             )
+        }
+    }
+
+    private fun probeDimensions(file: File, mediaType: String): Pair<Int?, Int?> {
+        return try {
+            when (mediaType) {
+                "image" -> {
+                    val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(file.absolutePath, opts)
+                    val w = opts.outWidth.takeIf { it > 0 }
+                    val h = opts.outHeight.takeIf { it > 0 }
+                    w to h
+                }
+                "video" -> {
+                    val mmr = MediaMetadataRetriever()
+                    try {
+                        mmr.setDataSource(file.absolutePath)
+                        val w = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
+                        val h = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
+                        w to h
+                    } finally {
+                        mmr.release()
+                    }
+                }
+                else -> null to null
+            }
+        } catch (_: Throwable) {
+            null to null
         }
     }
 

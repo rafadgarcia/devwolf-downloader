@@ -9,8 +9,7 @@ export interface ParsedPlatformUrl {
   hostname: string;
   pathname: string;
   isExperimental?: boolean;
-  supportsLocalYtdlp: boolean;
-  prefersVpsFirst: boolean;
+  localSupported: boolean;
 }
 
 interface DomainRule {
@@ -111,7 +110,12 @@ const PLATFORM_RULES: DomainRule[] = [
   {
     platform: 'pinterest',
     platformLabel: 'Pinterest',
-    domains: new Set(['pinterest.com', 'www.pinterest.com', 'br.pinterest.com', 'pin.it']),
+    domains: new Set([
+      'pinterest.com',
+      'www.pinterest.com',
+      'br.pinterest.com',
+      'pin.it',
+    ]),
   },
 ];
 
@@ -136,32 +140,29 @@ function getRouteInfo(
 ): {
   label: string;
   experimental?: boolean;
-  supportsLocalYtdlp: boolean;
-  prefersVpsFirst: boolean;
+  localSupported: boolean;
 } {
   if (platform === 'instagram') {
     if (pathname.startsWith('/reel/') || pathname.startsWith('/reels/')) {
-      return { label: 'Instagram Reel', supportsLocalYtdlp: true, prefersVpsFirst: false };
+      return { label: 'Instagram Reel', localSupported: true };
     }
     if (pathname.startsWith('/p/') || pathname.startsWith('/tv/')) {
-      // Posts/carrosséis de imagem funcionam melhor via gallery-dl/Cobalt na VPS,
-      // mas ainda podem tentar yt-dlp se o usuário pedir vídeo ou estiver offline.
-      return { label: 'Instagram Post', supportsLocalYtdlp: true, prefersVpsFirst: true };
+      return { label: 'Instagram Post / Carrossel', localSupported: true };
     }
     if (pathname.startsWith('/stories/')) {
       return {
         label: 'Instagram Stories (experimental)',
         experimental: true,
-        supportsLocalYtdlp: false,
-        prefersVpsFirst: true,
+        localSupported: true,
       };
     }
+    return { label: 'Instagram', localSupported: true };
   }
   if (platform === 'youtube') {
     if (pathname.startsWith('/shorts/')) {
-      return { label: 'YouTube Shorts', supportsLocalYtdlp: true, prefersVpsFirst: false };
+      return { label: 'YouTube Shorts', localSupported: true };
     }
-    return { label: 'YouTube', supportsLocalYtdlp: true, prefersVpsFirst: false };
+    return { label: 'YouTube', localSupported: true };
   }
   if (platform === 'facebook') {
     if (
@@ -169,7 +170,7 @@ function getRouteInfo(
       pathname.startsWith('/reel/') ||
       pathname.startsWith('/reels/')
     ) {
-      return { label: 'Facebook Reel', supportsLocalYtdlp: true, prefersVpsFirst: false };
+      return { label: 'Facebook Reel', localSupported: true };
     }
     if (
       hostname === 'fb.watch' ||
@@ -177,32 +178,39 @@ function getRouteInfo(
       pathname.startsWith('/watch') ||
       pathname.includes('/videos/')
     ) {
-      return { label: 'Facebook Vídeo', supportsLocalYtdlp: true, prefersVpsFirst: false };
+      return { label: 'Facebook Vídeo', localSupported: true };
     }
-    return { label: 'Facebook', supportsLocalYtdlp: true, prefersVpsFirst: false };
+    return { label: 'Facebook', localSupported: true };
   }
   if (platform === 'pinterest') {
-    return { label: 'Pinterest', supportsLocalYtdlp: false, prefersVpsFirst: true };
+    return { label: 'Pinterest', localSupported: true };
   }
   if (platform === 'twitter') {
-    return { label: 'X / Twitter', supportsLocalYtdlp: true, prefersVpsFirst: false };
+    return { label: 'X / Twitter', localSupported: true };
   }
   const rule = PLATFORM_RULES.find((item) => item.platform === platform);
   return {
     label: rule?.platformLabel ?? platform,
-    supportsLocalYtdlp: true,
-    prefersVpsFirst: false,
+    localSupported: true,
   };
+}
+
+/**
+ * Todas as plataformas suportadas (incluindo fotos, carrosséis, Pinterest e Reddit)
+ * são executadas 100% localmente no Android para todos os formatos (`auto`, `video`, `image`, `audio`).
+ */
+export function canUseLocalEngineForRequest(
+  parsed: ParsedPlatformUrl,
+  _format: FormatOption
+): boolean {
+  return parsed.localSupported;
 }
 
 export function canUseLocalYtdlpForRequest(
   parsed: ParsedPlatformUrl,
   format: FormatOption
 ): boolean {
-  if (format === 'image') {
-    return false;
-  }
-  return parsed.supportsLocalYtdlp;
+  return canUseLocalEngineForRequest(parsed, format);
 }
 
 function coerceKnownSchemelessCandidate(candidate: string): string {
@@ -274,14 +282,13 @@ export function parseAndValidateUrl(rawInput: string): ParsedPlatformUrl | null 
     return null;
   }
 
-  // Validação específica para YouTube: /watch exige parâmetro v ou path curto válido
+  // Validação específica para YouTube: /watch exige parâmetro v
   if (matchedRule.platform === 'youtube' && hostname !== 'youtu.be') {
     if (pathname === '/watch' && !parsed.searchParams.get('v')) {
       return null;
     }
   }
 
-  // Normalização: https (exceto preservação segura), hostname lowercase, sem hash, sem tracking params
   const normalized = new URL(parsed.toString());
   normalized.protocol = 'https:';
   normalized.hostname = hostname;
@@ -299,7 +306,6 @@ export function parseAndValidateUrl(rawInput: string): ParsedPlatformUrl | null 
     normalized.searchParams.delete(key);
   }
 
-  // Ordenar parâmetros restantes para estabilizar deduplicação
   const sortedParams = Array.from(normalized.searchParams.entries()).sort(([a], [b]) =>
     a.localeCompare(b)
   );
@@ -308,7 +314,6 @@ export function parseAndValidateUrl(rawInput: string): ParsedPlatformUrl | null 
     normalized.searchParams.append(k, v);
   }
 
-  // Remover barra final redundante em paths que não são raiz
   if (normalized.pathname.length > 1 && normalized.pathname.endsWith('/')) {
     normalized.pathname = normalized.pathname.slice(0, -1);
   }
@@ -324,8 +329,7 @@ export function parseAndValidateUrl(rawInput: string): ParsedPlatformUrl | null 
     hostname,
     pathname,
     isExperimental: routeInfo.experimental,
-    supportsLocalYtdlp: routeInfo.supportsLocalYtdlp,
-    prefersVpsFirst: routeInfo.prefersVpsFirst,
+    localSupported: routeInfo.localSupported,
   };
 }
 
@@ -336,7 +340,6 @@ export function normalizeUrl(rawInput: string): string | null {
 /**
  * Extrai localmente todas as URLs de plataformas suportadas a partir de um texto bruto
  * (clipboard ou compartilhamento Android), deduplicadas por normalizedUrl.
- * Nunca envia texto bruto ao servidor.
  */
 export function extractSupportedUrlsFromText(text: string): ParsedPlatformUrl[] {
   if (!text || !text.trim()) {
@@ -346,7 +349,6 @@ export function extractSupportedUrlsFromText(text: string): ParsedPlatformUrl[] 
   const seen = new Set<string>();
   const results: ParsedPlatformUrl[] = [];
 
-  // Captura URLs com http(s):// e também domínios suportados sem esquema
   const tokenRegex = /(?:https?:\/\/[^\s<>"'`]+)|(?:(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>"'`]*)?)/gi;
   const matches = text.match(tokenRegex) ?? [];
 

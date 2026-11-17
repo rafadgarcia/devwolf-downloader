@@ -1,20 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canUseLocalEngineForRequest,
   canUseLocalYtdlpForRequest,
   extractSupportedUrlsFromText,
   normalizeUrl,
   parseAndValidateUrl,
 } from '../utils/url';
 
-describe('parseAndValidateUrl & normalizeUrl', () => {
-  it('detecta e normaliza Reel do Instagram removendo tracking params', () => {
-    const parsed = parseAndValidateUrl(
+describe('parseAndValidateUrl & normalizeUrl (100% Local)', () => {
+  it('detecta e normaliza Reel e Post/Carrossel do Instagram removendo tracking params', () => {
+    const reel = parseAndValidateUrl(
       'https://www.instagram.com/reel/ABC123xyz/?igsh=secret123&utm_source=ig_web_copy_link'
     );
-    expect(parsed).not.toBeNull();
-    expect(parsed?.platform).toBe('instagram');
-    expect(parsed?.routeLabel).toBe('Instagram Reel');
-    expect(parsed?.normalizedUrl).toBe('https://www.instagram.com/reel/ABC123xyz');
+    expect(reel).not.toBeNull();
+    expect(reel?.platform).toBe('instagram');
+    expect(reel?.routeLabel).toBe('Instagram Reel');
+    expect(reel?.localSupported).toBe(true);
+    expect(reel?.normalizedUrl).toBe('https://www.instagram.com/reel/ABC123xyz');
+
+    const post = parseAndValidateUrl('https://www.instagram.com/p/POST999/?igsh=xyz');
+    expect(post).not.toBeNull();
+    expect(post?.platform).toBe('instagram');
+    expect(post?.routeLabel).toBe('Instagram Post / Carrossel');
+    expect(post?.localSupported).toBe(true);
+    expect(post?.normalizedUrl).toBe('https://www.instagram.com/p/POST999');
   });
 
   it('preserva parâmetro essencial v e t no YouTube removendo si', () => {
@@ -27,46 +36,77 @@ describe('parseAndValidateUrl & normalizeUrl', () => {
   it('aceita link curto youtu.be e detecta Shorts', () => {
     const short = parseAndValidateUrl('https://youtu.be/dQw4w9WgXcQ?si=abc');
     expect(short?.platform).toBe('youtube');
+    expect(short?.localSupported).toBe(true);
     expect(short?.normalizedUrl).toBe('https://youtu.be/dQw4w9WgXcQ');
 
     const shorts = parseAndValidateUrl('https://youtube.com/shorts/xyz123');
     expect(shorts?.routeLabel).toBe('YouTube Shorts');
+    expect(shorts?.localSupported).toBe(true);
   });
 
   it('aceita domínio conhecido sem https:// convertendo localmente', () => {
     const parsed = parseAndValidateUrl('instagram.com/reel/Teste123/?utm_medium=share');
     expect(parsed?.platform).toBe('instagram');
+    expect(parsed?.localSupported).toBe(true);
     expect(parsed?.normalizedUrl).toBe('https://instagram.com/reel/Teste123');
   });
 
-  it('detecta TikTok, X/Twitter, Reddit, Pinterest e Facebook (/share/r/, /share/v/, fb.watch)', () => {
-    expect(parseAndValidateUrl('https://vm.tiktok.com/ZM12345/')?.platform).toBe('tiktok');
-    expect(parseAndValidateUrl('https://x.com/user/status/123456?s=20')?.platform).toBe('twitter');
-    expect(parseAndValidateUrl('https://redd.it/abc123')?.platform).toBe('reddit');
-    expect(parseAndValidateUrl('https://pin.it/abc123')?.platform).toBe('pinterest');
+  it('detecta TikTok, X/Twitter, Reddit, Pinterest e Facebook com suporte 100% local', () => {
+    const tiktok = parseAndValidateUrl('https://vm.tiktok.com/ZM12345/');
+    expect(tiktok?.platform).toBe('tiktok');
+    expect(tiktok?.localSupported).toBe(true);
+
+    const twitter = parseAndValidateUrl('https://x.com/user/status/123456?s=20');
+    expect(twitter?.platform).toBe('twitter');
+    expect(twitter?.localSupported).toBe(true);
+
+    const reddit = parseAndValidateUrl('https://redd.it/abc123');
+    expect(reddit?.platform).toBe('reddit');
+    expect(reddit?.localSupported).toBe(true);
+
+    const pinterest = parseAndValidateUrl('https://pin.it/abc123');
+    expect(pinterest?.platform).toBe('pinterest');
+    expect(pinterest?.localSupported).toBe(true);
 
     const fbWatch = parseAndValidateUrl('https://fb.watch/abc123/');
     expect(fbWatch?.platform).toBe('facebook');
     expect(fbWatch?.routeLabel).toBe('Facebook Vídeo');
+    expect(fbWatch?.localSupported).toBe(true);
 
     const fbShareReel = parseAndValidateUrl('https://www.facebook.com/share/r/1AbCdEf/?mibextid=wwXIfr');
     expect(fbShareReel?.platform).toBe('facebook');
     expect(fbShareReel?.routeLabel).toBe('Facebook Reel');
-    expect(fbShareReel?.normalizedUrl).toBe('https://www.facebook.com/share/r/1AbCdEf?mibextid=wwXIfr');
+    expect(fbShareReel?.localSupported).toBe(true);
 
     const fbShareVideo = parseAndValidateUrl('https://www.facebook.com/share/v/9XyZ123/');
     expect(fbShareVideo?.platform).toBe('facebook');
     expect(fbShareVideo?.routeLabel).toBe('Facebook Vídeo');
+    expect(fbShareVideo?.localSupported).toBe(true);
   });
 
-  it('indica compatibilidade com motor local yt-dlp corretamente', () => {
-    const reel = parseAndValidateUrl('https://www.instagram.com/reel/ABC123/')!;
-    expect(canUseLocalYtdlpForRequest(reel, 'auto')).toBe(true);
-    expect(canUseLocalYtdlpForRequest(reel, 'image')).toBe(false);
+  it('garante localSupported === true para todas as plataformas e formatos sem VPS', () => {
+    const urls = [
+      'https://www.instagram.com/reel/ABC123/',
+      'https://www.instagram.com/p/CAROUSEL1/',
+      'https://pin.it/abc123',
+      'https://www.pinterest.com/pin/123456789/',
+      'https://www.reddit.com/r/pics/comments/abc123/foto/',
+      'https://x.com/user/status/999',
+      'https://vm.tiktok.com/ZM123/',
+      'https://youtu.be/dQw4w9WgXcQ',
+      'https://www.facebook.com/reel/12345',
+    ];
 
-    const pin = parseAndValidateUrl('https://pin.it/abc123')!;
-    expect(canUseLocalYtdlpForRequest(pin, 'auto')).toBe(false);
-    expect(pin.prefersVpsFirst).toBe(true);
+    for (const raw of urls) {
+      const parsed = parseAndValidateUrl(raw)!;
+      expect(parsed).not.toBeNull();
+      expect(parsed.localSupported).toBe(true);
+      expect(canUseLocalEngineForRequest(parsed, 'auto')).toBe(true);
+      expect(canUseLocalEngineForRequest(parsed, 'video')).toBe(true);
+      expect(canUseLocalEngineForRequest(parsed, 'image')).toBe(true);
+      expect(canUseLocalEngineForRequest(parsed, 'audio')).toBe(true);
+      expect(canUseLocalYtdlpForRequest(parsed, 'image')).toBe(true);
+    }
   });
 
   it('rejeita domínios impostores, credenciais embutidas, IPs e rotas proibidas', () => {

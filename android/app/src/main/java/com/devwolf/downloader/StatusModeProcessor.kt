@@ -1,6 +1,7 @@
 package com.devwolf.downloader
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -73,7 +74,12 @@ object StatusModeProcessor {
     }
 
     fun probe(context: Context, inputFile: File): MediaProbeInfo? {
-        val ffprobe = findFfprobeBinary(context) ?: return null
+        var ffprobe = findFfprobeBinary(context)
+        if (ffprobe == null) {
+            LocalEngineManager.ensureFfmpegInitialized(context)
+            ffprobe = findFfprobeBinary(context)
+        }
+        ffprobe ?: return null
         val cmd = listOf(
             ffprobe.absolutePath,
             "-v", "quiet",
@@ -84,6 +90,23 @@ object StatusModeProcessor {
         )
         val output = runProcessCapture(cmd, buildEnv(context), 30) ?: return null
         return parseProbeJson(output)
+    }
+
+    /**
+     * Lightweight duration probe via Android MediaMetadataRetriever so jobs with Status Mode OFF
+     * never initialize FFmpeg/FFprobe at all.
+     */
+    fun probeDurationLightweight(inputFile: File): Double? {
+        val mmr = MediaMetadataRetriever()
+        return try {
+            mmr.setDataSource(inputFile.absolutePath)
+            val ms = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+            ms?.takeIf { it > 0L }?.let { it / 1000.0 }
+        } catch (_: Throwable) {
+            null
+        } finally {
+            try { mmr.release() } catch (_: Throwable) {}
+        }
     }
 
     fun parseProbeJson(jsonText: String): MediaProbeInfo? {
@@ -183,6 +206,21 @@ object StatusModeProcessor {
         segmentDurationSeconds: Int?,
         keepOriginal: Boolean,
     ): List<ProcessedMediaItem> {
+        val mimeGuess = guessMimeType(sourceFile.name)
+        if (mimeGuess.startsWith("image/") || mimeGuess.startsWith("audio/")) {
+            return listOf(
+                ProcessedMediaItem(
+                    file = sourceFile,
+                    mimeType = mimeGuess,
+                    durationSeconds = if (mimeGuess.startsWith("audio/")) probeDurationLightweight(sourceFile) else null,
+                    isSegment = false,
+                    segmentIndex = null,
+                    isOriginal = true,
+                ),
+            )
+        }
+
+        LocalEngineManager.ensureFfmpegInitialized(context)
         val ffmpeg = findFfmpegBinary(context)
         val probe = probe(context, sourceFile)
         val env = buildEnv(context)

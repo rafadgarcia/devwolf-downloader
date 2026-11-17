@@ -1,13 +1,8 @@
 /* Devwolf Downloader Service Worker
- * Regras de segurança e privacidade:
- * - Cacheia apenas assets estáticos do app shell (nunca /api/*, histórico ou arquivos de mídia).
- * - Intercepta POST /share-target em cliente para preservar o link compartilhado localmente
- *   sem vazar URLs sensíveis em query strings ou logs do servidor, redirecionando para /?shared=1.
+ * Cacheia apenas assets estáticos do app shell local.
  */
 
-const SHELL_CACHE = 'devwolf-shell-v2';
-const SHARE_CACHE = 'devwolf-share-pending-v2';
-const SHARE_KEY = '/__devwolf_pending_share__';
+const SHELL_CACHE = 'devwolf-shell-v3';
 
 const SHELL_ASSETS = [
   '/',
@@ -30,7 +25,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) =>
       Promise.all(
         keys
-          .filter((key) => key !== SHELL_CACHE && key !== SHARE_CACHE)
+          .filter((key) => key !== SHELL_CACHE)
           .map((key) => caches.delete(key))
       )
     )
@@ -38,53 +33,13 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-async function handleShareTargetPost(request) {
-  try {
-    const formData = await request.formData();
-    const payload = {
-      title: String(formData.get('title') || ''),
-      text: String(formData.get('text') || ''),
-      url: String(formData.get('url') || ''),
-      receivedAt: Date.now(),
-    };
-    const cache = await caches.open(SHARE_CACHE);
-    await cache.put(
-      SHARE_KEY,
-      new Response(JSON.stringify(payload), {
-        headers: { 'Content-Type': 'application/json' },
-      })
-    );
-  } catch {
-    // Fallback silencioso: redireciona para o app mesmo se o payload estiver vazio
-  }
-  return Response.redirect('/?shared=1', 303);
-}
-
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  if (url.origin !== self.location.origin) {
+  if (url.origin !== self.location.origin || event.request.method !== 'GET') {
     return;
   }
 
-  // Intercepta Web Share Target POST localmente sem enviar ao servidor nem expor na query string
-  if (url.pathname === '/share-target' && event.request.method === 'POST') {
-    event.respondWith(handleShareTargetPost(event.request));
-    return;
-  }
-
-  // Nunca cacheia API, share-target, health checks ou rotas mutáveis
-  if (
-    event.request.method !== 'GET' ||
-    url.pathname.startsWith('/api/') ||
-    url.pathname.startsWith('/share-target') ||
-    url.pathname === '/healthz' ||
-    url.pathname === '/readyz'
-  ) {
-    return;
-  }
-
-  // Navegação SPA: network-first com fallback para app shell em cache
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).catch(async () => {
@@ -95,7 +50,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Assets estáticos: cache-first com revalidação em segundo plano
   event.respondWith(
     caches.open(SHELL_CACHE).then(async (cache) => {
       const cached = await cache.match(event.request);

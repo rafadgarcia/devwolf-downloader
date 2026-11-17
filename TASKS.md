@@ -44,3 +44,12 @@ Checklist de acompanhamento do projeto.
 - [x] Implementar camada nativa Kotlin (`android/`): `yt-dlp` + `FFmpeg`, Modo Status, MediaStore, `ACTION_SEND`, Foreground Service, notificações, updater/rollback e cofre `EncryptedSharedPreferences`
 - [x] Atualizar backend (`CORS`/`Bearer`, Modo Status FFmpeg, rotas Facebook `/share/r/`) e frontend (UI híbrida, Modo Status, histórico unificado)
 - [x] Build do APK (`assembleDebug`), testes unitários (`pytest`, `vitest`, `testDebugUnitTest`), CI/CD GitHub Actions e Release `v2.0.0` com APK anexado
+
+## Etapa 7 — Fase 3: Devwolf Downloader v3.0.0 (100% Local Android + DNR Instagram)
+- [x] Preservar arquitetura híbrida na branch `archive/vps-hybrid` e tag `v2.0.0`, atualizar `.gitignore` (excluindo `docs/Rposty.apk` e `docs/rev-eng/sources/`) e limpar infraestrutura VPS da `main`
+- [x] Implementar `Devwolf Native Resolver (DNR)` para Instagram (`EmbedCaptionedStrategy`, `WebPageJsonStrategy`, `AuthorizedWebApiStrategy`), `SafeHttpClient` anti-SSRF, `HttpMediaDownloader` e `GalleryDlLocalResolver` (Pinterest, Reddit, Twitter/X imagens)
+- [x] Implementar contrato estruturado de 11 erros (`DevwolfErrorCode`), `EngineRouter` central e login opcional via `InstagramSessionActivity` (WebView oficial + `SecureVault`)
+- [x] Eliminar `getInfo()` duplicado no `DevwolfDownloadService` (passo único `--no-simulate --no-warnings --print before_dl:...`) e tornar `YoutubeDL`/`FFmpeg` lazy-loaded
+- [x] Corrigir `LocalEngineManager` para ler versão real do binário `yt-dlp`, suportar auto-check inicial/24h, canais `Stable`/`Nightly`, validação pós-update e rollback
+- [x] Publicar itens de carrossel individualmente no `MediaStore` (rejeitando `.zip`) e exibir progresso/ações por item na UI
+- [x] Remover login/fallback/configurações de VPS do frontend, adicionar `PerformanceTracker` + área de Diagnóstico/Performance sanitizada e otimizar APK com R8 + ABI splits mantendo assinatura compatível com `v2.0.0`

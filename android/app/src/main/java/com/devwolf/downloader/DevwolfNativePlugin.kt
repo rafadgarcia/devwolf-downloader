@@ -1,31 +1,34 @@
 package com.devwolf.downloader
 
+import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import androidx.activity.result.ActivityResult
 import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
+import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.UUID
 
 /**
  * Capacitor Native Bridge for Devwolf Downloader (`DevwolfNative`).
- * Exposes local yt-dlp/FFmpeg engine, Status Mode, MediaStore gallery integration,
- * native Share receiver, engine updater/rollback, and Keystore-encrypted cookie vault.
+ * Exposes local DNR + yt-dlp/FFmpeg + gallery-dl engines, Status Mode, individual carousel
+ * MediaStore integration, Share receiver, engine updater/rollback, WebView Instagram session,
+ * Keystore-encrypted cookie vault, and local performance diagnostics.
  */
 @CapacitorPlugin(name = "DevwolfNative")
 class DevwolfNativePlugin : Plugin() {
@@ -49,6 +52,12 @@ class DevwolfNativePlugin : Plugin() {
         queueStore.markInterruptedJobsOnStartup()
         DevwolfDownloadService.addProgressListener(progressListener)
         instance = this
+        PerformanceTracker.markAppOpenCompleted()
+
+        // Non-blocking first-init / 24h yt-dlp update check
+        pluginScope.launch {
+            LocalEngineManager.maybeAutoUpdateInBackground(appCtx)
+        }
     }
 
     override fun handleOnDestroy() {
@@ -69,6 +78,7 @@ class DevwolfNativePlugin : Plugin() {
 
     @PluginMethod
     fun readClipboard(call: PluginCall) {
+        val startMs = System.currentTimeMillis()
         try {
             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             val clip = cm?.primaryClip
@@ -78,12 +88,14 @@ class DevwolfNativePlugin : Plugin() {
                 null
             }
             val extracted = UrlExtractor.extractFirstValidUrl(raw)
+            PerformanceTracker.recordClipboardDetect(System.currentTimeMillis() - startMs)
             call.resolve(
                 JSObject().apply {
                     put("text", extracted ?: JSONObject.NULL)
                 },
             )
         } catch (_: Throwable) {
+            PerformanceTracker.recordClipboardDetect(System.currentTimeMillis() - startMs)
             call.resolve(JSObject().apply { put("text", JSONObject.NULL) })
         }
     }
@@ -182,112 +194,14 @@ class DevwolfNativePlugin : Plugin() {
                         put("displayPath", saved.displayPath)
                         put("fileName", saved.fileName)
                         put("sizeBytes", saved.sizeBytes)
+                        put("mimeType", saved.mimeType)
+                        put("type", saved.mediaType)
+                        put("width", saved.width ?: JSONObject.NULL)
+                        put("height", saved.height ?: JSONObject.NULL)
                     },
                 )
             } catch (e: Throwable) {
                 call.reject("Falha ao salvar na galeria: ${e.message}")
-            }
-        }
-    }
-
-    @PluginMethod
-    fun downloadRemoteFileToGallery(call: PluginCall) {
-        val url = call.getString("url").orEmpty()
-        if (url.isBlank()) {
-            call.reject("URL remota obrigatória")
-            return
-        }
-        val headersObj = call.getObject("headers")
-        val preferredName = call.getString("fileName") ?: "devwolf_remote.mp4"
-        val mimeHint = call.getString("mimeType") ?: StatusModeProcessor.guessMimeType(preferredName)
-        val statusMode = call.getBoolean("statusMode", false) ?: false
-        val segDuration = call.getInt("segmentDurationSeconds")
-        val keepOriginal = call.getBoolean("keepOriginal", false) ?: false
-
-        pluginScope.launch {
-            val tempDir = File(context.cacheDir, "remote_${UUID.randomUUID()}").apply { mkdirs() }
-            try {
-                val safeTempName = MediaStoreHelper.sanitizeFileName(preferredName, "mp4")
-                val destFile = File(tempDir, safeTempName)
-                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15_000
-                    readTimeout = 120_000
-                    instanceFollowRedirects = true
-                    if (headersObj != null) {
-                        val keys = headersObj.keys()
-                        while (keys.hasNext()) {
-                            val k = keys.next()
-                            val v = headersObj.optString(k)
-                            if (v.isNotBlank()) setRequestProperty(k, v)
-                        }
-                    }
-                }
-                try {
-                    val code = conn.responseCode
-                    if (code !in 200..299) {
-                        throw IllegalStateException("HTTP $code ao baixar arquivo da VPS")
-                    }
-                    conn.inputStream.use { input ->
-                        FileOutputStream(destFile).use { output ->
-                            input.copyTo(output, bufferSize = 64 * 1024)
-                        }
-                    }
-                } finally {
-                    conn.disconnect()
-                }
-
-                val items = if ((statusMode || (segDuration != null && segDuration > 0)) && mimeHint.startsWith("video/")) {
-                    LocalEngineManager.ensureInitialized(context.applicationContext)
-                    StatusModeProcessor.processForStatusMode(
-                        context = context.applicationContext,
-                        sourceFile = destFile,
-                        workDir = tempDir,
-                        segmentDurationSeconds = segDuration,
-                        keepOriginal = keepOriginal,
-                    )
-                } else {
-                    listOf(
-                        ProcessedMediaItem(
-                            file = destFile,
-                            mimeType = mimeHint,
-                            durationSeconds = null,
-                            isSegment = false,
-                            segmentIndex = null,
-                            isOriginal = true,
-                        ),
-                    )
-                }
-
-                val outArr = JSONArray()
-                items.forEachIndexed { idx, item ->
-                    val saved = MediaStoreHelper.saveFileToGallery(
-                        context = context.applicationContext,
-                        sourceFile = item.file,
-                        mimeType = item.mimeType,
-                        preferredName = item.file.name,
-                    )
-                    outArr.put(
-                        JSONObject().apply {
-                            put("id", "remote_${System.currentTimeMillis()}_$idx")
-                            put("fileName", saved.fileName)
-                            put("filePath", "")
-                            put("mediaUri", saved.mediaUri)
-                            put("displayPath", saved.displayPath)
-                            put("mimeType", item.mimeType)
-                            put("sizeBytes", saved.sizeBytes)
-                            put("durationSeconds", item.durationSeconds ?: JSONObject.NULL)
-                            put("isSegment", item.isSegment)
-                            put("segmentIndex", item.segmentIndex ?: JSONObject.NULL)
-                            put("isOriginal", item.isOriginal)
-                        },
-                    )
-                }
-
-                call.resolve(JSObject().apply { put("files", JSArray(outArr.toString())) })
-            } catch (e: Throwable) {
-                call.reject("Erro ao transferir mídia da VPS para a galeria: ${e.message}")
-            } finally {
-                tempDir.deleteRecursively()
             }
         }
     }
@@ -313,7 +227,7 @@ class DevwolfNativePlugin : Plugin() {
             call.reject("Nenhuma mídia válida para compartilhar.")
             return
         }
-        val mime = call.getString("mimeType") ?: "video/*"
+        val mime = call.getString("mimeType") ?: if (uris.size > 1) "*/*" else "video/*"
         val title = call.getString("title")
         val text = call.getString("text")
         val targetPackage = call.getString("targetPackage")
@@ -380,6 +294,46 @@ class DevwolfNativePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun getDiagnosticsReport(call: PluginCall) {
+        val appCtx = context.applicationContext
+        val ytdlpVer = LocalEngineManager.getCachedYtdlpVersion(appCtx)
+        val report = PerformanceTracker.buildDiagnosticsReport(
+            ytdlpVersion = ytdlpVer,
+            lastUpdateAt = secureVault.lastUpdateAt,
+        )
+        call.resolve(JSObject(report.toString()))
+    }
+
+    @PluginMethod
+    fun openInstagramLoginWebView(call: PluginCall) {
+        val act = activity
+        if (act == null) {
+            call.reject("Atividade Android indisponível para abrir WebView de login.")
+            return
+        }
+        val intent = Intent(act, InstagramSessionActivity::class.java)
+        startActivityForResult(call, intent, "handleInstagramLoginResult")
+    }
+
+    @ActivityCallback
+    private fun handleInstagramLoginResult(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        val data = result.data
+        val saved = result.resultCode == Activity.RESULT_OK &&
+            (data?.getBooleanExtra(InstagramSessionActivity.EXTRA_SAVED, false) == true)
+        val updatedAt = data?.getStringExtra(InstagramSessionActivity.EXTRA_UPDATED_AT)
+        val message = data?.getStringExtra(InstagramSessionActivity.EXTRA_MESSAGE)
+            ?: if (saved) "Sessão do Instagram salva localmente." else "Login do Instagram não concluído."
+        call.resolve(
+            JSObject().apply {
+                put("saved", saved)
+                put("updatedAt", updatedAt ?: JSONObject.NULL)
+                put("message", message)
+            },
+        )
+    }
+
+    @PluginMethod
     fun clearTempCache(call: PluginCall) {
         pluginScope.launch {
             var freed = 0L
@@ -422,14 +376,18 @@ class DevwolfNativePlugin : Plugin() {
 
     @PluginMethod
     fun savePlatformSession(call: PluginCall) {
-        val platform = call.getString("platform").orEmpty()
+        val platform = call.getString("platform").orEmpty().trim().lowercase()
         val cookieHeader = call.getString("cookieHeader").orEmpty()
         try {
-            val updatedAt = secureVault.savePlatformSession(platform, cookieHeader)
+            val updatedAt = if (platform == "instagram") {
+                secureVault.saveInstagramSession(cookieHeader = cookieHeader, source = "manual")
+            } else {
+                secureVault.savePlatformSession(platform, cookieHeader)
+            }
             call.resolve(
                 JSObject().apply {
                     put("saved", true)
-                    put("platform", platform.trim().lowercase())
+                    put("platform", platform)
                     put("updatedAt", updatedAt)
                 },
             )
@@ -440,14 +398,22 @@ class DevwolfNativePlugin : Plugin() {
 
     @PluginMethod
     fun revokePlatformSession(call: PluginCall) {
-        val platform = call.getString("platform").orEmpty()
-        val revoked = secureVault.revokePlatformSession(platform)
-        call.resolve(
-            JSObject().apply {
-                put("revoked", revoked)
-                put("platform", platform.trim().lowercase())
-            },
-        )
+        val platform = call.getString("platform").orEmpty().trim().lowercase()
+        pluginScope.launch {
+            val revoked = if (platform == "instagram") {
+                withContext(Dispatchers.Main) {
+                    InstagramSessionActivity.clearWebViewSession(context.applicationContext)
+                }
+            } else {
+                secureVault.revokePlatformSession(platform)
+            }
+            call.resolve(
+                JSObject().apply {
+                    put("revoked", revoked)
+                    put("platform", platform)
+                },
+            )
+        }
     }
 
     companion object {
