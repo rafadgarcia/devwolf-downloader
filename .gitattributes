@@ -1,0 +1,4 @@
+# Ensure shell scripts and systemd units always keep LF line endings on Windows/Linux
+*.sh text eol=lf
+*.service text eol=lf
+*.timer text eol=lf

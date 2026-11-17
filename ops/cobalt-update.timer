@@ -1,0 +1,11 @@
+[Unit]
+Description=DropLink — Agendamento periódico (30m) para atualização do Cobalt
+
+[Timer]
+OnCalendar=*:0/30
+RandomizedDelaySec=60
+Persistent=true
+Unit=cobalt-update.service
+
+[Install]
+WantedBy=timers.target

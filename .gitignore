@@ -1,0 +1,70 @@
+# Dependencies & virtual environments
+node_modules/
+.venv/
+venv/
+env/
+
+# Python caches & test artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build outputs
+dist/
+build/
+frontend/dist/
+frontend/.vite/
+
+# Local databases & runtime data
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite*
+storage/
+data/
+tmp/
+logs/
+backups/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+cookies*
+*.pem
+*.key
+*.crt
+*.p12
+
+# Downloaded media & archives (keep PWA assets)
+*.mp4
+*.mkv
+*.webm
+*.mov
+*.avi
+*.mp3
+*.m4a
+*.wav
+*.zip
+*.tar.gz
+!frontend/public/**
+
+# Graphify local sidecars & cache (keep graph.json, GRAPH_REPORT.md, graph.html)
+graphify-out/.graphify_*
+graphify-out/cache/
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/

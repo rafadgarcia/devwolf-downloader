@@ -1,0 +1,18 @@
+[Unit]
+Description=DropLink — Verificação e atualização controlada do Cobalt
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/droplink
+ExecStart=/bin/bash /opt/droplink/ops/update-cobalt.sh
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Ajuste WorkingDirectory e ExecStart para o caminho real do projeto na VPS.
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

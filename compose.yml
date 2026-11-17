@@ -1,0 +1,143 @@
+# ==============================================================================
+# DropLink — Docker Compose
+# Nota: Este arquivo NÃO cria nem substitui a instância existente do Cobalt na VPS.
+# Conecte-o à instância existente via COBALT_API_URL (host.docker.internal ou
+# rede externa via override). Veja docs/deployment.md.
+# ==============================================================================
+
+services:
+  droplink-frontend-build:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: builder
+    image: droplink-frontend-builder:local
+    restart: "no"
+    command: ["sh", "-c", "rm -rf /dist-out/* && cp -r /app/dist/. /dist-out/"]
+    volumes:
+      - frontend_dist:/dist-out
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  droplink-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: droplink-backend:local
+    container_name: droplink-api
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      COBALT_API_URL: ${COBALT_API_URL:-http://host.docker.internal:9000}
+      COBALT_API_KEY: ${COBALT_API_KEY:-}
+      DATABASE_PATH: /app/data/droplink.db
+      STORAGE_DIR: /app/storage
+      TMP_DIR: /app/tmp
+      ROUTES_CONFIG_PATH: /app/config/routes.yaml
+      FRONTEND_DIST_DIR: /app/frontend/dist
+      COBALT_STATUS_FILE: /app/ops-status/cobalt-updater-status.json
+      EMBEDDED_WORKER: "false"
+      MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-2}
+      MAX_QUEUED_JOBS_PER_USER: ${MAX_QUEUED_JOBS_PER_USER:-20}
+      MAX_JOB_SIZE_MB: ${MAX_JOB_SIZE_MB:-500}
+      MAX_CAROUSEL_ITEMS: ${MAX_CAROUSEL_ITEMS:-50}
+      MAX_JOB_DURATION_SECONDS: ${MAX_JOB_DURATION_SECONDS:-600}
+      MIN_FREE_DISK_MB: ${MIN_FREE_DISK_MB:-2048}
+      FILE_RETENTION_HOURS: ${FILE_RETENTION_HOURS:-24}
+      HISTORY_RETENTION_DAYS: ${HISTORY_RETENTION_DAYS:-30}
+    depends_on:
+      droplink-frontend-build:
+        condition: service_completed_successfully
+    ports:
+      - "${APP_HOST:-127.0.0.1}:${APP_PORT:-8080}:8000"
+    volumes:
+      - ${HOST_SQLITE_DIR:-./data/db}:/app/data
+      - ${HOST_STORAGE_DIR:-./data/storage}:/app/storage
+      - droplink_tmp:/app/tmp
+      - ./config:/app/config:ro
+      - frontend_dist:/app/frontend/dist:ro
+      - ${HOST_OPS_STATUS_DIR:-./data/ops-status}:/app/ops-status:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - droplink_internal
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  droplink-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: droplink-worker:local
+    container_name: droplink-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker.runner"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      COBALT_API_URL: ${COBALT_API_URL:-http://host.docker.internal:9000}
+      COBALT_API_KEY: ${COBALT_API_KEY:-}
+      DATABASE_PATH: /app/data/droplink.db
+      STORAGE_DIR: /app/storage
+      TMP_DIR: /app/tmp
+      ROUTES_CONFIG_PATH: /app/config/routes.yaml
+      COBALT_STATUS_FILE: /app/ops-status/cobalt-updater-status.json
+      MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-2}
+      MAX_JOB_SIZE_MB: ${MAX_JOB_SIZE_MB:-500}
+      MAX_CAROUSEL_ITEMS: ${MAX_CAROUSEL_ITEMS:-50}
+      MAX_JOB_DURATION_SECONDS: ${MAX_JOB_DURATION_SECONDS:-600}
+      MIN_FREE_DISK_MB: ${MIN_FREE_DISK_MB:-2048}
+      FILE_RETENTION_HOURS: ${FILE_RETENTION_HOURS:-24}
+      HISTORY_RETENTION_DAYS: ${HISTORY_RETENTION_DAYS:-30}
+    depends_on:
+      droplink-api:
+        condition: service_healthy
+    volumes:
+      - ${HOST_SQLITE_DIR:-./data/db}:/app/data
+      - ${HOST_STORAGE_DIR:-./data/storage}:/app/storage
+      - droplink_tmp:/app/tmp
+      - ./config:/app/config:ro
+      - ${HOST_OPS_STATUS_DIR:-./data/ops-status}:/app/ops-status:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - droplink_internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sqlite3; c = sqlite3.connect(os.environ['DATABASE_PATH'], timeout=2); c.execute('SELECT 1'); c.close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  droplink_tmp:
+  frontend_dist:
+
+networks:
+  droplink_internal:
+    driver: bridge
