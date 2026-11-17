@@ -1,0 +1,134 @@
+package com.devwolf.downloader
+
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.time.Instant
+
+/**
+ * Thread-safe persistent JSON store for local Android download jobs so queue and history
+ * survive app backgrounding or process restart.
+ */
+class LocalQueueStore(context: Context) {
+    private val queueFile = File(context.applicationContext.filesDir, "devwolf_local_queue.json")
+    private val shareFile = File(context.applicationContext.filesDir, "devwolf_pending_share.json")
+    private val lock = Any()
+
+    fun upsertJob(snapshot: JSONObject) {
+        synchronized(lock) {
+            val jobs = loadMapLocked()
+            val jobId = snapshot.optString("jobId")
+            if (jobId.isNotEmpty()) {
+                snapshot.put("updatedAt", Instant.now().toString())
+                jobs[jobId] = snapshot
+                persistMapLocked(jobs)
+            }
+        }
+    }
+
+    fun getJob(jobId: String): JSONObject? {
+        synchronized(lock) {
+            return loadMapLocked()[jobId]?.let { JSONObject(it.toString()) }
+        }
+    }
+
+    fun listJobs(): JSONArray {
+        synchronized(lock) {
+            val list = loadMapLocked().values.sortedByDescending { it.optString("updatedAt", "") }
+            val arr = JSONArray()
+            for (item in list.take(100)) {
+                arr.put(item)
+            }
+            return arr
+        }
+    }
+
+    fun markInterruptedJobsOnStartup() {
+        synchronized(lock) {
+            val jobs = loadMapLocked()
+            var changed = false
+            for ((_, job) in jobs) {
+                val status = job.optString("status")
+                if (status in setOf("queued", "resolving", "downloading", "processing")) {
+                    job.put("status", "failed")
+                    job.put("phaseLabel", "Falhou")
+                    job.put("error", "Download interrompido pelo sistema. Toque para tentar novamente.")
+                    job.put("errorCode", "INTERRUPTED")
+                    job.put("updatedAt", Instant.now().toString())
+                    changed = true
+                }
+            }
+            if (changed) {
+                persistMapLocked(jobs)
+            }
+        }
+    }
+
+    fun savePendingShareIntent(payload: JSONObject) {
+        synchronized(lock) {
+            writeAtomically(shareFile, payload.toString())
+        }
+    }
+
+    fun getPendingShareIntent(): JSONObject? {
+        synchronized(lock) {
+            if (!shareFile.exists()) return null
+            return try {
+                JSONObject(shareFile.readText(Charsets.UTF_8))
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    fun clearPendingShareIntent(id: String?) {
+        synchronized(lock) {
+            if (!shareFile.exists()) return
+            if (id.isNullOrBlank()) {
+                shareFile.delete()
+                return
+            }
+            val current = getPendingShareIntent()
+            if (current == null || current.optString("id") == id) {
+                shareFile.delete()
+            }
+        }
+    }
+
+    private fun loadMapLocked(): MutableMap<String, JSONObject> {
+        val result = LinkedHashMap<String, JSONObject>()
+        if (!queueFile.exists()) return result
+        try {
+            val arr = JSONArray(queueFile.readText(Charsets.UTF_8))
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val id = obj.optString("jobId")
+                if (id.isNotEmpty()) {
+                    result[id] = obj
+                }
+            }
+        } catch (_: Exception) {
+            // Corrupted store resets cleanly
+        }
+        return result
+    }
+
+    private fun persistMapLocked(jobs: Map<String, JSONObject>) {
+        val arr = JSONArray()
+        for (job in jobs.values.sortedByDescending { it.optString("updatedAt", "") }.take(100)) {
+            arr.put(job)
+        }
+        writeAtomically(queueFile, arr.toString())
+    }
+
+    private fun writeAtomically(target: File, content: String) {
+        target.parentFile?.mkdirs()
+        val tmp = File(target.parentFile, "${target.name}.tmp")
+        tmp.writeText(content, Charsets.UTF_8)
+        if (!tmp.renameTo(target)) {
+            target.writeText(content, Charsets.UTF_8)
+            tmp.delete()
+        }
+    }
+}
