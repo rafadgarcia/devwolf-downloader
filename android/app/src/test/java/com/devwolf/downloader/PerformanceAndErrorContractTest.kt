@@ -176,10 +176,14 @@ class PerformanceAndErrorContractTest {
         )
         assertNull(DevwolfDownloadService.resolveYtdlpUserAgent("instagram", "   "))
         assertNull(DevwolfDownloadService.resolveYtdlpUserAgent("instagram", "BadUA\r\nX-Injected: 1"))
-        // TikTok, YouTube, Reddit must use yt-dlp's own tuned User-Agent unless explicitly required
+        // TikTok and YouTube must use yt-dlp's own tuned User-Agent; Reddit uses stored WebView UA when present
         assertNull(DevwolfDownloadService.resolveYtdlpUserAgent("tiktok", webViewUa))
         assertNull(DevwolfDownloadService.resolveYtdlpUserAgent("youtube", webViewUa))
-        assertNull(DevwolfDownloadService.resolveYtdlpUserAgent("reddit", webViewUa))
+        assertEquals(
+            webViewUa,
+            DevwolfDownloadService.resolveYtdlpUserAgent("reddit", webViewUa),
+        )
+        assertNull(DevwolfDownloadService.resolveYtdlpUserAgent("reddit", "   "))
     }
 
     @Test
@@ -385,5 +389,68 @@ class PerformanceAndErrorContractTest {
         assertTrue(original.has("thumbnailDataUrl"))
         assertTrue(original.getJSONArray("files").getJSONObject(0).has("thumbnailDataUrl"))
         assertEquals(24, LocalQueueStore.MAX_JOBS_WITH_THUMBNAILS)
+    }
+
+    @Test
+    fun distinguishesAnonymousAndAuthenticatedRedditCookies() {
+        val headerB64 = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("""{"alg":"HS256","typ":"JWT"}""".toByteArray(Charsets.UTF_8))
+        val anonPayloadB64 = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("""{"sub":"anon","scopes":["*"]}""".toByteArray(Charsets.UTF_8))
+        val userPayloadB64 = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("""{"sub":"t2_9x8y7z","scopes":["*"]}""".toByteArray(Charsets.UTF_8))
+
+        val anonCookie = "loid=0001; edgebucket=xyz; token_v2=$headerB64.$anonPayloadB64.sig"
+        val userTokenCookie = "loid=0001; token_v2=$headerB64.$userPayloadB64.sig"
+        val redditSessionCookie = "reddit_session=123456_secret; csv=2"
+
+        assertFalse(InstagramSessionActivity.isAuthenticatedRedditCookie(null))
+        assertFalse(InstagramSessionActivity.isAuthenticatedRedditCookie(""))
+        assertFalse(InstagramSessionActivity.isAuthenticatedRedditCookie(anonCookie))
+        assertTrue(InstagramSessionActivity.isAuthenticatedRedditCookie(userTokenCookie))
+        assertTrue(InstagramSessionActivity.isAuthenticatedRedditCookie(redditSessionCookie))
+    }
+
+    @Test
+    fun clearsCompletedHistoryWhilePreservingActiveJobsAndChecksMediaFiles() {
+        val tempDir = File.createTempFile("devwolf-queue-test-", "").apply {
+            delete()
+            mkdirs()
+        }
+        try {
+            val queueFile = File(tempDir, "devwolf_local_queue.json")
+            val shareFile = File(tempDir, "devwolf_pending_share.json")
+            val store = LocalQueueStore(queueFile, shareFile)
+
+            store.upsertJob(JSONObject().put("jobId", "active-1").put("status", "downloading"))
+            store.upsertJob(JSONObject().put("jobId", "active-2").put("status", "queued"))
+            store.upsertJob(JSONObject().put("jobId", "done-1").put("status", "ready"))
+            store.upsertJob(JSONObject().put("jobId", "fail-1").put("status", "failed"))
+            store.upsertJob(JSONObject().put("jobId", "cancel-1").put("status", "cancelled"))
+
+            val removed = store.clearHistory(keepActiveJobs = true)
+            assertEquals(3, removed)
+            val remaining = store.listJobs()
+            assertEquals(2, remaining.length())
+            val remainingIds = (0 until remaining.length()).map { remaining.getJSONObject(it).getString("jobId") }.toSet()
+            assertEquals(setOf("active-1", "active-2"), remainingIds)
+
+            val clearedAll = store.clearHistory(keepActiveJobs = false)
+            assertEquals(2, clearedAll)
+            assertEquals(0, store.listJobs().length())
+
+            val mediaFile = File(tempDir, "video.mp4").apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
+            val emptyFile = File(tempDir, "empty.mp4").apply { writeBytes(byteArrayOf()) }
+            val missingFile = File(tempDir, "missing.mp4")
+
+            assertTrue(MediaStoreHelper.doesLocalFileExist(mediaFile.absolutePath))
+            assertTrue(MediaStoreHelper.doesLocalFileExist("file://${mediaFile.absolutePath}"))
+            assertFalse(MediaStoreHelper.doesLocalFileExist(emptyFile.absolutePath))
+            assertFalse(MediaStoreHelper.doesLocalFileExist(missingFile.absolutePath))
+            assertFalse(MediaStoreHelper.doesLocalFileExist("   "))
+            assertFalse(MediaStoreHelper.doesLocalFileExist(null))
+        } finally {
+            tempDir.deleteRecursively()
+        }
     }
 }

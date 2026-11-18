@@ -90,3 +90,12 @@ export function markRecentAutoDownload(
   recent.push({ fingerprint, jobId, timestamp: now });
   writeEntries(STORAGE_KEY, recent);
 }
+
+export function clearAllDedupeState(): void {
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(ACTIVE_KEY);
+  } catch {
+    // Ignorar erros de localStorage
+  }
+}

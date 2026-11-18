@@ -12,6 +12,8 @@ import { useJobProgress } from './hooks/useJobProgress';
 import { selectExecutionPlan } from './services/hybridOrchestrator';
 import {
   createInitialLocalJob,
+  extractJobMediaLocations,
+  findExistingReadyJobByNormalizedUrl,
   getLocalJobs,
   syncLocalSnapshots,
   upsertLocalJob,
@@ -206,6 +208,7 @@ export function App() {
       rawUrl: string,
       options: {
         forceManual: boolean;
+        allowDuplicate?: boolean;
         format?: FormatOption;
         quality?: QualityOption;
         fromShareIntent?: boolean;
@@ -214,6 +217,24 @@ export function App() {
       const parsed = parseAndValidateUrl(rawUrl);
       if (!parsed) {
         throw new Error('URL inválida ou plataforma não suportada.');
+      }
+
+      if (!options.allowDuplicate) {
+        const existingJob = findExistingReadyJobByNormalizedUrl(
+          getLocalJobs(),
+          parsed.normalizedUrl
+        );
+        if (existingJob) {
+          const { uris, filePaths } = extractJobMediaLocations(existingJob);
+          const { exists } = await nativeBridge.checkMediaExists({ uris, filePaths });
+          if (exists) {
+            setActiveJob(existingJob);
+            navigateToTab('home');
+            setAddLinkOpen(false);
+            setStatusNotice('Esta mídia já foi baixada e ainda existe na sua Galeria.');
+            return;
+          }
+        }
       }
 
       const fmt = options.format ?? selectedFormat;
@@ -297,6 +318,7 @@ export function App() {
     },
     [
       isNativeAndroid,
+      navigateToTab,
       selectedFormat,
       selectedQuality,
       setActiveJob,
@@ -537,11 +559,19 @@ export function App() {
     setUrlInput(url);
     navigateToTab('home');
     try {
-      await startJob(url, { forceManual: true });
+      await startJob(url, { forceManual: true, allowDuplicate: true });
     } catch (err) {
       setStatusNotice(err instanceof Error ? err.message : 'Erro ao repetir download.');
     }
   };
+
+  const handleClearAllHistory = useCallback(() => {
+    const activeStatuses = new Set(['queued', 'resolving', 'downloading', 'processing']);
+    if (activeJob && !activeStatuses.has(activeJob.status)) {
+      setActiveJob(null);
+    }
+    setLocalJobs(activeJob && activeStatuses.has(activeJob.status) ? [activeJob] : []);
+  }, [activeJob, setActiveJob]);
 
   const handleReturnToSourceApp = async () => {
     await nativeBridge.returnToSourceApp();
@@ -597,7 +627,7 @@ export function App() {
               navigateToTab('settings');
             }}
             onCancelJob={handleCancelJob}
-            onRetryJob={(url) => startJob(url, { forceManual: true })}
+            onRetryJob={(url) => startJob(url, { forceManual: true, allowDuplicate: true })}
             onReturnToSourceApp={handleReturnToSourceApp}
           />
         )}
@@ -607,6 +637,7 @@ export function App() {
             localJobs={localJobs}
             onRepeatDownload={handleRepeatFromHistory}
             onLocalJobDeleted={() => setLocalJobs(getLocalJobs())}
+            onClearAllHistory={handleClearAllHistory}
           />
         )}
 

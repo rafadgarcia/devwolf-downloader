@@ -365,4 +365,61 @@ object MediaStoreHelper {
         }
         return deleted
     }
+
+    /**
+     * Verifies whether a previously downloaded media entry still exists in Android's MediaStore
+     * (via ContentResolver query / AssetFileDescriptor) or on disk at [filePath].
+     */
+    fun doesMediaExist(context: Context, uriStr: String?, filePath: String?): Boolean {
+        val cleanUri = uriStr?.trim()?.takeIf { it.isNotEmpty() }
+        if (cleanUri != null && cleanUri.startsWith("content://", ignoreCase = true)) {
+            val uri = try {
+                Uri.parse(cleanUri)
+            } catch (_: Exception) {
+                null
+            }
+            if (uri != null) {
+                try {
+                    val hasRow = context.contentResolver
+                        .query(uri, arrayOf(MediaStore.MediaColumns._ID), null, null, null)
+                        ?.use { it.moveToFirst() } == true
+                    if (hasRow) {
+                        val afdValid = try {
+                            context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
+                                afd.length != 0L
+                            } ?: true
+                        } catch (_: java.io.FileNotFoundException) {
+                            false
+                        } catch (_: SecurityException) {
+                            false
+                        } catch (_: Throwable) {
+                            true
+                        }
+                        if (afdValid) return true
+                    }
+                } catch (_: Throwable) {
+                    try {
+                        val existsViaAfd = context.contentResolver
+                            .openAssetFileDescriptor(uri, "r")
+                            ?.use { afd -> afd.length != 0L } == true
+                        if (existsViaAfd) return true
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
+        }
+
+        return doesLocalFileExist(filePath)
+    }
+
+    internal fun doesLocalFileExist(filePath: String?): Boolean {
+        val cleanPath = filePath?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+        val target = if (cleanPath.startsWith("file://", ignoreCase = true)) {
+            val rawPath = cleanPath.removePrefix("file://").removePrefix("FILE://")
+            File(rawPath)
+        } else {
+            File(cleanPath)
+        }
+        return target.exists() && target.isFile && target.length() > 0L
+    }
 }

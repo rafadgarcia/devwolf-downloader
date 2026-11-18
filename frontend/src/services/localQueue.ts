@@ -427,6 +427,63 @@ export function removeLocalJob(jobId: string): void {
   writeStoredJobs(next);
 }
 
+export function clearAllLocalJobs(): void {
+  try {
+    window.localStorage.removeItem(LOCAL_QUEUE_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_LOCAL_QUEUE_STORAGE_KEY);
+  } catch {
+    // Ignorar erros de localStorage
+  }
+}
+
+export function extractJobMediaLocations(job: JobResponse): {
+  uris: string[];
+  filePaths: string[];
+} {
+  const uriSet = new Set<string>();
+  const pathSet = new Set<string>();
+
+  for (const item of job.items ?? []) {
+    const uri = cleanNullableString(item.mediaUri);
+    const filePath = cleanNullableString(item.filePath);
+    if (uri) uriSet.add(uri);
+    if (filePath) pathSet.add(filePath);
+  }
+
+  for (const file of job.files ?? []) {
+    const uri = cleanNullableString(file.media_uri);
+    const filePath = cleanNullableString(file.file_path);
+    if (uri) uriSet.add(uri);
+    if (filePath) pathSet.add(filePath);
+  }
+
+  return {
+    uris: Array.from(uriSet),
+    filePaths: Array.from(pathSet),
+  };
+}
+
+export function findExistingReadyJobByNormalizedUrl(
+  jobs: JobResponse[],
+  normalizedUrl: string
+): JobResponse | null {
+  const target = normalizedUrl.trim();
+  if (!target) return null;
+
+  for (const job of jobs) {
+    if (job.status !== 'ready') continue;
+    const jobNormalized = (job.normalized_url || job.original_url || '').trim();
+    if (jobNormalized !== target) continue;
+
+    const { uris, filePaths } = extractJobMediaLocations(job);
+    if (uris.length > 0 || filePaths.length > 0) {
+      return job;
+    }
+  }
+
+  return null;
+}
+
 export function syncLocalSnapshots(snapshots: LocalDownloadSnapshot[]): JobResponse[] {
   const stored = readStoredJobs();
   const map = new Map<string, JobResponse>(stored.map((j) => [j.id, j]));

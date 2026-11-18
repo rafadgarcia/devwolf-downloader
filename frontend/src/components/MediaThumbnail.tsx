@@ -1,8 +1,8 @@
 import { Capacitor } from '@capacitor/core';
 import { useMemo, useState } from 'react';
-import { Film, Image as ImageIcon, Music } from 'lucide-react';
 import type { CarouselMediaType, PlatformId } from '../types/api';
 import { PLATFORM_META } from '../utils/format';
+import { PlatformIcon } from './PlatformIcon';
 
 interface MediaThumbnailProps {
   thumbnailDataUrl?: string | null;
@@ -98,8 +98,6 @@ export function MediaThumbnail({
     );
   }
 
-  const FallbackIcon = mediaType === 'image' ? ImageIcon : mediaType === 'audio' ? Music : Film;
-
   return (
     <div
       className={`relative flex h-full w-full items-center justify-center overflow-hidden bg-gradient-to-br ${gradient} ${className}`}
@@ -114,11 +112,14 @@ export function MediaThumbnail({
       />
       <div className="relative flex flex-col items-center gap-1.5 text-center">
         <div
-          className={`flex items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-[#C4B5FD] backdrop-blur-md ${
+          className={`flex items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-[#E0DBFF] backdrop-blur-md ${
             compact ? 'h-9 w-9' : 'h-12 w-12'
           }`}
         >
-          <FallbackIcon className={compact ? 'h-4 w-4' : 'h-6 w-6'} aria-hidden="true" />
+          <PlatformIcon
+            platform={normalizedPlatform}
+            className={compact ? 'h-5 w-5 text-white' : 'h-6 w-6 text-white'}
+          />
         </div>
         {!compact && (
           <span className="rounded-full border border-white/10 bg-black/25 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#C4B5FD]">

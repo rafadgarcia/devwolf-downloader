@@ -3,6 +3,7 @@ import {
   buildFingerprint,
   clearActiveJobById,
   clearActiveJobFingerprint,
+  clearAllDedupeState,
   DEDUPE_WINDOW_MS,
   isDuplicateAutoDownload,
   markActiveJobFingerprint,
@@ -50,6 +51,17 @@ describe('deduplicação de 10 minutos e jobs ativos', () => {
 
     markActiveJobFingerprint(fp, 'job-active-2', t0);
     clearActiveJobFingerprint(fp);
+    expect(isDuplicateAutoDownload(fp, t0 + 1000)).toBeNull();
+  });
+
+  it('limpa todo o estado de deduplicação ao limpar histórico', () => {
+    const fp = buildFingerprint('https://www.instagram.com/reel/CLEAR1', 'auto', 'best');
+    const t0 = 1_700_000_000_000;
+    markActiveJobFingerprint(fp, 'job-clear-active', t0);
+    markRecentAutoDownload(fp, 'job-clear-recent', t0);
+    expect(isDuplicateAutoDownload(fp, t0 + 1000)).not.toBeNull();
+
+    clearAllDedupeState();
     expect(isDuplicateAutoDownload(fp, t0 + 1000)).toBeNull();
   });
 });

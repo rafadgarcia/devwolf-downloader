@@ -10,9 +10,15 @@ import java.time.Instant
  * Thread-safe persistent JSON store for local Android download jobs so queue and history
  * survive app backgrounding or process restart.
  */
-class LocalQueueStore(context: Context) {
-    private val queueFile = File(context.applicationContext.filesDir, "devwolf_local_queue.json")
-    private val shareFile = File(context.applicationContext.filesDir, "devwolf_pending_share.json")
+class LocalQueueStore internal constructor(
+    private val queueFile: File,
+    private val shareFile: File,
+) {
+    constructor(context: Context) : this(
+        queueFile = File(context.applicationContext.filesDir, "devwolf_local_queue.json"),
+        shareFile = File(context.applicationContext.filesDir, "devwolf_pending_share.json"),
+    )
+
     private val lock = Any()
 
     fun upsertJob(snapshot: JSONObject) {
@@ -50,7 +56,7 @@ class LocalQueueStore(context: Context) {
             var changed = false
             for ((_, job) in jobs) {
                 val status = job.optString("status")
-                if (status in setOf("queued", "resolving", "downloading", "processing")) {
+                if (status in ACTIVE_STATUSES) {
                     job.put("status", "failed")
                     job.put("phaseLabel", "Falhou")
                     job.put("error", "Download interrompido pelo sistema. Toque para tentar novamente.")
@@ -63,6 +69,27 @@ class LocalQueueStore(context: Context) {
             if (changed) {
                 persistMapLocked(jobs)
             }
+        }
+    }
+
+    /**
+     * Clears persisted download history entries from `devwolf_local_queue.json`,
+     * optionally preserving currently active in-flight jobs.
+     */
+    fun clearHistory(keepActiveJobs: Boolean = true): Int {
+        synchronized(lock) {
+            val jobs = loadMapLocked()
+            if (jobs.isEmpty()) return 0
+            val remaining = if (keepActiveJobs) {
+                jobs.filterValues { it.optString("status") in ACTIVE_STATUSES }
+            } else {
+                emptyMap()
+            }
+            val removedCount = jobs.size - remaining.size
+            if (removedCount > 0 || !keepActiveJobs) {
+                persistMapLocked(remaining)
+            }
+            return removedCount
         }
     }
 
@@ -141,6 +168,7 @@ class LocalQueueStore(context: Context) {
     companion object {
         const val MAX_PERSISTED_JOBS = 100
         const val MAX_JOBS_WITH_THUMBNAILS = 24
+        internal val ACTIVE_STATUSES = setOf("queued", "resolving", "downloading", "processing")
 
         internal fun stripThumbnailsCopy(job: JSONObject): JSONObject {
             val copy = JSONObject(job.toString())

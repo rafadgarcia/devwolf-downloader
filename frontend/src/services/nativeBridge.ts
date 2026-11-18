@@ -130,6 +130,8 @@ export interface DevwolfNativePlugin {
   }): Promise<{ launched: boolean }>;
   openMedia(opts: { uri?: string; filePath?: string; mimeType?: string }): Promise<{ opened: boolean }>;
   deleteMedia(opts: { uri?: string; filePath?: string }): Promise<{ deleted: boolean }>;
+  checkMediaExists(opts: { uris?: string[]; filePaths?: string[] }): Promise<{ exists: boolean }>;
+  clearLocalDownloadHistory(): Promise<{ cleared: boolean }>;
   getLocalEngineStatus(): Promise<Omit<LocalEngineStatus, 'available'>>;
   updateLocalEngine(opts?: {
     channel?: UpdateChannel;
@@ -354,6 +356,33 @@ export const nativeBridge = {
     if (!isNativePlatform()) return false;
     const res = await DevwolfNative.deleteMedia(opts);
     return Boolean(res?.deleted);
+  },
+
+  async checkMediaExists(opts: {
+    uris?: string[];
+    filePaths?: string[];
+  }): Promise<{ exists: boolean }> {
+    const uris = (opts.uris ?? []).filter(Boolean);
+    const filePaths = (opts.filePaths ?? []).filter(Boolean);
+    if (uris.length === 0 && filePaths.length === 0) {
+      return { exists: false };
+    }
+    if (!isNativePlatform()) {
+      return { exists: true };
+    }
+    try {
+      const res = await DevwolfNative.checkMediaExists({ uris, filePaths });
+      return { exists: Boolean(res?.exists) };
+    } catch {
+      return { exists: false };
+    }
+  },
+
+  async clearLocalDownloadHistory(): Promise<{ cleared: boolean }> {
+    if (!isNativePlatform()) {
+      return { cleared: true };
+    }
+    return DevwolfNative.clearLocalDownloadHistory();
   },
 
   async getLocalEngineStatus(): Promise<LocalEngineStatus> {

@@ -2,8 +2,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   applyLocalProgressToJob,
   cleanNullableString,
+  clearAllLocalJobs,
   createInitialLocalJob,
+  extractJobMediaLocations,
   filterLocalHistory,
+  findExistingReadyJobByNormalizedUrl,
   getLocalJobs,
   mapLocalFilesToCarouselItems,
   snapshotToJobResponse,
@@ -370,5 +373,85 @@ describe('localQueue, individual carousel items & local history', () => {
     expect(ytFromSnap.selected_engine).toBe('yt-dlp');
     expect(ytFromSnap.display_engine).toBe('yt-dlp');
     expect(ytFromSnap.title).toBeNull();
+  });
+
+  it('encontra job pronto existente pela URL normalizada apenas quando há mediaUri/filePath e limpa todo o histórico local', () => {
+    const url = 'https://www.instagram.com/reel/READY1';
+    const failedJob = createInitialLocalJob({
+      jobId: 'local-failed',
+      url,
+      normalizedUrl: url,
+      platform: 'instagram',
+      format: 'auto',
+      quality: 'best',
+      statusMode: false,
+    });
+    failedJob.status = 'failed';
+    upsertLocalJob(failedJob);
+
+    expect(findExistingReadyJobByNormalizedUrl(getLocalJobs(), url)).toBeNull();
+
+    const readyNoMedia = createInitialLocalJob({
+      jobId: 'local-ready-empty',
+      url,
+      normalizedUrl: url,
+      platform: 'instagram',
+      format: 'auto',
+      quality: 'best',
+      statusMode: false,
+    });
+    readyNoMedia.status = 'ready';
+    upsertLocalJob(readyNoMedia);
+
+    expect(findExistingReadyJobByNormalizedUrl(getLocalJobs(), url)).toBeNull();
+
+    const readyWithMedia = applyLocalProgressToJob(
+      createInitialLocalJob({
+        jobId: 'local-ready-media',
+        url,
+        normalizedUrl: url,
+        platform: 'instagram',
+        format: 'auto',
+        quality: 'best',
+        statusMode: false,
+      }),
+      {
+        jobId: 'local-ready-media',
+        status: 'ready',
+        phaseLabel: 'Pronto',
+        engine: 'dnr',
+        bytesDownloaded: 1024,
+        totalBytes: 1024,
+        percent: 100,
+        isIndeterminate: false,
+        speedBytesPerSec: null,
+        etaSeconds: null,
+        items: [
+          {
+            id: 'item-1',
+            index: 1,
+            type: 'video',
+            fileName: 'reel.mp4',
+            mimeType: 'video/mp4',
+            sizeBytes: 1024,
+            mediaUri: 'content://media/external/video/media/42',
+            filePath: '/storage/emulated/0/Movies/Devwolf Downloader/reel.mp4',
+            displayPath: 'Movies/Devwolf Downloader/reel.mp4',
+            status: 'ready',
+          },
+        ],
+      }
+    );
+    upsertLocalJob(readyWithMedia);
+
+    const found = findExistingReadyJobByNormalizedUrl(getLocalJobs(), url);
+    expect(found?.id).toBe('local-ready-media');
+    expect(extractJobMediaLocations(found!)).toEqual({
+      uris: ['content://media/external/video/media/42'],
+      filePaths: ['/storage/emulated/0/Movies/Devwolf Downloader/reel.mp4'],
+    });
+
+    clearAllLocalJobs();
+    expect(getLocalJobs()).toHaveLength(0);
   });
 });

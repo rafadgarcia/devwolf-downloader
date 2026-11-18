@@ -32,6 +32,7 @@ import {
 import { HeroActionsModal } from './HeroActionsModal';
 import { MediaThumbnail } from './MediaThumbnail';
 import { OnboardingBanner } from './OnboardingBanner';
+import { PlatformIcon } from './PlatformIcon';
 
 interface HomeViewProps {
   localJobs: JobResponse[];
@@ -295,8 +296,9 @@ export function HomeView({
             {/* Top badges */}
             <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-3">
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="rounded-full border border-white/15 bg-[#0D0B1E]/65 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-md">
-                  {heroMeta.label}
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-[#0D0B1E]/65 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-md">
+                  <PlatformIcon platform={heroJob.platform} className="h-3.5 w-3.5 text-white" />
+                  <span>{heroMeta.label}</span>
                 </span>
                 <span className="rounded-full border border-[#A78BFA]/30 bg-[#0D0B1E]/65 px-2.5 py-1 text-[11px] font-medium text-[#C4B5FD] backdrop-blur-md">
                   {heroEngine}
@@ -402,8 +404,11 @@ export function HomeView({
             {/* Barra translúcida inferior estilo Rposty */}
             <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 border-t border-white/10 bg-[#0D0B1E]/75 px-3.5 py-2.5 backdrop-blur-xl">
               <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#7C5CFF] to-[#5E43F3] text-[11px] font-extrabold text-white shadow">
-                  {heroMeta.shortLabel}
+                <div
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#7C5CFF] to-[#5E43F3] text-white shadow"
+                  aria-hidden="true"
+                >
+                  <PlatformIcon platform={heroJob.platform} className="h-[18px] w-[18px]" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-white">
@@ -551,8 +556,11 @@ export function HomeView({
                   </span>
 
                   <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-[#0D0B1E]/85 via-[#0D0B1E]/40 to-transparent px-2 pb-1.5 pt-4 text-[10px] font-semibold text-white">
-                    <span className="rounded bg-[#7C5CFF]/70 px-1.5 py-0.5 leading-none">
-                      {meta.shortLabel}
+                    <span
+                      className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#7C5CFF]/85 text-white shadow-sm backdrop-blur-sm"
+                      aria-hidden="true"
+                    >
+                      <PlatformIcon platform={job.platform} className="h-3.5 w-3.5" />
                     </span>
                     {primary?.durationSeconds ? (
                       <span className="tabular-nums opacity-90">

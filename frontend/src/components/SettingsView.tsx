@@ -5,12 +5,10 @@ import {
   ChevronDown,
   ChevronUp,
   Copy,
-  ExternalLink,
   HardDrive,
   KeyRound,
   LogIn,
   ShieldCheck,
-  Smartphone,
   Trash2,
 } from 'lucide-react';
 import { nativeBridge } from '../services/nativeBridge';
@@ -27,9 +25,6 @@ import type {
 import { sanitizeDiagnosticText } from '../utils/errorContract';
 import { formatBytes, formatDateTime, formatMs } from '../utils/format';
 
-const REDDIT_CLIENT_ID_STORAGE_KEY = 'devwolf_reddit_client_id';
-const REDDIT_OAUTH_REDIRECT_URI = 'https://localhost/devwolf-oauth-callback';
-
 type ManagedAccountPlatform = 'instagram' | 'reddit' | 'threads';
 
 const ACCOUNT_PLATFORMS: Array<{
@@ -42,21 +37,21 @@ const ACCOUNT_PLATFORMS: Array<{
     id: 'instagram',
     label: 'Instagram',
     description:
-      'A tela de login preserva sua sessão permanentemente após entrar e inclui atalho para abrir ou copiar do navegador do dispositivo.',
+      'Entre na sua conta para baixar mídias que exigem sessão autenticada. A sessão fica salva e criptografada no aparelho.',
     cookiePlaceholder: 'sessionid=...; csrftoken=...',
   },
   {
     id: 'reddit',
     label: 'Reddit',
     description:
-      'Suporta OAuth2 PKCE (pode abrir no navegador do dispositivo onde o Reddit já está logado) ou sessão via WebView.',
+      'Entre na sua conta para baixar mídias que exigem sessão autenticada. A sessão fica salva e criptografada no aparelho.',
     cookiePlaceholder: 'reddit_session=...; token_v2=...',
   },
   {
     id: 'threads',
     label: 'Threads',
     description:
-      'A tela de login preserva sua sessão permanentemente após entrar e inclui atalho para abrir ou copiar do navegador do dispositivo.',
+      'Entre na sua conta para baixar mídias que exigem sessão autenticada. A sessão fica salva e criptografada no aparelho.',
     cookiePlaceholder: 'sessionid=...; csrftoken=...',
   },
 ];
@@ -85,13 +80,6 @@ export function SettingsView({
   const [notice, setNotice] = useState<string | null>(null);
 
   const [sessions, setSessions] = useState<PlatformSessionInfo[]>([]);
-  const [redditClientId, setRedditClientId] = useState<string>(() => {
-    try {
-      return window.localStorage.getItem(REDDIT_CLIENT_ID_STORAGE_KEY) ?? '';
-    } catch {
-      return '';
-    }
-  });
   const [manualOpenFor, setManualOpenFor] = useState<ManagedAccountPlatform | null>(null);
   const [manualCookies, setManualCookies] = useState<Record<ManagedAccountPlatform, string>>({
     instagram: '',
@@ -193,31 +181,11 @@ export function SettingsView({
     }
   };
 
-  const handleRedditClientIdChange = (val: string) => {
-    setRedditClientId(val);
-    try {
-      window.localStorage.setItem(REDDIT_CLIENT_ID_STORAGE_KEY, val.trim());
-    } catch {
-      // Ignorar erro de localStorage
-    }
-  };
-
-  const handleConnectPlatform = async (
-    platform: ManagedAccountPlatform,
-    useRedditOAuth = false
-  ) => {
+  const handleConnectPlatform = async (platform: ManagedAccountPlatform) => {
     setError(null);
     setNotice(null);
     try {
-      const cleanClientId = useRedditOAuth ? redditClientId.trim() : undefined;
-      if (platform === 'reddit' && useRedditOAuth && !cleanClientId) {
-        setError('Informe o Client ID do seu Installed App do Reddit (developers.reddit.com).');
-        return;
-      }
-      const res = await nativeBridge.openPlatformLoginWebView({
-        platform,
-        redditClientId: cleanClientId,
-      });
+      const res = await nativeBridge.openPlatformLoginWebView({ platform });
       await loadSessions();
       if (res.saved) {
         setNotice(res.message || `Sessão de ${platform} salva com criptografia no aparelho.`);
@@ -632,7 +600,7 @@ export function SettingsView({
           />
           <span>
             Mídias públicas não exigem login. Quando uma plataforma exigir sessão autenticada,
-            conecte a conta correspondente abaixo. Cookies e tokens OAuth2 ficam criptografados
+            conecte a conta correspondente abaixo. Cookies e sessões ficam criptografados
             exclusivamente no aparelho (EncryptedSharedPreferences) e isolados por plataforma.
           </span>
         </p>
@@ -690,73 +658,16 @@ export function SettingsView({
                   </p>
                 )}
 
-                {account.id === 'reddit' && (
-                  <div className="mt-2.5 space-y-2 rounded-xl border border-[#7C5CFF]/20 bg-white/70 p-2.5 text-[11px] text-[#5B5482] dark:bg-[#0D0B1E]/60 dark:text-[#A5A1C8]">
-                    <div className="flex flex-wrap items-center justify-between gap-1">
-                      <span className="font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
-                        Reddit OAuth2 Installed App (opcional)
-                      </span>
-                      <a
-                        href="https://developers.reddit.com"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 font-medium text-[#5E43F3] underline-offset-2 hover:underline dark:text-[#C4B5FD]"
-                      >
-                        <span>developers.reddit.com</span>
-                        <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                      </a>
-                    </div>
-                    <p>
-                      Crie um <strong>Installed App</strong> com Redirect URI{' '}
-                      <code className="rounded bg-[#7C5CFF]/10 px-1 py-0.5 font-mono text-[10px]">
-                        {REDDIT_OAUTH_REDIRECT_URI}
-                      </code>{' '}
-                      e cole o Client ID abaixo para autorizar via OAuth (com opção de abrir no
-                      navegador do dispositivo onde o Reddit já está conectado), ou entre via WebView.
-                    </p>
-                    <input
-                      type="text"
-                      aria-label="Reddit OAuth Client ID"
-                      placeholder="Client ID do Reddit (opcional para OAuth2 PKCE)"
-                      value={redditClientId}
-                      onChange={(e) => handleRedditClientIdChange(e.target.value)}
-                      className="min-h-[40px] w-full rounded-xl border border-[#7C5CFF]/25 bg-white px-2.5 text-xs text-[#1E1940] outline-none focus:border-[#7C5CFF] dark:bg-[#0D0B1E] dark:text-[#F5F3FF]"
-                    />
-                  </div>
-                )}
-
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {account.id === 'reddit' && redditClientId.trim() ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={!isNativeAndroid}
-                        onClick={() => void handleConnectPlatform('reddit', true)}
-                        className="dw-btn-primary inline-flex min-h-[42px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-45"
-                      >
-                        <LogIn className="h-3.5 w-3.5" aria-hidden="true" />
-                        <span>Conectar Reddit (OAuth2 PKCE)</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!isNativeAndroid}
-                        onClick={() => void handleConnectPlatform('reddit', false)}
-                        className="inline-flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-3 text-xs font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 disabled:cursor-not-allowed disabled:opacity-45 dark:text-[#E0DBFF]"
-                      >
-                        <span>WebView</span>
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={!isNativeAndroid}
-                      onClick={() => void handleConnectPlatform(account.id, false)}
-                      className="dw-btn-primary inline-flex min-h-[42px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      <LogIn className="h-3.5 w-3.5" aria-hidden="true" />
-                      <span>Conectar {account.label}</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    disabled={!isNativeAndroid}
+                    onClick={() => void handleConnectPlatform(account.id)}
+                    className="dw-btn-primary inline-flex min-h-[42px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <LogIn className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Conectar {account.label}</span>
+                  </button>
 
                   {connected && (
                     <button
@@ -1016,17 +927,6 @@ export function SettingsView({
             </button>
           </div>
         )}
-      </section>
-
-      <section className="dw-glass-card flex items-start gap-2.5 rounded-3xl p-4 text-xs text-[#5B5482] dark:text-[#A5A1C8]">
-        <Smartphone
-          className="mt-0.5 h-4 w-4 shrink-0 text-[#7C5CFF] dark:text-[#A78BFA]"
-          aria-hidden="true"
-        />
-        <p className="leading-relaxed">
-          O Devwolf Downloader executa diretamente no Android, recebe links do menu Compartilhar e
-          salva fotos e vídeos no álbum &ldquo;Devwolf Downloader&rdquo; da Galeria.
-        </p>
       </section>
     </div>
   );

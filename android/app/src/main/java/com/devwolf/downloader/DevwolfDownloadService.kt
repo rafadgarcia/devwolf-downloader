@@ -124,7 +124,8 @@ class DevwolfDownloadService : Service() {
             sessionUserAgent: String?,
         ): String? {
             if (platform.equals("instagram", ignoreCase = true) ||
-                platform.equals("threads", ignoreCase = true)
+                platform.equals("threads", ignoreCase = true) ||
+                platform.equals("reddit", ignoreCase = true)
             ) {
                 return sessionUserAgent?.trim()
                     ?.takeIf { it.isNotEmpty() && !it.contains('\n') && !it.contains('\r') }

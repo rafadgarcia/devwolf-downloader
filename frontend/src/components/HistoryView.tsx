@@ -11,9 +11,15 @@ import {
   Share2,
   Trash2,
 } from 'lucide-react';
-import { cleanNullableString, filterLocalHistory, removeLocalJob } from '../services/localQueue';
+import {
+  cleanNullableString,
+  clearAllLocalJobs,
+  filterLocalHistory,
+  removeLocalJob,
+} from '../services/localQueue';
 import { nativeBridge } from '../services/nativeBridge';
 import type { CarouselItemState, HistoryItem, JobFile, JobResponse, PlatformId } from '../types/api';
+import { clearAllDedupeState } from '../utils/dedupe';
 import { getUserFacingErrorMessage } from '../utils/errorContract';
 import {
   formatBytes,
@@ -24,11 +30,13 @@ import {
   PLATFORM_META,
 } from '../utils/format';
 import { MediaThumbnail } from './MediaThumbnail';
+import { PlatformIcon } from './PlatformIcon';
 
 interface HistoryViewProps {
   localJobs: JobResponse[];
   onRepeatDownload: (url: string) => Promise<void>;
   onLocalJobDeleted?: (jobId: string) => void;
+  onClearAllHistory?: () => void;
 }
 
 const PLATFORM_FILTERS: { id: string; label: string }[] = [
@@ -79,11 +87,13 @@ export function HistoryView({
   localJobs,
   onRepeatDownload,
   onLocalJobDeleted,
+  onClearAllHistory,
 }: HistoryViewProps) {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [query, setQuery] = useState('');
   const [platform, setPlatform] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [clearing, setClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -137,6 +147,23 @@ export function HistoryView({
     }
   };
 
+  const handleClearAllHistory = async () => {
+    if (clearing) return;
+    setClearing(true);
+    setError(null);
+    try {
+      await nativeBridge.clearLocalDownloadHistory();
+      clearAllLocalJobs();
+      clearAllDedupeState();
+      setItems([]);
+      onClearAllHistory?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível limpar o histórico.');
+    } finally {
+      setClearing(false);
+    }
+  };
+
   const handleShareAllItems = async (
     title: string,
     carouselItems: CarouselItemState[],
@@ -158,18 +185,31 @@ export function HistoryView({
 
   return (
     <div className="space-y-4 pb-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-base font-bold text-[#1E1940] dark:text-[#F5F3FF]">
           Histórico de downloads
         </h2>
-        <button
-          type="button"
-          onClick={loadHistory}
-          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-[#5B5482] transition hover:bg-[#7C5CFF]/10 dark:text-[#C4B5FD] dark:hover:bg-[#7C5CFF]/15"
-        >
-          <RefreshCw className="h-4 w-4" aria-hidden="true" />
-          <span>Atualizar</span>
-        </button>
+        <div className="flex items-center gap-1.5">
+          {(items.length > 0 || localJobs.length > 0) && (
+            <button
+              type="button"
+              disabled={clearing}
+              onClick={() => void handleClearAllHistory()}
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 text-xs font-semibold text-rose-600 transition hover:bg-rose-500/20 disabled:opacity-50 dark:text-rose-300"
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              <span>{clearing ? 'Limpando…' : 'Limpar histórico'}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={loadHistory}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-[#5B5482] transition hover:bg-[#7C5CFF]/10 dark:text-[#C4B5FD] dark:hover:bg-[#7C5CFF]/15"
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            <span>Atualizar</span>
+          </button>
+        </div>
       </div>
 
       <div className="relative">
@@ -275,9 +315,10 @@ export function HistoryView({
                     <div className="flex flex-wrap items-center justify-between gap-1.5">
                       <div className="flex items-center gap-1.5">
                         <span
-                          className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium ${meta.badgeClass}`}
+                          className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${meta.badgeClass}`}
                         >
-                          {meta.label}
+                          <PlatformIcon platform={item.platform} className="h-3 w-3 shrink-0" />
+                          <span>{meta.label}</span>
                         </span>
                         <span className="rounded-md bg-[#7C5CFF]/15 px-2 py-0.5 text-[11px] font-medium text-[#5E43F3] dark:text-[#C4B5FD]">
                           {engineBadge}

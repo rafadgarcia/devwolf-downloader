@@ -182,6 +182,51 @@ class DevwolfNativePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun clearLocalDownloadHistory(call: PluginCall) {
+        val keepActiveJobs = call.getBoolean("keepActiveJobs", true) ?: true
+        val removed = queueStore.clearHistory(keepActiveJobs = keepActiveJobs)
+        call.resolve(
+            JSObject().apply {
+                put("cleared", true)
+                put("removedCount", removed)
+            },
+        )
+    }
+
+    @PluginMethod
+    fun checkMediaExists(call: PluginCall) {
+        val urisArr = call.getArray("uris")
+        val pathsArr = call.getArray("filePaths")
+        pluginScope.launch {
+            val appCtx = context.applicationContext
+            var exists = false
+            if (urisArr != null) {
+                for (i in 0 until urisArr.length()) {
+                    val uriStr = urisArr.optString(i)
+                        .trim()
+                        .takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+                    if (uriStr != null && MediaStoreHelper.doesMediaExist(appCtx, uriStr, null)) {
+                        exists = true
+                        break
+                    }
+                }
+            }
+            if (!exists && pathsArr != null) {
+                for (i in 0 until pathsArr.length()) {
+                    val pathStr = pathsArr.optString(i)
+                        .trim()
+                        .takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+                    if (pathStr != null && MediaStoreHelper.doesMediaExist(appCtx, null, pathStr)) {
+                        exists = true
+                        break
+                    }
+                }
+            }
+            call.resolve(JSObject().apply { put("exists", exists) })
+        }
+    }
+
+    @PluginMethod
     fun saveToGallery(call: PluginCall) {
         val filePath = call.getString("filePath").orEmpty()
         val mimeType = call.getString("mimeType") ?: StatusModeProcessor.guessMimeType(filePath)

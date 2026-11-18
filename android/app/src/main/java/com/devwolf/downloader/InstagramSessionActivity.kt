@@ -4,13 +4,19 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -20,7 +26,9 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowInsetsControllerCompat
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URI
@@ -45,12 +53,23 @@ class InstagramSessionActivity : AppCompatActivity() {
 
     private var platform: String = PLATFORM_INSTAGRAM
     private var redditClientId: String? = null
+    private var isRedditOAuthMode = false
     private var pkceVerifier: String? = null
     private var oauthState: String? = null
     private var oauthRedirectUriInUse: String = REDDIT_OAUTH_REDIRECT_URI
     private var sessionSaved = false
     private var oauthExchangeInFlight = false
     private val ioExecutor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val sessionPollRunnable = object : Runnable {
+        override fun run() {
+            if (sessionSaved || isFinishing || isDestroyed || isRedditOAuthMode) return
+            tryCaptureSession(force = false)
+            if (!sessionSaved && !isFinishing && !isDestroyed) {
+                mainHandler.postDelayed(this, SESSION_POLL_INTERVAL_MS)
+            }
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -66,10 +85,13 @@ class InstagramSessionActivity : AppCompatActivity() {
             ?.takeIf { it.isNotEmpty() }
 
         val isRedditOAuth = platform == PLATFORM_REDDIT && !redditClientId.isNullOrBlank()
+        isRedditOAuthMode = isRedditOAuth
+
+        applyPurpleSystemChrome()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#101012"))
+            setBackgroundColor(COLOR_BG_DEEP)
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -78,7 +100,7 @@ class InstagramSessionActivity : AppCompatActivity() {
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#1C1C20"))
+            setBackgroundColor(COLOR_SURFACE_HEADER)
             val pad = dp(12)
             setPadding(pad, dp(14), pad, dp(10))
         }
@@ -90,31 +112,23 @@ class InstagramSessionActivity : AppCompatActivity() {
 
         val titleView = TextView(this).apply {
             text = when {
-                isRedditOAuth -> "Conectar Reddit (OAuth2 PKCE)"
-                platform == PLATFORM_REDDIT -> "Sessão opcional do Reddit"
-                platform == PLATFORM_THREADS -> "Sessão opcional do Threads"
-                else -> "Sessão opcional do Instagram"
+                isRedditOAuth -> "Conectar Reddit (OAuth2)"
+                platform == PLATFORM_REDDIT -> "Conectar Reddit"
+                platform == PLATFORM_THREADS -> "Conectar Threads"
+                else -> "Conectar Instagram"
             }
             setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        val browserBtn = Button(this).apply {
-            text = "Navegador"
-            setTextColor(Color.parseColor("#C4B5FD"))
-            setBackgroundColor(Color.TRANSPARENT)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setOnClickListener {
-                openInDeviceBrowser(isRedditOAuth)
-            }
-        }
-
         val cancelBtn = Button(this).apply {
             text = "Cancelar"
-            setTextColor(Color.parseColor("#D4D4D8"))
+            setTextColor(COLOR_LAVENDER_TEXT)
             setBackgroundColor(Color.TRANSPARENT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            isAllCaps = false
             setOnClickListener {
                 setResult(
                     Activity.RESULT_CANCELED,
@@ -130,8 +144,15 @@ class InstagramSessionActivity : AppCompatActivity() {
 
         doneBtn = Button(this).apply {
             text = "Concluir"
-            setTextColor(Color.parseColor("#101012"))
-            setBackgroundColor(Color.parseColor("#A3E635"))
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            isAllCaps = false
+            background = GradientDrawable().apply {
+                setColor(COLOR_ACCENT_PURPLE)
+                cornerRadius = dp(10).toFloat()
+            }
+            setPadding(dp(14), dp(6), dp(14), dp(6))
+            minimumHeight = dp(36)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             if (isRedditOAuth) {
                 visibility = android.view.View.GONE
@@ -148,17 +169,16 @@ class InstagramSessionActivity : AppCompatActivity() {
         }
 
         topRow.addView(titleView)
-        topRow.addView(browserBtn)
         topRow.addView(cancelBtn)
         topRow.addView(doneBtn)
 
         statusLabel = TextView(this).apply {
             text = if (isRedditOAuth) {
-                "Autorize o acesso OAuth2 PKCE aqui ou toque em \"Navegador\" (requer redirect devwolf://oauth-callback no app do Reddit)."
+                "Autorize o acesso OAuth2 do Reddit abaixo para conectar sua conta automaticamente."
             } else {
-                "Mídias públicas não exigem login. Após entrar aqui uma vez, a sessão WebView permanece salva com criptografia."
+                "Mídias públicas não exigem login. Entre na sua conta abaixo — assim que o login concluir, sua sessão criptografada será salva automaticamente."
             }
-            setTextColor(Color.parseColor("#A1A1AA"))
+            setTextColor(COLOR_LAVENDER_MUTED)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, dp(4), 0, 0)
         }
@@ -169,6 +189,8 @@ class InstagramSessionActivity : AppCompatActivity() {
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             isIndeterminate = false
             max = 100
+            progressTintList = ColorStateList.valueOf(COLOR_ACCENT_PURPLE)
+            progressBackgroundTintList = ColorStateList.valueOf(COLOR_SURFACE_CARD)
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3))
         }
 
@@ -178,12 +200,17 @@ class InstagramSessionActivity : AppCompatActivity() {
                 0,
                 1f,
             )
+            setBackgroundColor(COLOR_BG_DEEP)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
             settings.setSupportZoom(true)
             settings.builtInZoomControls = true
             settings.displayZoomControls = false
+            val currentUa = settings.userAgentString.orEmpty()
+            if (currentUa.contains("; wv)")) {
+                settings.userAgentString = currentUa.replace("; wv)", ")")
+            }
         }
 
         val cookieManager = CookieManager.getInstance()
@@ -216,29 +243,12 @@ class InstagramSessionActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                if (url == null || isRedditOAuth) return
-                when (platform) {
-                    PLATFORM_INSTAGRAM -> {
-                        if (isHostMatch(url, "instagram.com") && !url.contains("/accounts/login", ignoreCase = true)) {
-                            tryCaptureSession(force = false)
-                        }
-                    }
-                    PLATFORM_THREADS -> {
-                        if ((isHostMatch(url, "threads.net") || isHostMatch(url, "threads.com")) &&
-                            !url.contains("/login", ignoreCase = true)
-                        ) {
-                            tryCaptureSession(force = false)
-                        }
-                    }
-                    PLATFORM_REDDIT -> {
-                        if (isHostMatch(url, "reddit.com") &&
-                            !url.contains("/login", ignoreCase = true) &&
-                            !url.contains("/register", ignoreCase = true)
-                        ) {
-                            tryCaptureSession(force = false)
-                        }
-                    }
-                }
+                evaluateAutoCapture(url)
+            }
+
+            override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                super.doUpdateVisitedHistory(view, url, isReload)
+                evaluateAutoCapture(url)
             }
         }
 
@@ -246,6 +256,27 @@ class InstagramSessionActivity : AppCompatActivity() {
         root.addView(progressBar)
         root.addView(webView)
         setContentView(root)
+
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (::webView.isInitialized && webView.canGoBack()) {
+                        webView.goBack()
+                    } else {
+                        setResult(
+                            Activity.RESULT_CANCELED,
+                            Intent().apply {
+                                putExtra(EXTRA_SAVED, false)
+                                putExtra(EXTRA_PLATFORM, platform)
+                                putExtra(EXTRA_MESSAGE, "Login cancelado pelo usuário.")
+                            },
+                        )
+                        finish()
+                    }
+                }
+            },
+        )
 
         val initialUrl = if (isRedditOAuth) {
             buildRedditOAuthAuthorizeUrl(redditClientId!!)
@@ -257,6 +288,19 @@ class InstagramSessionActivity : AppCompatActivity() {
             }
         }
         webView.loadUrl(initialUrl)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!isRedditOAuthMode && !sessionSaved) {
+            mainHandler.removeCallbacks(sessionPollRunnable)
+            mainHandler.postDelayed(sessionPollRunnable, SESSION_POLL_INTERVAL_MS)
+        }
+    }
+
+    override fun onPause() {
+        mainHandler.removeCallbacks(sessionPollRunnable)
+        super.onPause()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -271,6 +315,7 @@ class InstagramSessionActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(sessionPollRunnable)
         ioExecutor.shutdownNow()
         if (::webView.isInitialized) {
             webView.stopLoading()
@@ -279,26 +324,37 @@ class InstagramSessionActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun openInDeviceBrowser(isRedditOAuth: Boolean) {
-        val targetUrl = if (isRedditOAuth && !redditClientId.isNullOrBlank()) {
-            buildRedditOAuthAuthorizeUrl(redditClientId!!, REDDIT_BROWSER_OAUTH_REDIRECT_URI)
-        } else {
-            val current = if (::webView.isInitialized) webView.url else null
-            current?.takeIf { UrlExtractor.isSafePublicHttpUrl(it) } ?: when (platform) {
-                PLATFORM_REDDIT -> REDDIT_LOGIN_URL
-                PLATFORM_THREADS -> THREADS_LOGIN_URL
-                else -> INSTAGRAM_LOGIN_URL
+    private fun evaluateAutoCapture(url: String?) {
+        if (url == null || isRedditOAuthMode || sessionSaved) return
+        when (platform) {
+            PLATFORM_INSTAGRAM -> {
+                if (isHostMatch(url, "instagram.com")) {
+                    tryCaptureSession(force = false)
+                }
+            }
+            PLATFORM_THREADS -> {
+                if (isHostMatch(url, "threads.net") || isHostMatch(url, "threads.com")) {
+                    tryCaptureSession(force = false)
+                }
+            }
+            PLATFORM_REDDIT -> {
+                if (isHostMatch(url, "reddit.com")) {
+                    tryCaptureSession(force = false)
+                }
             }
         }
-        try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)))
-            statusLabel.text = if (isRedditOAuth) {
-                "Aberto no navegador do dispositivo. Aprove o acesso para retornar automaticamente (requer URI devwolf://oauth-callback)."
-            } else {
-                "Aberto no navegador. Por segurança do Android, apps não leem cookies do Chrome; faça login aqui uma vez para manter a sessão salva."
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyPurpleSystemChrome() {
+        window?.apply {
+            addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            statusBarColor = COLOR_BG_DEEP
+            navigationBarColor = COLOR_BG_DEEP
+            WindowInsetsControllerCompat(this, decorView).apply {
+                isAppearanceLightStatusBars = false
+                isAppearanceLightNavigationBars = false
             }
-        } catch (_: Throwable) {
-            statusLabel.text = "Nenhum navegador externo encontrado no dispositivo."
         }
     }
 
@@ -485,13 +541,15 @@ class InstagramSessionActivity : AppCompatActivity() {
 
         val updatedAt: String = when (platform) {
             PLATFORM_INSTAGRAM -> {
-                val rawCookies = cookieManager.getCookie(INSTAGRAM_BASE_URL)
+                val rawCookies = mergeCookieStrings(
+                    cookieManager.getCookie(INSTAGRAM_BASE_URL),
+                    cookieManager.getCookie("https://i.instagram.com"),
+                )
                 if (!SecureVault.hasCookieKey(rawCookies, "sessionid")) {
                     return false
                 }
-                if (!force && rawCookies.isNullOrBlank()) return false
                 SecureVault(applicationContext).saveInstagramSession(
-                    cookieHeader = rawCookies!!,
+                    cookieHeader = rawCookies,
                     userAgent = ua,
                     source = "webview",
                 )
@@ -515,10 +573,17 @@ class InstagramSessionActivity : AppCompatActivity() {
                 val merged = mergeCookieStrings(
                     cookieManager.getCookie(REDDIT_BASE_URL),
                     cookieManager.getCookie(REDDIT_OAUTH_BASE_URL),
+                    cookieManager.getCookie("https://reddit.com"),
+                    cookieManager.getCookie("https://old.reddit.com"),
                 )
-                val hasRedditAuth = SecureVault.hasCookieKey(merged, "reddit_session") ||
-                    SecureVault.hasCookieKey(merged, "token_v2")
-                if (!hasRedditAuth) {
+                val currentUrl = if (::webView.isInitialized) webView.url.orEmpty() else ""
+                val onRedditAuthPage = currentUrl.contains("/login", ignoreCase = true) ||
+                    currentUrl.contains("/register", ignoreCase = true)
+                val manualFallbackAllowed = force &&
+                    merged.isNotBlank() &&
+                    isHostMatch(currentUrl, "reddit.com") &&
+                    !onRedditAuthPage
+                if (!isAuthenticatedRedditCookie(merged) && !manualFallbackAllowed) {
                     return false
                 }
                 SecureVault(applicationContext).savePlatformCookieSession(
@@ -532,6 +597,7 @@ class InstagramSessionActivity : AppCompatActivity() {
         }
 
         sessionSaved = true
+        mainHandler.removeCallbacks(sessionPollRunnable)
         val label = when (platform) {
             PLATFORM_REDDIT -> "Reddit"
             PLATFORM_THREADS -> "Threads"
@@ -543,7 +609,7 @@ class InstagramSessionActivity : AppCompatActivity() {
                 putExtra(EXTRA_SAVED, true)
                 putExtra(EXTRA_PLATFORM, platform)
                 putExtra(EXTRA_UPDATED_AT, updatedAt)
-                putExtra(EXTRA_MESSAGE, "Sessão do $label salva localmente com criptografia.")
+                putExtra(EXTRA_MESSAGE, "Conta do $label conectada com sucesso!")
             },
         )
         finish()
@@ -585,7 +651,15 @@ class InstagramSessionActivity : AppCompatActivity() {
         const val REDDIT_LOGIN_URL = "https://www.reddit.com/login/"
         const val REDDIT_OAUTH_REDIRECT_URI = "https://localhost/devwolf-oauth-callback"
         const val REDDIT_BROWSER_OAUTH_REDIRECT_URI = "devwolf://oauth-callback"
-        private const val REDDIT_OAUTH_USER_AGENT = "android:com.devwolf.downloader:v3.0.0-rc.5 (by /u/devwolf-app)"
+        private const val REDDIT_OAUTH_USER_AGENT = "android:com.devwolf.downloader:v3.0.0-rc.6 (by /u/devwolf-app)"
+        private const val SESSION_POLL_INTERVAL_MS = 1200L
+
+        private const val COLOR_BG_DEEP = 0xFF0D0B1E.toInt()
+        private const val COLOR_SURFACE_HEADER = 0xFF14112E.toInt()
+        private const val COLOR_SURFACE_CARD = 0xFF1E1940.toInt()
+        private const val COLOR_ACCENT_PURPLE = 0xFF7C5CFF.toInt()
+        private const val COLOR_LAVENDER_TEXT = 0xFFC4B5FD.toInt()
+        private const val COLOR_LAVENDER_MUTED = 0xFFB8B3D8.toInt()
 
         const val EXTRA_PLATFORM = "extra_platform"
         const val EXTRA_REDDIT_CLIENT_ID = "extra_reddit_client_id"
@@ -606,6 +680,62 @@ class InstagramSessionActivity : AppCompatActivity() {
 
         private fun urlEncode(value: String): String {
             return URLEncoder.encode(value, StandardCharsets.UTF_8.name())
+        }
+
+        internal fun isAuthenticatedRedditCookie(cookieHeader: String?): Boolean {
+            if (cookieHeader.isNullOrBlank()) return false
+            if (SecureVault.hasCookieKey(cookieHeader, "reddit_session")) {
+                return true
+            }
+            val tokenV2 = SecureVault.extractCookieValue(cookieHeader, "token_v2") ?: return false
+            val parts = tokenV2.split('.')
+            if (parts.size < 2) return false
+            val payloadBytes = decodeBase64Url(parts[1]) ?: return false
+            val payloadStr = String(payloadBytes, StandardCharsets.UTF_8)
+            val sub = try {
+                JSONObject(payloadStr).optString("sub").trim()
+            } catch (_: Exception) {
+                ""
+            }
+            return sub.startsWith("t2_", ignoreCase = true) ||
+                payloadStr.contains("\"sub\":\"t2_", ignoreCase = true)
+        }
+
+        private fun base64Val(ch: Char): Int = when (ch) {
+            in 'A'..'Z' -> ch - 'A'
+            in 'a'..'z' -> ch - 'a' + 26
+            in '0'..'9' -> ch - '0' + 52
+            '+' -> 62
+            '/' -> 63
+            else -> -1
+        }
+
+        private fun decodeBase64Url(input: String): ByteArray? {
+            val clean = input.trim().replace('-', '+').replace('_', '/')
+            if (clean.isEmpty()) return null
+            val padded = when (clean.length % 4) {
+                0 -> clean
+                2 -> "$clean=="
+                3 -> "$clean="
+                else -> return null
+            }
+            val out = ByteArray((padded.length * 3) / 4)
+            var outIdx = 0
+            var i = 0
+            while (i < padded.length) {
+                val c0 = base64Val(padded[i++])
+                val c1 = base64Val(padded[i++])
+                val p2 = padded[i++]
+                val p3 = padded[i++]
+                if (c0 < 0 || c1 < 0) return null
+                val c2 = if (p2 == '=') 0 else base64Val(p2).also { if (it < 0) return null }
+                val c3 = if (p3 == '=') 0 else base64Val(p3).also { if (it < 0) return null }
+                val triple = (c0 shl 18) or (c1 shl 12) or (c2 shl 6) or c3
+                out[outIdx++] = ((triple shr 16) and 0xFF).toByte()
+                if (p2 != '=') out[outIdx++] = ((triple shr 8) and 0xFF).toByte()
+                if (p3 != '=') out[outIdx++] = (triple and 0xFF).toByte()
+            }
+            return out.copyOf(outIdx)
         }
 
         internal fun mergeCookieStrings(vararg rawHeaders: String?): String {

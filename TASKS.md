@@ -83,3 +83,10 @@ Checklist de acompanhamento do projeto.
 - [x] Interceptação do botão Voltar do Android (`MainActivity.kt` + `App.tsx`) para fechar modais ou retornar à aba **Início** antes de sair do app
 - [x] Botão **Navegador** + deep link `devwolf://oauth-callback` para Reddit OAuth2 PKCE no navegador do dispositivo e sessão persistente em `InstagramSessionActivity.kt` / `AndroidManifest.xml`
 - [x] Polimento de UI (`Header.tsx`, `AddLinkModal.tsx`, `HistoryView.tsx`, `EnginesView.tsx`, `SettingsView.tsx`, `localQueue.ts`, `hybridOrchestrator.ts`) e bump para `v3.0.0-rc.5` (`versionCode 30005`)
+
+## Etapa 12 — v3.0.0-rc.6: Deduplicação com Galeria, Limpeza de Histórico, Login Direto SPA & Ícones SVG
+- [x] Implementar `MediaStoreHelper.doesMediaExist` e `DevwolfNativePlugin.checkMediaExists` integrados ao bloqueio de duplicatas no frontend (`localQueue.ts`, `nativeBridge.ts`, `App.tsx`)
+- [x] Implementar `LocalQueueStore.clearHistory` e `DevwolfNativePlugin.clearLocalDownloadHistory` com botão **Limpar histórico** em `HistoryView.tsx` (preservando mídias da Galeria e jobs ativos)
+- [x] Remover botão **Navegador** de `InstagramSessionActivity.kt`, aplicar tema Purple Glass, adicionar captura SPA (`doUpdateVisitedHistory` + poll `1200ms`) + `isAuthenticatedRedditCookie` (`reddit_session` / `token_v2` `t2_...`) e alinhar `resolveYtdlpUserAgent` para `reddit` em `DevwolfDownloadService.kt`
+- [x] Substituir abreviações de plataforma por ícones SVG (`PlatformIcon.tsx`) e simplificar `SettingsView.tsx` removendo caixa técnica OAuth2/`localhost` e rodapé redundante
+- [x] Bump para `v3.0.0-rc.6` (`versionCode 30006`), `npx cap sync android`, suítes de testes (`vitest` + `testDebugUnitTest`), build de APKs assinados, `graphify update .` e prerelease no GitHub

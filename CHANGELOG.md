@@ -2,6 +2,27 @@
 
 Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
+## [3.0.0-rc.6] — Deduplicação com Verificação na Galeria, Limpeza de Histórico, Login Direto Reddit/SPA & Ícones SVG
+
+### Adicionado
+- **Deduplicação com verificação real na Galeria (`MediaStoreHelper.kt`, `DevwolfNativePlugin.kt`, `localQueue.ts`, `nativeBridge.ts`, `App.tsx`)**:
+  - Adicionado `MediaStoreHelper.doesMediaExist` (verificando `MediaStore` via `ContentResolver.query` / `openAssetFileDescriptor` para URIs `content://` e existência/tamanho para caminhos locais) e método `DevwolfNative.checkMediaExists({ uris, filePaths })`.
+  - Ao colar ou adicionar um link já concluído, o app verifica se a mídia ainda existe na Galeria: se existir, bloqueia a duplicata com aviso e destaca o card existente (permitindo ainda baixar novamente pelo botão **Repetir** com `allowDuplicate: true`).
+- **Limpeza de Histórico (`LocalQueueStore.kt`, `DevwolfNativePlugin.kt`, `HistoryView.tsx`, `localQueue.ts`, `dedupe.ts`, `App.tsx`)**:
+  - Adicionado `LocalQueueStore.clearHistory(keepActiveJobs = true)` e `DevwolfNative.clearLocalDownloadHistory()` removendo jobs concluídos/falhos/cancelados da fila persistida sem apagar arquivos salvos na Galeria.
+  - Botão **Limpar histórico** no cabeçalho de **Baixados** (`HistoryView.tsx`) limpando histórico e cache de deduplicação.
+- **Ícones SVG vetoriais por plataforma (`PlatformIcon.tsx`, `HomeView.tsx`, `MediaThumbnail.tsx`, `HistoryView.tsx`)**:
+  - Substituídos rótulos curtos de texto (`IG`, `TT`, `RD`, etc.) no Hero card, grade **Baixado recentemente**, fallback de thumbnails e badges do histórico por ícones SVG vetoriais dedicados.
+
+### Corrigido & Alterado
+- **Captura de sessão Reddit/Instagram/Threads em SPAs & remoção do botão "Navegador" (`InstagramSessionActivity.kt`, `DevwolfDownloadService.kt`, `GalleryDlLocalResolver.kt`, `SettingsView.tsx`)**:
+  - Removido o botão **Navegador** de `InstagramSessionActivity.kt` (que abria Chrome externo sem poder retornar cookies ao app), tornando o navegador integrado com tema **Purple Glass** (`#0D0B1E` / `#14112E` / `#7C5CFF`) a tela única e principal de login.
+  - Interceptação de navegação SPA via `doUpdateVisitedHistory` + watcher periódico a cada `1200ms` e detecção precisa de login autenticado no Reddit via `isAuthenticatedRedditCookie` (`reddit_session` ou JWT `token_v2` com `sub: "t2_..."`, ignorando `token_v2` anônimo).
+  - `DevwolfDownloadService.resolveYtdlpUserAgent` agora alinha `--user-agent` com o `User-Agent` salvo da sessão WebView também para `reddit` junto com `scoped.cookies.txt`.
+  - Simplificado o card **Contas e Sessões** em `SettingsView.tsx` (removida caixa técnica de OAuth2/`localhost`/Client ID do Reddit, botão único `Conectar <Plataforma>`) e removido rodapé redundante das Configurações.
+- **Build & Versionamento (`android/app/build.gradle`, `frontend/package.json`)**:
+  - Atualizado para `versionCode 30006` e `versionName "3.0.0-rc.6"`.
+
 ## [3.0.0-rc.5] — Correção R8 `yt-dlp`, FFmpeg/Downloads, Navegação Botão Voltar, Polimento UI & OAuth no Navegador
 
 ### Corrigido
