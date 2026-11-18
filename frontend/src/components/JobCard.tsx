@@ -35,6 +35,7 @@ interface JobCardProps {
   onRetry: (url: string) => void;
   onReturnToSourceApp?: () => Promise<void>;
   onOpenSettings?: () => void;
+  onOpenAccountSettings?: (platform: string) => void;
 }
 
 const ACTIVE_STATUSES = new Set(['queued', 'resolving', 'downloading', 'processing']);
@@ -94,6 +95,19 @@ function getItemStatusLabel(status: CarouselItemState['status'], percent: number
   }
 }
 
+function getAuthActionLabel(platform?: string | null): string {
+  switch ((platform ?? '').trim().toLowerCase()) {
+    case 'reddit':
+      return 'Autenticar no Reddit';
+    case 'threads':
+      return 'Autenticar no Threads';
+    case 'instagram':
+      return 'Autenticar no Instagram';
+    default:
+      return 'Abrir Contas e Sessões';
+  }
+}
+
 export function JobCard({
   job,
   engineSwitchNotice,
@@ -103,13 +117,14 @@ export function JobCard({
   onRetry,
   onReturnToSourceApp,
   onOpenSettings,
+  onOpenAccountSettings,
 }: JobCardProps) {
   const isActive = ACTIVE_STATUSES.has(job.status);
   const phaseLabel = job.phase_label || getPhaseLabel(job.status);
   const platformMeta =
     PLATFORM_META[(job.platform as PlatformId) in PLATFORM_META ? (job.platform as PlatformId) : 'instagram'];
   const activeEngine = job.current_engine || job.selected_engine;
-  const displayEngine = job.display_engine || formatDisplayEngine(activeEngine, 'local');
+  const displayEngine = job.display_engine || formatDisplayEngine(activeEngine, 'local', job.platform);
   const speedText = formatSpeed(job.speed_bytes_per_sec);
 
   const items: CarouselItemState[] = (
@@ -142,7 +157,7 @@ export function JobCard({
   const normalizedErrorCode = normalizeErrorCode(job.error_code);
   const errorDisplay =
     job.status === 'failed'
-      ? getUserFacingErrorMessage(job.error_code, job.error_message)
+      ? getUserFacingErrorMessage(job.error_code, job.error_message, job.platform)
       : null;
 
   const handleShareItem = async (item: CarouselItemState, targetWhatsApp: boolean) => {
@@ -302,14 +317,20 @@ export function JobCard({
               </span>
             )}
           </div>
-          {normalizedErrorCode === 'AUTH_REQUIRED' && onOpenSettings && (
+          {normalizedErrorCode === 'AUTH_REQUIRED' && (onOpenAccountSettings || onOpenSettings) && (
             <button
               type="button"
-              onClick={onOpenSettings}
+              onClick={() => {
+                if (onOpenAccountSettings) {
+                  onOpenAccountSettings(job.platform);
+                } else {
+                  onOpenSettings?.();
+                }
+              }}
               className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-red-500/20 px-2.5 text-xs font-semibold text-red-700 transition hover:bg-red-500/30 dark:text-red-200"
             >
               <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>Conectar sessão opcional nos Ajustes</span>
+              <span>{getAuthActionLabel(job.platform)}</span>
             </button>
           )}
         </div>

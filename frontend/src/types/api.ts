@@ -1,5 +1,6 @@
 export type PlatformId =
   | 'instagram'
+  | 'threads'
   | 'youtube'
   | 'tiktok'
   | 'twitter'
@@ -94,10 +95,21 @@ export interface JobFile {
   is_original?: boolean;
 }
 
+export interface StrategyAttemptInfo {
+  strategyName: string;
+  durationMs: number;
+  httpRequests: number;
+  success: boolean;
+  errorCode?: string | null;
+  note?: string | null;
+}
+
 export interface JobPerformanceMetrics {
+  platform?: string | null;
   engineUsed?: string | null;
   engineVersion?: string | null;
   strategyUsed?: string | null;
+  mediaTypeIdentified?: string | null;
   resolutionMs?: number | null;
   ttfbMs?: number | null;
   transferMs?: number | null;
@@ -105,13 +117,24 @@ export interface JobPerformanceMetrics {
   galleryPublishMs?: number | null;
   totalJobMs?: number | null;
   httpRequestCount?: number | null;
+  httpStatus?: number | null;
+  exitCode?: number | null;
+  rawErrorSanitized?: string | null;
+  errorCode?: string | null;
+  strategyAttempts?: StrategyAttemptInfo[];
 }
 
 export interface DiagnosticsReport {
+  platform?: string | null;
   engineUsed: string | null;
   engineVersion: string | null;
   lastUpdateAt: string | null;
   strategyUsed: string | null;
+  strategyAttempts?: StrategyAttemptInfo[];
+  httpStatus?: number | null;
+  exitCode?: number | null;
+  rawErrorSanitized?: string | null;
+  mediaTypeIdentified?: string | null;
   resolutionMs: number | null;
   ttfbMs: number | null;
   transferMs: number | null;
@@ -216,6 +239,14 @@ export interface PlatformSessionInfo {
   platform: PlatformId | string;
   configured: boolean;
   updatedAt: string | null;
+  authType?: 'webview_cookie' | 'oauth_token' | 'cookie' | string | null;
+  username?: string | null;
+  clientId?: string | null;
+  expiresAtEpochMs?: number | null;
+  source?: string | null;
+  hasCookie?: boolean;
+  hasAccessToken?: boolean;
+  hasSessionId?: boolean;
 }
 
 export interface UserSettings {

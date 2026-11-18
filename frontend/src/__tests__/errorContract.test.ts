@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DevwolfErrorCode } from '../types/api';
 import {
   DEVWOLF_ERROR_CONTRACT,
+  getErrorContract,
   getUserFacingErrorMessage,
   isTerminalPlatformError,
   normalizeErrorCode,
@@ -115,14 +116,32 @@ describe('Structured Error Contract (DevwolfErrorCode)', () => {
     );
   });
 
+  it('exibe mensagem AUTH_REQUIRED específica por plataforma (nunca Instagram para Reddit/Threads)', () => {
+    const redditMsg = getErrorContract('AUTH_REQUIRED', null, 'reddit').message;
+    expect(redditMsg).toContain('Reddit');
+    expect(redditMsg.toLowerCase()).not.toContain('instagram');
+
+    const threadsMsg = getErrorContract('AUTH_REQUIRED', null, 'threads').message;
+    expect(threadsMsg).toContain('Threads');
+    expect(threadsMsg.toLowerCase()).not.toContain('instagram');
+
+    const igMsg = getErrorContract('AUTH_REQUIRED', null, 'instagram').message;
+    expect(igMsg).toContain('Instagram');
+
+    const genericMsg = getErrorContract('AUTH_REQUIRED', null, 'tiktok').message;
+    expect(genericMsg.toLowerCase()).not.toContain('instagram');
+  });
+
   it('sanitiza cookies, tokens e URLs assinadas de logs de diagnóstico', () => {
     const raw =
-      'Cookie: sessionid=abc123secret; csrftoken=xyz999 Authorization: Bearer tok_12345 https://cdn.example.com/v.mp4?signature=deadbeef&oe=1234';
+      'Cookie: sessionid=abc123secret; csrftoken=xyz999; reddit_session=rdsec Authorization: Bearer tok_12345 https://cdn.example.com/v.mp4?signature=deadbeef&access_token=ac123&oe=1234';
     const clean = sanitizeDiagnosticText(raw);
     expect(clean).not.toContain('abc123secret');
     expect(clean).not.toContain('xyz999');
+    expect(clean).not.toContain('rdsec');
     expect(clean).not.toContain('tok_12345');
     expect(clean).not.toContain('deadbeef');
+    expect(clean).not.toContain('ac123');
     expect(clean).toContain('[REDACTED]');
   });
 });

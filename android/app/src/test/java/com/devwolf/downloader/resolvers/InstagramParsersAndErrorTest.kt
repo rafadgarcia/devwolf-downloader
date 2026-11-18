@@ -287,13 +287,20 @@ class InstagramParsersAndErrorTest {
 
     @Test
     fun ytdlpAgeWarningDoesNotTriggerFalsePrivateMediaOrFatalFailure() {
-        val stderr = """
+        val stderrWithAgeWarning = """
             WARNING: [generic] yt-dlp is more than 90 days old. Please update!
             ERROR: [TikTok] Unable to extract webpage video data; please report this issue
         """.trimIndent()
-        val (code, _) = ErrorClassifier.fromYtdlpOutput(stderr)
+        val (code, _) = ErrorClassifier.fromYtdlpOutput(stderrWithAgeWarning)
         assertEquals(DevwolfErrorCode.EXTRACTOR_OUTDATED, code)
         assertFalse(code.isTerminal)
+
+        // Up-to-date yt-dlp printing standard ExtractorError boilerplate MUST NOT trigger false EXTRACTOR_OUTDATED
+        val currentYtdlpError = "ERROR: [TikTok] 7391: Unable to extract webpage video data; please report this issue on https://github.com/yt-dlp/yt-dlp/issues?q= . Make sure you are using the latest version"
+        val (tikTokCode, tikTokMsg) = ErrorClassifier.fromYtdlpOutput(currentYtdlpError)
+        assertEquals(DevwolfErrorCode.EXTRACTION_FAILED, tikTokCode)
+        assertTrue(tikTokMsg.contains("Unable to extract webpage video data"))
+        assertFalse(tikTokMsg.contains("latest version"))
 
         val fatalOnly = ErrorClassifier.extractFatalErrorLines("WARNING: yt-dlp is more than 90 days old\nERROR: HTTP Error 429: Too Many Requests")
         assertFalse(fatalOnly.contains("90 days"))

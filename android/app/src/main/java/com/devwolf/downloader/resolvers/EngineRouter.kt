@@ -36,6 +36,7 @@ data class DnrTelemetrySnapshot(
 class EngineRouter(
     private val instagramResolver: InstagramNativeResolver = InstagramNativeResolver(),
     private val galleryDlResolver: GalleryDlLocalResolver = GalleryDlLocalResolver(),
+    private val threadsResolver: ThreadsNativeResolver = ThreadsNativeResolver(),
 ) {
 
     fun route(rawUrl: String): EngineRoutePlan {
@@ -58,6 +59,13 @@ class EngineRouter(
 
         return when (platform) {
             "instagram" -> EngineRoutePlan(
+                platform = platform,
+                normalizedUrl = normalized,
+                primaryEngine = EngineKind.DNR,
+                fallbackEngines = listOf(EngineKind.YT_DLP),
+                shouldInitializeYtdlpUpfront = false,
+            )
+            "threads" -> EngineRoutePlan(
                 platform = platform,
                 normalizedUrl = normalized,
                 primaryEngine = EngineKind.DNR,
@@ -101,7 +109,14 @@ class EngineRouter(
      */
     fun resolveNative(request: ResolutionRequest, engineKind: EngineKind): ResolutionResult {
         val resolver: MediaResolver = when (engineKind) {
-            EngineKind.DNR -> instagramResolver
+            EngineKind.DNR -> {
+                val effectivePlatform = request.platform.ifBlank { UrlExtractor.detectPlatform(request.url) }
+                if (effectivePlatform == "threads" || threadsResolver.supports(request.url, effectivePlatform)) {
+                    threadsResolver
+                } else {
+                    instagramResolver
+                }
+            }
             EngineKind.GALLERY_DL_LOCAL -> galleryDlResolver
             EngineKind.YT_DLP -> throw ResolverException(
                 errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
@@ -172,6 +187,12 @@ class EngineRouter(
                 primaryEngine = EngineKind.DNR,
                 fallbackEngines = listOf(EngineKind.YT_DLP),
                 summaryPtBr = "Instagram -> DNR (fallback yt-dlp)",
+            ),
+            PlatformRouteCapability(
+                platform = "threads",
+                primaryEngine = EngineKind.DNR,
+                fallbackEngines = listOf(EngineKind.YT_DLP),
+                summaryPtBr = "Threads -> DNR (fallback yt-dlp)",
             ),
             PlatformRouteCapability(
                 platform = "youtube",

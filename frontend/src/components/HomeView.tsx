@@ -34,6 +34,7 @@ interface HomeViewProps {
   onRetryJob: (url: string) => Promise<void>;
   onReturnToSourceApp?: () => Promise<void>;
   onOpenSettings?: () => void;
+  onOpenAccountSettings?: (platform: string) => void;
   showReturnToSourceApp?: boolean;
   clipboardGuidance: string | null;
   statusNotice: string | null;
@@ -63,6 +64,7 @@ export function HomeView({
   onRetryJob,
   onReturnToSourceApp,
   onOpenSettings,
+  onOpenAccountSettings,
   showReturnToSourceApp,
   clipboardGuidance,
   statusNotice,
@@ -264,6 +266,7 @@ export function HomeView({
           onRetry={(url) => void onRetryJob(url)}
           onReturnToSourceApp={onReturnToSourceApp}
           onOpenSettings={onOpenSettings}
+          onOpenAccountSettings={onOpenAccountSettings}
         />
       )}
 

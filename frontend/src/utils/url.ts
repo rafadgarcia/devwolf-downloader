@@ -39,7 +39,19 @@ const TRACKING_PARAMS = new Set([
   'is_from_webapp',
   '_r',
   '_t',
+  '_d',
+  'tt_from',
+  'share_app_id',
+  'share_link_id',
+  'sender_web_id',
+  'u_code',
+  'sec_uid',
   'share_id',
+  'xmt',
+  'slof',
+  'context',
+  'rdt',
+  'ref_source',
 ]);
 
 const PLATFORM_RULES: DomainRule[] = [
@@ -47,6 +59,11 @@ const PLATFORM_RULES: DomainRule[] = [
     platform: 'instagram',
     platformLabel: 'Instagram',
     domains: new Set(['instagram.com', 'www.instagram.com', 'm.instagram.com', 'instagr.am']),
+  },
+  {
+    platform: 'threads',
+    platformLabel: 'Threads',
+    domains: new Set(['threads.net', 'www.threads.net', 'threads.com', 'www.threads.com']),
   },
   {
     platform: 'youtube',
@@ -157,6 +174,9 @@ function getRouteInfo(
       };
     }
     return { label: 'Instagram', localSupported: true };
+  }
+  if (platform === 'threads') {
+    return { label: 'Threads', localSupported: true };
   }
   if (platform === 'youtube') {
     if (pathname.startsWith('/shorts/')) {

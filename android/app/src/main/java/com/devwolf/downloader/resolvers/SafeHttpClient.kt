@@ -375,7 +375,8 @@ class SafeHttpClient internal constructor(
                 actualHost == expectedHost ||
                     isSameRootDomain(expectedHost, actualHost, "instagram.com") ||
                     isSameRootDomain(expectedHost, actualHost, "pinterest.com") ||
-                    isSameRootDomain(expectedHost, actualHost, "reddit.com")
+                    isSameRootDomain(expectedHost, actualHost, "reddit.com") ||
+                    (isThreadsDomain(expectedHost) && isThreadsDomain(actualHost))
                 )
             if (sameDomain) return headers
             return headers.filterKeys { it.lowercase() !in SENSITIVE_HEADERS }
@@ -387,13 +388,21 @@ class SafeHttpClient internal constructor(
             return m1 && m2
         }
 
+        private fun isThreadsDomain(host: String): Boolean {
+            return host == "threads.net" ||
+                host.endsWith(".threads.net") ||
+                host == "threads.com" ||
+                host.endsWith(".threads.com")
+        }
+
         /**
          * Redacts cookies, tokens, and query signatures before storing or copying diagnostics.
          */
         fun sanitizeForDiagnostics(raw: String?): String {
             if (raw.isNullOrBlank()) return ""
             return raw
-                .replace(Regex("""(?i)(cookie|authorization|x-csrftoken|sessionid|csrftoken)\s*[:=]\s*[^\s;,\r\n]+"""), "$1=[REDACTED]")
+                .replace(Regex("""(?i)\bBearer\s+[A-Za-z0-9._\-+/=]+"""), "Bearer [REDACTED]")
+                .replace(Regex("""(?i)(cookie|authorization|x-csrftoken|sessionid|csrftoken|access_token|refresh_token)\s*[:=]\s*[^\s;,\r\n]+"""), "$1=[REDACTED]")
                 .replace(Regex("""(https?://[^\s?]+)\?[^\s"']+"""), "$1?[REDACTED_QUERY]")
         }
     }

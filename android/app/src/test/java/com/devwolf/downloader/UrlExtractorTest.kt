@@ -77,7 +77,35 @@ class UrlExtractorTest {
         assertEquals("twitter", UrlExtractor.detectPlatform("https://x.com/user/status/12345"))
         assertEquals("reddit", UrlExtractor.detectPlatform("https://redd.it/xyz123"))
         assertEquals("pinterest", UrlExtractor.detectPlatform("https://pin.it/abc999"))
+        assertEquals("threads", UrlExtractor.detectPlatform("https://www.threads.net/@devwolf/post/C9Threads1"))
+        assertEquals("threads", UrlExtractor.detectPlatform("https://www.threads.com/@devwolf/post/C9Threads2"))
         assertEquals("unknown", UrlExtractor.detectPlatform("https://example.com/video.mp4"))
+    }
+
+    @Test
+    fun parsesThreadsUrlsAndNormalizesTikTokAndThreadsTrackingParams() {
+        val threadsCom = UrlExtractor.parseThreadsUrl("https://www.threads.com/@meta/post/C9AbCdEf/?xmt=AQGz123&slof=1&igsh=abc")
+        assertNotNull(threadsCom)
+        assertEquals(ThreadsUrlKind.POST, threadsCom?.kind)
+        assertEquals("meta", threadsCom?.username)
+        assertEquals("C9AbCdEf", threadsCom?.shortcode)
+        assertEquals("https://www.threads.com/@meta/post/C9AbCdEf/", threadsCom?.normalizedUrl)
+
+        val threadsNetShort = UrlExtractor.parseThreadsUrl("https://threads.net/t/C9Short12/?utm_source=ig")
+        assertNotNull(threadsNetShort)
+        assertEquals(ThreadsUrlKind.SHORTLINK, threadsNetShort?.kind)
+        assertEquals("C9Short12", threadsNetShort?.shortcode)
+
+        assertNull(UrlExtractor.parseThreadsUrl("https://threads.com.evil.com/@meta/post/C9AbCdEf/"))
+
+        assertEquals(
+            "https://vm.tiktok.com/ZM6abc123/",
+            UrlExtractor.normalizeUrl("https://vm.tiktok.com/ZM6abc123/?_t=8abc&_r=1&is_from_webapp=1&sender_device=pc&tt_from=copy"),
+        )
+        assertEquals(
+            "https://www.tiktok.com/@creator/video/7391000000000000000",
+            UrlExtractor.normalizeUrl("https://www.tiktok.com/@creator/video/7391000000000000000?_d=sec&share_app_id=1233"),
+        )
     }
 
     @Test

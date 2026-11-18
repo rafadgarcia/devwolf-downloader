@@ -26,7 +26,7 @@ class GalleryDlLocalResolver(
     private val pinterestBaseUrl: String? = null,
     private val redditBaseUrl: String? = null,
     private val twitterSyndicationBaseUrl: String = "https://cdn.syndication.twimg.com",
-    private val oldRedditBaseUrl: String? = null,
+    private val oauthRedditBaseUrl: String? = null,
 ) : MediaResolver {
 
     override val engineKind: EngineKind = EngineKind.GALLERY_DL_LOCAL
@@ -85,7 +85,7 @@ class GalleryDlLocalResolver(
             }
 
             val pinId = extractPinterestPinId(resp.finalUrl) ?: extractPinterestPinId(normalized) ?: "pin"
-            val parsed = parsePinterestHtml(resp.body, pinId)
+            val parsed = parsePinterestHtml(resp.body, pinId, request.format)
                 ?: throw ResolverException(
                     errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
                     technicalReason = "Pinterest HTML (HTTP ${resp.statusCode}) sem JSON/mídia reconhecida",
@@ -123,18 +123,27 @@ class GalleryDlLocalResolver(
         var totalReqs = 0
         try {
             val normalized = UrlExtractor.normalizeUrl(request.url)
-            val userAgent = request.userAgent?.takeIf { it.isNotBlank() } ?: SafeHttpClient.DEFAULT_MOBILE_CHROME_UA
+            val accessToken = request.accessToken?.trim()?.takeIf { it.isNotEmpty() }
+            val cookieHeader = request.cookieHeader?.trim()?.takeIf { it.isNotEmpty() }
+            val hasAuth = accessToken != null || cookieHeader != null
+            val browserUserAgent = request.userAgent?.takeIf { it.isNotBlank() } ?: SafeHttpClient.DEFAULT_MOBILE_CHROME_UA
+
             val htmlHeaders = LinkedHashMap<String, String>().apply {
-                put("User-Agent", userAgent)
+                put("User-Agent", browserUserAgent)
                 put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                 put("Accept-Language", "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7")
-                request.cookieHeader?.trim()?.takeIf { it.isNotEmpty() }?.let { put("Cookie", it) }
+                if (cookieHeader != null) put("Cookie", cookieHeader)
             }
-            val jsonHeaders = LinkedHashMap<String, String>().apply {
-                put("User-Agent", userAgent)
+            val apiHeaders = LinkedHashMap<String, String>().apply {
+                if (accessToken != null) {
+                    put("Authorization", "Bearer $accessToken")
+                    put("User-Agent", buildRedditApiUserAgent(request.username))
+                } else {
+                    put("User-Agent", browserUserAgent)
+                    if (cookieHeader != null) put("Cookie", cookieHeader)
+                }
                 put("Accept", "application/json, text/plain, */*")
                 put("Accept-Language", "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7")
-                request.cookieHeader?.trim()?.takeIf { it.isNotEmpty() }?.let { put("Cookie", it) }
             }
             val initialTarget = if (redditBaseUrl != null) {
                 rewriteHost(normalized, redditBaseUrl)
@@ -152,9 +161,15 @@ class GalleryDlLocalResolver(
                     val shareResp = httpClient.getText(resolvedUrl, htmlHeaders, cancellationCheck = request.cancellationCheck)
                     totalReqs += shareResp.httpRequests
                     if (shareResp.statusCode !in 200..299) {
-                        val errCode = classifyRedditHttpError(shareResp.statusCode, shareResp.body, shareResp.contentType)
+                        val errCode = classifyRedditHttpError(shareResp.statusCode, shareResp.body, shareResp.contentType, hasAuth)
+                        val msg = if (errCode == DevwolfErrorCode.AUTH_REQUIRED) {
+                            ErrorClassifier.authRequiredMessageForPlatform("reddit")
+                        } else {
+                            errCode.defaultMessagePtBr
+                        }
                         throw ResolverException(
                             errorCode = errCode,
+                            userMessage = msg,
                             httpStatus = shareResp.statusCode,
                             technicalReason = "Reddit share link /s/ HTTP ${shareResp.statusCode} ($errCode)",
                             metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, totalReqs),
@@ -179,32 +194,29 @@ class GalleryDlLocalResolver(
                 }
             }
 
-            val jsonEndpoint = buildRedditJsonUrl(resolvedUrl)
-                ?: throw ResolverException(
-                    errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
-                    technicalReason = "URL do Reddit não aponta para um post /comments/ reconhecido",
-                    metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, totalReqs),
-                )
+            val jsonEndpoint = if (accessToken != null) {
+                buildRedditOAuthJsonUrl(resolvedUrl)
+            } else {
+                buildRedditJsonUrl(resolvedUrl)
+            } ?: throw ResolverException(
+                errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
+                technicalReason = "URL do Reddit não aponta para um post /comments/ reconhecido",
+                metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, totalReqs),
+            )
 
-            var resp = httpClient.getText(jsonEndpoint, jsonHeaders, cancellationCheck = request.cancellationCheck)
+            val resp = httpClient.getText(jsonEndpoint, apiHeaders, cancellationCheck = request.cancellationCheck)
             totalReqs += resp.httpRequests
 
             if (resp.statusCode !in 200..299) {
-                val firstErr = classifyRedditHttpError(resp.statusCode, resp.body, resp.contentType)
-                if (resp.statusCode == 403 && firstErr == DevwolfErrorCode.EXTRACTION_FAILED) {
-                    val oldFallbackUrl = buildOldRedditFallbackUrl(jsonEndpoint)
-                    if (oldFallbackUrl != null) {
-                        val oldResp = httpClient.getText(oldFallbackUrl, jsonHeaders, cancellationCheck = request.cancellationCheck)
-                        totalReqs += oldResp.httpRequests
-                        resp = oldResp
-                    }
+                val finalErr = classifyRedditHttpError(resp.statusCode, resp.body, resp.contentType, hasAuth)
+                val msg = if (finalErr == DevwolfErrorCode.AUTH_REQUIRED) {
+                    ErrorClassifier.authRequiredMessageForPlatform("reddit")
+                } else {
+                    finalErr.defaultMessagePtBr
                 }
-            }
-
-            if (resp.statusCode !in 200..299) {
-                val finalErr = classifyRedditHttpError(resp.statusCode, resp.body, resp.contentType)
                 throw ResolverException(
                     errorCode = finalErr,
+                    userMessage = msg,
                     httpStatus = resp.statusCode,
                     technicalReason = "Reddit HTTP ${resp.statusCode} ($finalErr)",
                     metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, totalReqs),
@@ -219,13 +231,15 @@ class GalleryDlLocalResolver(
                     metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, totalReqs),
                 )
 
+            val effectiveStrategy = if (accessToken != null) "${parsed.strategyUsed}OAuth" else parsed.strategyUsed
             return parsed.copy(
+                strategyUsed = effectiveStrategy,
                 metrics = ResolutionMetrics(
                     resolutionMs = System.currentTimeMillis() - startMs,
                     httpRequestCount = totalReqs,
                     strategyAttempts = listOf(
                         StrategyAttemptMetric(
-                            strategyName = parsed.strategyUsed,
+                            strategyName = effectiveStrategy,
                             durationMs = System.currentTimeMillis() - startMs,
                             httpRequests = totalReqs,
                             success = true,
@@ -245,16 +259,10 @@ class GalleryDlLocalResolver(
         }
     }
 
-    private fun buildOldRedditFallbackUrl(jsonEndpoint: String): String? {
-        if (oldRedditBaseUrl != null) {
-            return rewriteHost(jsonEndpoint, oldRedditBaseUrl)
-        }
-        if (redditBaseUrl != null) {
-            return null
-        }
-        val host = SafeHttpClient.extractHost(jsonEndpoint)
-        if (host == "old.reddit.com") return null
-        return rewriteHost(jsonEndpoint, "https://old.reddit.com")
+    private fun buildRedditOAuthJsonUrl(url: String): String? {
+        val baseJson = buildRedditJsonUrl(url) ?: return null
+        val oauthBase = oauthRedditBaseUrl ?: redditBaseUrl ?: "https://oauth.reddit.com"
+        return rewriteHost(baseJson, oauthBase)
     }
 
     private fun resolveTwitterImages(request: ResolutionRequest, startMs: Long): ResolutionResult {
@@ -318,40 +326,79 @@ class GalleryDlLocalResolver(
             return LocalGalleryCapabilities(pythonRuntimePresent = hasPython)
         }
 
-        fun parsePinterestHtml(html: String, pinId: String): ResolutionResult? {
+        fun parsePinterestHtml(
+            html: String,
+            pinId: String,
+            requestedFormat: String = "auto",
+        ): ResolutionResult? {
             if (html.isBlank()) return null
             val doc = Jsoup.parse(html)
+            val forceVideo = requestedFormat.equals("video", ignoreCase = true)
 
-            // 1. __PWS_DATA__ or embedded JSON state
-            val pwsScript = doc.selectFirst("script#__PWS_DATA__")?.data()?.trim()
-            if (!pwsScript.isNullOrBlank()) {
-                parsePinterestPwsJson(pwsScript, pinId)?.let { return it }
+            // 1. __PWS_DATA__ / __PWS_INITIAL_PROPS__ / relay JSON state
+            val jsonCandidates = LinkedHashSet<String>()
+            doc.selectFirst("script#__PWS_DATA__")?.data()?.trim()?.takeIf { it.isNotBlank() }?.let { jsonCandidates.add(it) }
+            doc.selectFirst("script#__PWS_INITIAL_PROPS__")?.data()?.trim()?.takeIf { it.isNotBlank() }?.let { jsonCandidates.add(it) }
+            for (s in doc.select("script[data-relay-response], script[type=application/json]")) {
+                val raw = s.data().trim()
+                if (raw.startsWith("{") && (
+                        raw.contains("video_list") ||
+                            raw.contains("story_pin_data") ||
+                            raw.contains("initialReduxState") ||
+                            raw.contains("resourceResponses") ||
+                            raw.contains("images")
+                        )
+                ) {
+                    jsonCandidates.add(raw)
+                }
+            }
+            for (jsonText in jsonCandidates) {
+                parsePinterestPwsJson(jsonText, pinId, forceVideo)?.let { return it }
             }
 
             // 2. application/ld+json
             for (ld in doc.select("script[type=application/ld+json]")) {
-                parsePinterestLdJson(ld.data().trim(), pinId)?.let { return it }
+                parsePinterestLdJson(ld.data().trim(), pinId, forceVideo)?.let { return it }
             }
 
-            // 3. OpenGraph meta fallback
-            val ogVideo = doc.selectFirst("meta[property=og:video:secure_url], meta[property=og:video]")
-                ?.attr("content")?.takeIf { it.startsWith("http") }
+            // 3. Direct HTML / OpenGraph / v.pinimg.com MP4 inspection
+            val ogVideo = doc.selectFirst("meta[property=og:video:secure_url], meta[property=og:video], meta[property=og:video:url]")
+                ?.attr("content")?.trim()?.takeIf { it.startsWith("http") }
+            val domVideo = doc.selectFirst("video[src], video source[src]")
+                ?.attr("src")?.trim()?.takeIf { it.startsWith("http") }
+            val ogTypeVideo = doc.selectFirst("meta[property=og:type]")
+                ?.attr("content")?.contains("video", ignoreCase = true) == true
+            val hasPinimgVideoRef = html.contains("v.pinimg.com/videos/", ignoreCase = true) ||
+                html.contains("v.pinimg.com\\/videos\\/", ignoreCase = true) ||
+                html.contains("v.pinimg.com\\u002Fvideos\\u002F", ignoreCase = true)
+            val isVideoPage = forceVideo || ogTypeVideo || ogVideo != null || domVideo != null || hasPinimgVideoRef
+
+            val directVideoUrl = listOfNotNull(ogVideo, domVideo)
+                .firstOrNull { isDirectMp4Url(it) }
+                ?: extractBestDirectPinimgMp4(html)
+
             val ogImage = doc.selectFirst("meta[property=og:image]")
-                ?.attr("content")?.takeIf { it.startsWith("http") }
+                ?.attr("content")?.trim()?.takeIf { it.startsWith("http") }
             val title = doc.selectFirst("meta[property=og:title]")?.attr("content")?.takeIf { it.isNotBlank() }
 
             val items = mutableListOf<ResolvedMediaItem>()
-            if (ogVideo != null) {
+            if (directVideoUrl != null) {
                 items.add(
                     ResolvedMediaItem(
                         index = 1,
                         id = "${pinId}_1",
                         type = MediaItemType.VIDEO,
-                        url = ogVideo,
+                        url = directVideoUrl,
                         fileName = "pinterest_${pinId}_01.mp4",
                         mimeType = "video/mp4",
                         headers = mapOf("Referer" to "https://www.pinterest.com/"),
                     ),
+                )
+            } else if (isVideoPage) {
+                // Video Pin detected (HLS .m3u8 or dynamic stream) — never return the cover thumbnail as success!
+                throw ResolverException(
+                    errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
+                    technicalReason = "Video Pin requires yt-dlp HLS/video extractor",
                 )
             } else if (ogImage != null && !ogImage.contains("pinterest.com/images/")) {
                 val mime = InstagramParsers.guessImageMime(ogImage)
@@ -376,31 +423,45 @@ class GalleryDlLocalResolver(
                 title = title?.take(120),
                 engineUsed = "gallery-dl",
                 engineVersion = "3.0.0-native",
-                strategyUsed = "PinterestOpenGraph",
+                strategyUsed = if (directVideoUrl != null) "PinterestDirectVideo" else "PinterestOpenGraph",
                 items = items,
             )
         }
 
-        private fun parsePinterestPwsJson(jsonText: String, pinId: String): ResolutionResult? {
-            return try {
-                val root = JSONObject(jsonText)
-                val pinNode = findPinterestPinNode(root, 0) ?: return null
-                val title = pinNode.optString("title").takeIf { it.isNotBlank() }
-                    ?: pinNode.optString("grid_title").takeIf { it.isNotBlank() }
-                    ?: pinNode.optString("description").takeIf { it.isNotBlank() }
-                val author = pinNode.optJSONObject("pinner")?.optString("username")?.takeIf { it.isNotBlank() }
+        private fun parsePinterestPwsJson(
+            jsonText: String,
+            pinId: String,
+            forceVideo: Boolean = false,
+        ): ResolutionResult? {
+            val root = try {
+                JSONObject(jsonText)
+            } catch (_: Exception) {
+                return null
+            }
+            val pinNode = findPinterestPinNode(root, pinId, 0) ?: return null
+            val title = pinNode.optString("title").takeIf { it.isNotBlank() }
+                ?: pinNode.optString("grid_title").takeIf { it.isNotBlank() }
+                ?: pinNode.optString("description").takeIf { it.isNotBlank() }
+            val author = pinNode.optJSONObject("pinner")?.optString("username")?.takeIf { it.isNotBlank() }
 
-                val items = mutableListOf<ResolvedMediaItem>()
+            val items = mutableListOf<ResolvedMediaItem>()
+            var missingVideoStream = false
 
-                // Story / Idea Pin multi-page carousel
-                val storyPages = pinNode.optJSONObject("story_pin_data")?.optJSONArray("pages")
-                if (storyPages != null && storyPages.length() > 0) {
-                    for (i in 0 until storyPages.length()) {
-                        val page = storyPages.optJSONObject(i) ?: continue
-                        val blocks = page.optJSONArray("blocks") ?: continue
-                        for (b in 0 until blocks.length()) {
-                            val block = blocks.optJSONObject(b) ?: continue
-                            val vidUrl = extractBestPinterestVideo(block.optJSONObject("video"))
+            // Story / Idea Pin multi-page carousel
+            val storyPages = pinNode.optJSONObject("story_pin_data")?.optJSONArray("pages")
+            if (storyPages != null && storyPages.length() > 0) {
+                for (i in 0 until storyPages.length()) {
+                    val page = storyPages.optJSONObject(i) ?: continue
+                    val blocks = page.optJSONArray("blocks") ?: continue
+                    for (b in 0 until blocks.length()) {
+                        val block = blocks.optJSONObject(b) ?: continue
+                        val blockVideo = block.optJSONObject("video")
+                        val isVideoBlock = blockVideo != null ||
+                            block.optInt("block_type", -1) == 3 ||
+                            block.optString("type").equals("story_pin_video_block", ignoreCase = true)
+                        if (isVideoBlock) {
+                            val vidUrl = extractBestPinterestVideo(blockVideo)
+                                ?: extractBestDirectPinimgMp4(block.toString())?.let { Triple(it, null, null) }
                             if (vidUrl != null) {
                                 items.add(
                                     ResolvedMediaItem(
@@ -415,118 +476,218 @@ class GalleryDlLocalResolver(
                                     ),
                                 )
                             } else {
-                                val img = extractPinterestOrigImage(block.optJSONObject("image"))
-                                if (img != null) {
-                                    val mime = InstagramParsers.guessImageMime(img.first)
-                                    val ext = if (mime == "image/png") "png" else if (mime == "image/webp") "webp" else "jpg"
-                                    items.add(
-                                        ResolvedMediaItem(
-                                            index = items.size + 1,
-                                            id = "${pinId}_${items.size + 1}",
-                                            type = MediaItemType.IMAGE,
-                                            url = img.first,
-                                            fileName = "pinterest_${pinId}_${(items.size + 1).toString().padStart(2, '0')}.$ext",
-                                            mimeType = mime,
-                                            width = img.second,
-                                            height = img.third,
-                                        ),
-                                    )
-                                }
+                                missingVideoStream = true
+                            }
+                        } else {
+                            val img = extractPinterestOrigImage(block.optJSONObject("image"))
+                            if (img != null) {
+                                val mime = InstagramParsers.guessImageMime(img.first)
+                                val ext = if (mime == "image/png") "png" else if (mime == "image/webp") "webp" else "jpg"
+                                items.add(
+                                    ResolvedMediaItem(
+                                        index = items.size + 1,
+                                        id = "${pinId}_${items.size + 1}",
+                                        type = MediaItemType.IMAGE,
+                                        url = img.first,
+                                        fileName = "pinterest_${pinId}_${(items.size + 1).toString().padStart(2, '0')}.$ext",
+                                        mimeType = mime,
+                                        width = img.second,
+                                        height = img.third,
+                                    ),
+                                )
                             }
                         }
                     }
                 }
+                if (missingVideoStream) {
+                    throw ResolverException(
+                        errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
+                        technicalReason = "Video Pin requires yt-dlp HLS/video extractor",
+                    )
+                }
+            }
 
-                // Single video Pin
-                if (items.isEmpty()) {
-                    val video = extractBestPinterestVideo(pinNode.optJSONObject("videos"))
-                    if (video != null) {
-                        items.add(
+            // Single video Pin
+            val videosObj = pinNode.optJSONObject("videos")
+            val hasVideoList = (videosObj?.optJSONObject("video_list")?.length() ?: 0) > 0
+            val pinNodeRaw = pinNode.toString()
+            val isVideoPin = forceVideo ||
+                pinNode.optBoolean("is_video", false) ||
+                hasVideoList ||
+                (videosObj != null && videosObj.length() > 0) ||
+                pinNodeRaw.contains("v.pinimg.com/videos/", ignoreCase = true)
+
+            if (items.isEmpty()) {
+                val video = extractBestPinterestVideo(videosObj)
+                    ?: extractBestDirectPinimgMp4(pinNodeRaw)?.let { Triple(it, null, null) }
+                if (video != null) {
+                    items.add(
+                        ResolvedMediaItem(
+                            index = 1,
+                            id = "${pinId}_1",
+                            type = MediaItemType.VIDEO,
+                            url = video.first,
+                            fileName = "pinterest_${pinId}_01.mp4",
+                            mimeType = "video/mp4",
+                            width = video.second,
+                            height = video.third,
+                        ),
+                    )
+                } else if (isVideoPin) {
+                    // Video Pin detected (e.g. HLS .m3u8 only) — delegate to yt-dlp instead of returning thumbnail
+                    throw ResolverException(
+                        errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
+                        technicalReason = "Video Pin requires yt-dlp HLS/video extractor",
+                    )
+                }
+            }
+
+            // Single image Pin (`images.orig`) — only for genuine photo Pins
+            if (items.isEmpty()) {
+                val img = extractPinterestOrigImage(pinNode.optJSONObject("images"))
+                if (img != null) {
+                    val mime = InstagramParsers.guessImageMime(img.first)
+                    val ext = if (mime == "image/png") "png" else if (mime == "image/webp") "webp" else "jpg"
+                    items.add(
+                        ResolvedMediaItem(
+                            index = 1,
+                            id = "${pinId}_1",
+                            type = MediaItemType.IMAGE,
+                            url = img.first,
+                            fileName = "pinterest_${pinId}_01.$ext",
+                            mimeType = mime,
+                            width = img.second,
+                            height = img.third,
+                        ),
+                    )
+                }
+            }
+
+            if (items.isEmpty()) return null
+            return ResolutionResult(
+                platform = "pinterest",
+                shortcode = pinId,
+                title = title?.take(120),
+                author = author,
+                engineUsed = "gallery-dl",
+                engineVersion = "3.0.0-native",
+                strategyUsed = "PinterestPwsJson",
+                items = items,
+            )
+        }
+
+        private fun parsePinterestLdJson(
+            raw: String,
+            pinId: String,
+            forceVideo: Boolean = false,
+        ): ResolutionResult? {
+            if (raw.isBlank()) return null
+            val obj: JSONObject = try {
+                val trimmed = raw.trim()
+                if (trimmed.startsWith("[")) {
+                    JSONArray(trimmed).optJSONObject(0) ?: return null
+                } else {
+                    JSONObject(trimmed)
+                }
+            } catch (_: Exception) {
+                return null
+            }
+
+            val ldType = obj.optString("@type")
+            val nestedVideoUrl = obj.optJSONObject("video")?.optString("contentUrl")?.takeIf { it.startsWith("http") }
+            val contentUrl = nestedVideoUrl ?: obj.optString("contentUrl").takeIf { it.startsWith("http") }
+            val imageUrl = obj.optString("image").takeIf { it.startsWith("http") }
+            val isVideoObject = ldType.equals("VideoObject", ignoreCase = true) ||
+                obj.has("video") ||
+                (contentUrl != null && isDirectMp4Url(contentUrl)) ||
+                forceVideo
+
+            if (isVideoObject) {
+                if (contentUrl != null && isDirectMp4Url(contentUrl)) {
+                    return ResolutionResult(
+                        platform = "pinterest",
+                        shortcode = pinId,
+                        title = obj.optString("name").takeIf { it.isNotBlank() }?.take(120),
+                        engineUsed = "gallery-dl",
+                        engineVersion = "3.0.0-native",
+                        strategyUsed = "PinterestLdJson",
+                        items = listOf(
                             ResolvedMediaItem(
                                 index = 1,
                                 id = "${pinId}_1",
                                 type = MediaItemType.VIDEO,
-                                url = video.first,
+                                url = contentUrl,
                                 fileName = "pinterest_${pinId}_01.mp4",
                                 mimeType = "video/mp4",
-                                width = video.second,
-                                height = video.third,
                             ),
-                        )
-                    }
-                }
-
-                // Single image Pin (`images.orig`)
-                if (items.isEmpty()) {
-                    val img = extractPinterestOrigImage(pinNode.optJSONObject("images"))
-                    if (img != null) {
-                        val mime = InstagramParsers.guessImageMime(img.first)
-                        val ext = if (mime == "image/png") "png" else if (mime == "image/webp") "webp" else "jpg"
-                        items.add(
-                            ResolvedMediaItem(
-                                index = 1,
-                                id = "${pinId}_1",
-                                type = MediaItemType.IMAGE,
-                                url = img.first,
-                                fileName = "pinterest_${pinId}_01.$ext",
-                                mimeType = mime,
-                                width = img.second,
-                                height = img.third,
-                            ),
-                        )
-                    }
-                }
-
-                if (items.isEmpty()) return null
-                ResolutionResult(
-                    platform = "pinterest",
-                    shortcode = pinId,
-                    title = title?.take(120),
-                    author = author,
-                    engineUsed = "gallery-dl",
-                    engineVersion = "3.0.0-native",
-                    strategyUsed = "PinterestPwsJson",
-                    items = items,
-                )
-            } catch (_: Exception) {
-                null
-            }
-        }
-
-        private fun parsePinterestLdJson(raw: String, pinId: String): ResolutionResult? {
-            return try {
-                val obj = JSONObject(raw)
-                val contentUrl = obj.optString("contentUrl").takeIf { it.startsWith("http") }
-                val imageUrl = obj.optString("image").takeIf { it.startsWith("http") }
-                val mediaUrl = contentUrl ?: imageUrl ?: return null
-                val isVideo = obj.optString("@type").equals("VideoObject", ignoreCase = true) ||
-                    mediaUrl.lowercase().contains(".mp4")
-                val mime = if (isVideo) "video/mp4" else InstagramParsers.guessImageMime(mediaUrl)
-                val ext = if (isVideo) "mp4" else if (mime == "image/png") "png" else "jpg"
-                ResolutionResult(
-                    platform = "pinterest",
-                    shortcode = pinId,
-                    title = obj.optString("name").takeIf { it.isNotBlank() }?.take(120),
-                    engineUsed = "gallery-dl",
-                    engineVersion = "3.0.0-native",
-                    strategyUsed = "PinterestLdJson",
-                    items = listOf(
-                        ResolvedMediaItem(
-                            index = 1,
-                            id = "${pinId}_1",
-                            type = if (isVideo) MediaItemType.VIDEO else MediaItemType.IMAGE,
-                            url = mediaUrl,
-                            fileName = "pinterest_${pinId}_01.$ext",
-                            mimeType = mime,
                         ),
-                    ),
+                    )
+                }
+                throw ResolverException(
+                    errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
+                    technicalReason = "Video Pin requires yt-dlp HLS/video extractor",
                 )
-            } catch (_: Exception) {
-                null
             }
+
+            val mediaUrl = contentUrl ?: imageUrl ?: return null
+            val mime = InstagramParsers.guessImageMime(mediaUrl)
+            val ext = if (mime == "image/png") "png" else if (mime == "image/webp") "webp" else "jpg"
+            return ResolutionResult(
+                platform = "pinterest",
+                shortcode = pinId,
+                title = obj.optString("name").takeIf { it.isNotBlank() }?.take(120),
+                engineUsed = "gallery-dl",
+                engineVersion = "3.0.0-native",
+                strategyUsed = "PinterestLdJson",
+                items = listOf(
+                    ResolvedMediaItem(
+                        index = 1,
+                        id = "${pinId}_1",
+                        type = MediaItemType.IMAGE,
+                        url = mediaUrl,
+                        fileName = "pinterest_${pinId}_01.$ext",
+                        mimeType = mime,
+                    ),
+                ),
+            )
         }
 
-        private fun findPinterestPinNode(node: Any?, depth: Int): JSONObject? {
+        private fun findPinterestPinNode(node: Any?, pinId: String, depth: Int): JSONObject? {
+            val exact = if (pinId != "pin") findPinterestPinNodeExact(node, pinId, depth) else null
+            return exact ?: findPinterestPinNodeAny(node, depth)
+        }
+
+        private fun findPinterestPinNodeExact(node: Any?, pinId: String, depth: Int): JSONObject? {
+            if (node == null || depth > 14) return null
+            when (node) {
+                is JSONObject -> {
+                    val keyed = node.optJSONObject(pinId)
+                    if (keyed != null && (keyed.has("images") || keyed.has("videos") || keyed.has("story_pin_data"))) {
+                        return keyed
+                    }
+                    if (node.optString("id") == pinId &&
+                        (node.has("images") || node.has("videos") || node.has("story_pin_data"))
+                    ) {
+                        return node
+                    }
+                    val keys = node.keys()
+                    while (keys.hasNext()) {
+                        val child = node.opt(keys.next())
+                        if (child is JSONObject || child is JSONArray) {
+                            findPinterestPinNodeExact(child, pinId, depth + 1)?.let { return it }
+                        }
+                    }
+                }
+                is JSONArray -> {
+                    for (i in 0 until node.length()) {
+                        findPinterestPinNodeExact(node.opt(i), pinId, depth + 1)?.let { return it }
+                    }
+                }
+            }
+            return null
+        }
+
+        private fun findPinterestPinNodeAny(node: Any?, depth: Int): JSONObject? {
             if (node == null || depth > 14) return null
             when (node) {
                 is JSONObject -> {
@@ -539,17 +700,52 @@ class GalleryDlLocalResolver(
                     while (keys.hasNext()) {
                         val child = node.opt(keys.next())
                         if (child is JSONObject || child is JSONArray) {
-                            findPinterestPinNode(child, depth + 1)?.let { return it }
+                            findPinterestPinNodeAny(child, depth + 1)?.let { return it }
                         }
                     }
                 }
                 is JSONArray -> {
                     for (i in 0 until node.length()) {
-                        findPinterestPinNode(node.opt(i), depth + 1)?.let { return it }
+                        findPinterestPinNodeAny(node.opt(i), depth + 1)?.let { return it }
                     }
                 }
             }
             return null
+        }
+
+        private fun isDirectMp4Url(url: String): Boolean {
+            if (!url.startsWith("http", ignoreCase = true)) return false
+            val path = try {
+                URI(url).path.orEmpty().lowercase()
+            } catch (_: Exception) {
+                url.substringBefore('?').lowercase()
+            }
+            if (path.endsWith(".m3u8") || path.endsWith(".ts")) return false
+            return path.endsWith(".mp4")
+        }
+
+        private fun extractBestDirectPinimgMp4(rawText: String): String? {
+            if (rawText.isBlank()) return null
+            val unescaped = rawText
+                .replace("\\/", "/")
+                .replace("\\u002F", "/", ignoreCase = true)
+            val matches = Regex("""https://v\.pinimg\.com/videos/[^\s"'<>\\]+\.mp4(?:\?[^\s"'<>\\]+)?""", RegexOption.IGNORE_CASE)
+                .findAll(unescaped)
+                .map { it.value }
+                .distinct()
+                .toList()
+            if (matches.isEmpty()) return null
+            return matches.maxByOrNull { url ->
+                val lower = url.lowercase()
+                when {
+                    lower.contains("1080p") -> 1080
+                    lower.contains("720p") -> 720
+                    lower.contains("540p") -> 540
+                    lower.contains("480p") -> 480
+                    lower.contains("360p") -> 360
+                    else -> 240
+                }
+            }
         }
 
         private fun extractBestPinterestVideo(videosObj: JSONObject?): Triple<String, Int?, Int?>? {
@@ -557,19 +753,27 @@ class GalleryDlLocalResolver(
             var bestUrl: String? = null
             var bestW: Int? = null
             var bestH: Int? = null
-            var bestArea = -1L
+            var bestScore = -1L
             val keys = vList.keys()
             while (keys.hasNext()) {
-                val entry = vList.optJSONObject(keys.next()) ?: continue
-                val url = entry.optString("url").takeIf { it.startsWith("http") && !it.endsWith(".m3u8") } ?: continue
+                val key = keys.next()
+                val entry = vList.optJSONObject(key) ?: continue
+                val url = entry.optString("url").takeIf { isDirectMp4Url(it) } ?: continue
                 val w = entry.optInt("width").takeIf { it > 0 }
                 val h = entry.optInt("height").takeIf { it > 0 }
                 val area = if (w != null && h != null) w.toLong() * h.toLong() else 0L
-                if (bestUrl == null || area > bestArea) {
+                val keyBoost = when {
+                    key.contains("1080", ignoreCase = true) -> 4L
+                    key.contains("720", ignoreCase = true) -> 3L
+                    key.contains("EXP7", ignoreCase = true) -> 2L
+                    else -> 1L
+                }
+                val score = if (area > 0L) area * 10L + keyBoost else keyBoost
+                if (bestUrl == null || score > bestScore) {
                     bestUrl = url
                     bestW = w
                     bestH = h
-                    bestArea = area
+                    bestScore = score
                 }
             }
             return bestUrl?.let { Triple(it, bestW, bestH) }
@@ -577,7 +781,8 @@ class GalleryDlLocalResolver(
 
         private fun extractPinterestOrigImage(imagesObj: JSONObject?): Triple<String, Int?, Int?>? {
             if (imagesObj == null) return null
-            val orig = imagesObj.optJSONObject("orig") ?: imagesObj.optJSONObject("originals")
+            val targetObj = imagesObj.optJSONObject("images") ?: imagesObj
+            val orig = targetObj.optJSONObject("orig") ?: targetObj.optJSONObject("originals")
             if (orig != null) {
                 val url = orig.optString("url").takeIf { it.startsWith("http") }
                 if (url != null) {
@@ -589,9 +794,9 @@ class GalleryDlLocalResolver(
             var bestW: Int? = null
             var bestH: Int? = null
             var bestArea = -1L
-            val keys = imagesObj.keys()
+            val keys = targetObj.keys()
             while (keys.hasNext()) {
-                val cand = imagesObj.optJSONObject(keys.next()) ?: continue
+                val cand = targetObj.optJSONObject(keys.next()) ?: continue
                 val url = cand.optString("url").takeIf { it.startsWith("http") } ?: continue
                 val w = cand.optInt("width").takeIf { it > 0 }
                 val h = cand.optInt("height").takeIf { it > 0 }
@@ -846,10 +1051,20 @@ class GalleryDlLocalResolver(
             }
         }
 
+        fun buildRedditApiUserAgent(username: String?): String {
+            val cleanUser = username?.trim()?.removePrefix("/u/")?.removePrefix("u/")?.takeIf { it.isNotBlank() }
+            return if (cleanUser != null) {
+                "android:com.devwolf.downloader:v3.0.0-rc.3 (by /u/$cleanUser)"
+            } else {
+                "android:com.devwolf.downloader:v3.0.0-rc.3"
+            }
+        }
+
         fun classifyRedditHttpError(
             statusCode: Int,
             body: String,
             contentType: String?,
+            hasAuth: Boolean = false,
         ): DevwolfErrorCode {
             if (statusCode == 429) return DevwolfErrorCode.RATE_LIMITED
             if (statusCode == 404 || statusCode == 410) return DevwolfErrorCode.MEDIA_UNAVAILABLE
@@ -891,9 +1106,9 @@ class GalleryDlLocalResolver(
                     return DevwolfErrorCode.AUTH_REQUIRED
                 }
 
-                // HTML WAF/Fastly/Cloudflare blocks (e.g. "whoa there, pardner!", "403 Blocked")
-                // are recoverable so EngineRouter delegates to yt-dlp.
-                return DevwolfErrorCode.EXTRACTION_FAILED
+                // When no Reddit session/OAuth is present, explicit 403 blocks prompt the user
+                // to connect their Reddit account instead of cycling alternate hosts.
+                return if (!hasAuth) DevwolfErrorCode.AUTH_REQUIRED else DevwolfErrorCode.EXTRACTION_FAILED
             }
 
             if (statusCode in 500..599) return DevwolfErrorCode.NETWORK_ERROR

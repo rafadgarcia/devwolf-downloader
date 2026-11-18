@@ -148,25 +148,62 @@ export function isTerminalPlatformError(
   return false;
 }
 
-export function getUserFacingErrorMessage(
+export function getAuthRequiredMessageForPlatform(platform?: string | null): string {
+  switch ((platform ?? '').trim().toLowerCase()) {
+    case 'reddit':
+      return 'O Reddit exigiu autenticação para acessar esta mídia. Conecte sua conta do Reddit em Contas e Sessões.';
+    case 'threads':
+      return 'Esta publicação exige sessão no Threads. Conecte sua conta do Threads em Contas e Sessões.';
+    case 'instagram':
+    case '':
+      return DEVWOLF_ERROR_CONTRACT.AUTH_REQUIRED.message;
+    default:
+      return 'Esta publicação exige autenticação na plataforma para ser acessada.';
+  }
+}
+
+export function getErrorContract(
   errorCode?: string | null,
-  fallbackMessage?: string | null
-): string {
+  fallbackMessage?: string | null,
+  platform?: string | null
+): { code: DevwolfErrorCode | null; message: string; terminal: boolean } {
   const normalized = normalizeErrorCode(errorCode);
+  if (normalized === 'AUTH_REQUIRED') {
+    return {
+      code: 'AUTH_REQUIRED',
+      message: getAuthRequiredMessageForPlatform(platform),
+      terminal: true,
+    };
+  }
   if (normalized) {
-    return DEVWOLF_ERROR_CONTRACT[normalized].message;
+    return DEVWOLF_ERROR_CONTRACT[normalized];
   }
   if (fallbackMessage && fallbackMessage.trim()) {
-    return fallbackMessage.trim();
+    return {
+      code: null,
+      message: fallbackMessage.trim(),
+      terminal: isTerminalPlatformError(errorCode, fallbackMessage),
+    };
   }
-  return DEVWOLF_ERROR_CONTRACT.EXTRACTION_FAILED.message;
+  return DEVWOLF_ERROR_CONTRACT.EXTRACTION_FAILED;
+}
+
+export function getUserFacingErrorMessage(
+  errorCode?: string | null,
+  fallbackMessage?: string | null,
+  platform?: string | null
+): string {
+  return getErrorContract(errorCode, fallbackMessage, platform).message;
 }
 
 export function sanitizeDiagnosticText(raw: string): string {
   if (!raw) return '';
   return raw
-    .replace(/(sessionid|csrftoken|ds_user_id|rur|mid|ig_did|shbid|shbts)=([^;\s&"']+)/gi, '$1=[REDACTED]')
-    .replace(/(cookie|authorization|x-csrftoken)\s*:\s*([^\r\n]+)/gi, '$1: [REDACTED]')
+    .replace(
+      /(sessionid|csrftoken|ds_user_id|rur|mid|ig_did|shbid|shbts|reddit_session|token_v2|loid|access_token|refresh_token|client_secret)=([^;\s&"']+)/gi,
+      '$1=[REDACTED]'
+    )
+    .replace(/(cookie|set-cookie|authorization|x-csrftoken|x-ig-[a-z0-9-]+)\s*:\s*([^\r\n]+)/gi, '$1: [REDACTED]')
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
-    .replace(/([?&](?:signature|sig|token|auth|oe|oh|policy|key-pair-id|x-amz-[^=]+))=([^&\s]+)/gi, '$1=[REDACTED]');
+    .replace(/([?&](?:signature|sig|token|access_token|refresh_token|auth|oe|oh|policy|key-pair-id|x-amz-[^=]+))=([^&\s]+)/gi, '$1=[REDACTED]');
 }

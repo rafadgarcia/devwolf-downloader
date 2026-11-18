@@ -55,7 +55,7 @@
         <activity
             android:name=".InstagramSessionActivity"
             android:exported="false"
-            android:label="Conectar Instagram"
+            android:label="Conectar conta"
             android:theme="@style/AppTheme.NoActionBar" />
 
         <service

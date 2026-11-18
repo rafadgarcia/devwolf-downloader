@@ -145,15 +145,29 @@ export interface DevwolfNativePlugin {
   clearTempCache(): Promise<{ freedBytes: number; filesRemoved: number }>;
   openInstagramLoginWebView(): Promise<{
     saved: boolean;
+    platform?: string;
+    updatedAt?: string | null;
+    message?: string | null;
+  }>;
+  openPlatformLoginWebView(opts: {
+    platform: 'instagram' | 'reddit' | 'threads';
+    redditClientId?: string;
+  }): Promise<{
+    saved: boolean;
+    platform?: string;
     updatedAt?: string | null;
     message?: string | null;
   }>;
   getPlatformSessions(): Promise<{
-    sessions: Array<{ platform: string; configured: boolean; updatedAt: string | null }>;
+    sessions: PlatformSessionInfo[];
   }>;
   savePlatformSession(opts: {
     platform: string;
-    cookieHeader: string;
+    cookieHeader?: string;
+    accessToken?: string;
+    clientId?: string;
+    username?: string;
+    authType?: string;
   }): Promise<{ saved: boolean; platform: string; updatedAt: string }>;
   revokePlatformSession(opts: {
     platform: string;
@@ -424,6 +438,7 @@ export const nativeBridge = {
 
   async openInstagramLoginWebView(): Promise<{
     saved: boolean;
+    platform?: string;
     updatedAt?: string | null;
     message?: string | null;
   }> {
@@ -431,6 +446,21 @@ export const nativeBridge = {
       throw new Error('Login via WebView oficial disponível apenas no aplicativo Android.');
     }
     return DevwolfNative.openInstagramLoginWebView();
+  },
+
+  async openPlatformLoginWebView(opts: {
+    platform: 'instagram' | 'reddit' | 'threads';
+    redditClientId?: string;
+  }): Promise<{
+    saved: boolean;
+    platform?: string;
+    updatedAt?: string | null;
+    message?: string | null;
+  }> {
+    if (!isNativePlatform()) {
+      throw new Error('Login via WebView/OAuth2 disponível apenas no aplicativo Android.');
+    }
+    return DevwolfNative.openPlatformLoginWebView(opts);
   },
 
   async getPlatformSessions(): Promise<PlatformSessionInfo[]> {

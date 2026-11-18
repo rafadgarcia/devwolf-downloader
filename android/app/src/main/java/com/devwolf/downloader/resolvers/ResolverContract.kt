@@ -116,6 +116,8 @@ data class ResolutionRequest(
     val cookieHeader: String? = null,
     val userAgent: String? = null,
     val cancellationCheck: () -> Boolean = { false },
+    val accessToken: String? = null,
+    val username: String? = null,
 )
 
 data class HttpDownloadProgress(
@@ -190,10 +192,22 @@ object ErrorClassifier {
         }
     }
 
+    fun authRequiredMessageForPlatform(platform: String?): String {
+        return when (platform?.trim()?.lowercase()) {
+            "reddit" -> "O Reddit exigiu autenticação para acessar esta mídia. Conecte sua conta do Reddit em Contas e Sessões."
+            "threads" -> "Esta publicação exige sessão no Threads. Conecte sua conta do Threads em Contas e Sessões."
+            "instagram" -> "Esta publicação exige login no Instagram. Conecte sua conta do Instagram em Contas e Sessões."
+            else -> DevwolfErrorCode.AUTH_REQUIRED.defaultMessagePtBr
+        }
+    }
+
     fun fromYtdlpOutput(rawMessage: String?): Pair<DevwolfErrorCode, String> {
         val raw = rawMessage.orEmpty().trim()
         val errorOnly = extractFatalErrorLines(raw)
+        val cleanReason = stripYtdlpReportBoilerplate(SafeHttpClient.sanitizeForDiagnostics(errorOnly))
         val lower = errorOnly.lowercase()
+        val lowerClean = cleanReason.lowercase()
+        val hasExplicitAgeWarning = YTDLP_AGE_WARNING_REGEX.containsMatchIn(raw)
 
         return when {
             lower.contains("interrupted") || lower.contains("cancelled") || lower.contains("canceled") ->
@@ -217,15 +231,31 @@ object ErrorClassifier {
             lower.contains("drm") || lower.contains("no video could be found") || lower.contains("unsupported url") ->
                 DevwolfErrorCode.UNSUPPORTED_MEDIA to DevwolfErrorCode.UNSUPPORTED_MEDIA.defaultMessagePtBr
 
-            lower.contains("unable to extract") || lower.contains("extractor") || lower.contains("please report this issue") || lower.contains("broken") ->
-                DevwolfErrorCode.EXTRACTOR_OUTDATED to DevwolfErrorCode.EXTRACTOR_OUTDATED.defaultMessagePtBr
-
             lower.contains("timed out") || lower.contains("timeout") || lower.contains("unknownhost") || lower.contains("connect") || lower.contains("network") || lower.contains("ssl") || lower.contains("socket") ->
                 DevwolfErrorCode.NETWORK_ERROR to DevwolfErrorCode.NETWORK_ERROR.defaultMessagePtBr
 
+            hasExplicitAgeWarning ||
+                lowerClean.contains("please update yt-dlp") ||
+                lowerClean.contains("yt-dlp version is outdated") ->
+                DevwolfErrorCode.EXTRACTOR_OUTDATED to DevwolfErrorCode.EXTRACTOR_OUTDATED.defaultMessagePtBr
+
             else ->
-                DevwolfErrorCode.EXTRACTION_FAILED to (errorOnly.take(220).ifBlank { DevwolfErrorCode.EXTRACTION_FAILED.defaultMessagePtBr })
+                DevwolfErrorCode.EXTRACTION_FAILED to (cleanReason.take(260).ifBlank { DevwolfErrorCode.EXTRACTION_FAILED.defaultMessagePtBr })
         }
+    }
+
+    private val YTDLP_AGE_WARNING_REGEX = Regex(
+        """your yt-dlp version.*older than 90 days|yt-dlp is more than 90 days old""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val YTDLP_REPORT_BOILERPLATE_REGEX = Regex(
+        """(?i)\s*[.;]?\s*(?:please report this issue on https?://\S+.*|make sure you are using the latest version.*|confirm you are on the latest version.*)$""",
+    )
+
+    fun stripYtdlpReportBoilerplate(message: String): String {
+        if (message.isBlank()) return ""
+        return message.replace(YTDLP_REPORT_BOILERPLATE_REGEX, "").trim().trimEnd(';', '.')
     }
 
     fun fromThrowable(error: Throwable): Pair<DevwolfErrorCode, String> {

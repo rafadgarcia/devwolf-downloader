@@ -12,6 +12,7 @@ describe('hybridOrchestrator (Exclusively Local Android Routing)', () => {
     const cases = [
       { url: 'https://www.instagram.com/reel/ABC123/', expectedPrimary: 'dnr' },
       { url: 'https://www.instagram.com/p/POST123/', expectedPrimary: 'dnr' },
+      { url: 'https://www.threads.net/@user/post/TH123/', expectedPrimary: 'dnr' },
       { url: 'https://youtu.be/dQw4w9WgXcQ', expectedPrimary: 'yt-dlp' },
       { url: 'https://vm.tiktok.com/ZM123/', expectedPrimary: 'yt-dlp' },
       { url: 'https://www.facebook.com/share/r/12345/', expectedPrimary: 'yt-dlp' },
@@ -56,11 +57,12 @@ describe('hybridOrchestrator (Exclusively Local Android Routing)', () => {
     expect(igPlan.fallbackEngines).toEqual(['yt-dlp', 'gallery-dl']);
   });
 
-  it('expõe tabela centralizada de roteamento para todas as 7 plataformas', () => {
-    expect(PLATFORM_ROUTING_TABLE).toHaveLength(7);
+  it('expõe tabela centralizada de roteamento para todas as 8 plataformas', () => {
+    expect(PLATFORM_ROUTING_TABLE).toHaveLength(8);
     expect(getPlatformEngineRoute('instagram').routeDescription).toBe(
       'DNR (fallback yt-dlp/gallery-dl)'
     );
+    expect(getPlatformEngineRoute('threads').routeDescription).toBe('DNR (fallback yt-dlp)');
     expect(getPlatformEngineRoute('pinterest').routeDescription).toBe('gallery-dl/nativo');
     expect(getPlatformEngineRoute('reddit').routeDescription).toBe('gallery-dl/yt-dlp');
   });

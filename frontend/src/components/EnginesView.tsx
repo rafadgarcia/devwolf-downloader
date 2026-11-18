@@ -108,7 +108,7 @@ export function EnginesView({
           <div className="flex items-center gap-2">
             <Cpu className="h-4 w-4 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
             <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              DNR (Devwolf Native Resolver — Instagram)
+              DNR (Devwolf Native Resolver — Instagram &amp; Threads)
             </h3>
           </div>
           <span
@@ -124,7 +124,7 @@ export function EnginesView({
 
         <p className="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
           Resolvedor Kotlin nativo dedicado para Reels, vídeos, fotos individuais e carrosséis mistos
-          do Instagram, sem depender de servidor externo.
+          do Instagram e Threads, sem depender de servidor externo.
         </p>
 
         <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">

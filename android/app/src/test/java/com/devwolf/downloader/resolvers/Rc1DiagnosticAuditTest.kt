@@ -334,10 +334,16 @@ class Rc1DiagnosticAuditTest {
             </html>
         """.trimIndent()
 
-        // Direct unit check on classifyRedditHttpError
+        // Direct unit check on classifyRedditHttpError:
+        // Unauthenticated 403 WAF/block -> AUTH_REQUIRED (prompts Reddit login/OAuth without host cycling)
+        assertEquals(
+            DevwolfErrorCode.AUTH_REQUIRED,
+            GalleryDlLocalResolver.classifyRedditHttpError(403, fastlyBlockHtml, "text/html; charset=utf-8", hasAuth = false),
+        )
+        // Authenticated 403 -> EXTRACTION_FAILED (recoverable fallback to yt-dlp)
         assertEquals(
             DevwolfErrorCode.EXTRACTION_FAILED,
-            GalleryDlLocalResolver.classifyRedditHttpError(403, fastlyBlockHtml, "text/html; charset=utf-8"),
+            GalleryDlLocalResolver.classifyRedditHttpError(403, fastlyBlockHtml, "text/html; charset=utf-8", hasAuth = true),
         )
         assertEquals(
             DevwolfErrorCode.PRIVATE_MEDIA,
@@ -419,44 +425,43 @@ class Rc1DiagnosticAuditTest {
             wafServer.shutdown()
         }
 
-        // Integration check: old.reddit.com fallback succeeds when www.reddit.com returns 403 WAF HTML
-        val wwwServer = MockWebServer()
-        val oldServer = MockWebServer()
-        wwwServer.start()
-        oldServer.start()
+        // Integration check: OAuth2 Bearer token succeeds without cycling hosts
+        val oauthServer = MockWebServer()
+        oauthServer.start()
         try {
-            wwwServer.enqueue(
-                MockResponse()
-                    .setResponseCode(403)
-                    .addHeader("Content-Type", "text/html")
-                    .setBody(fastlyBlockHtml),
-            )
-            oldServer.enqueue(
-                MockResponse()
-                    .setResponseCode(200)
-                    .addHeader("Content-Type", "application/json")
-                    .setBody(
-                        """[{"data":{"children":[{"data":{"id":"1abc2de","title":"Old Reddit Rescue","url_overridden_by_dest":"https://i.redd.it/rescue.jpg"}}]}}]""",
-                    ),
-            )
+            val recordedOAuthReqs = mutableListOf<RecordedRequest>()
+            oauthServer.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    recordedOAuthReqs.add(request)
+                    return MockResponse()
+                        .setResponseCode(200)
+                        .addHeader("Content-Type", "application/json")
+                        .setBody(
+                            """[{"data":{"children":[{"data":{"id":"1abc2de","title":"Reddit OAuth Rescue","url_overridden_by_dest":"https://i.redd.it/rescue.jpg"}}]}}]""",
+                        )
+                }
+            }
 
             val resolver = GalleryDlLocalResolver(
                 httpClient = SafeHttpClient(allowLoopbackForTesting = true),
-                redditBaseUrl = wwwServer.url("/").toString().trimEnd('/'),
-                oldRedditBaseUrl = oldServer.url("/").toString().trimEnd('/'),
+                oauthRedditBaseUrl = oauthServer.url("/").toString().trimEnd('/'),
             )
             val result = resolver.resolve(
                 ResolutionRequest(
                     url = "https://www.reddit.com/r/aww/comments/1abc2de/public_cat_video/",
                     platform = "reddit",
+                    accessToken = "reddit_oauth_access_token_xyz",
+                    username = "devwolf_user",
                 ),
             )
             assertEquals("https://i.redd.it/rescue.jpg", result.items.first().url)
-            assertEquals(1, wwwServer.requestCount)
-            assertEquals(1, oldServer.requestCount)
+            assertEquals("RedditImageJsonOAuth", result.strategyUsed)
+            assertEquals(1, oauthServer.requestCount)
+            assertEquals("Bearer reddit_oauth_access_token_xyz", recordedOAuthReqs[0].getHeader("Authorization"))
+            assertNull(recordedOAuthReqs[0].getHeader("Cookie"))
+            assertTrue(recordedOAuthReqs[0].getHeader("User-Agent").orEmpty().contains("(by /u/devwolf_user)"))
         } finally {
-            wwwServer.shutdown()
-            oldServer.shutdown()
+            oauthServer.shutdown()
         }
 
         // Integration check: genuine private JSON -> PRIVATE_MEDIA (terminal, no fallback)

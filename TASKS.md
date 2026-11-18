@@ -60,3 +60,11 @@ Checklist de acompanhamento do projeto.
 - [x] Alinhar `--user-agent` do fallback `yt-dlp` em `DevwolfDownloadService` com o `User-Agent` salvo da sessão WebView do Instagram e registrar `strategyAttempts` e `httpStatus` no `PerformanceTracker`
 - [x] Diferenciar bloqueio WAF/Fastly HTTP 403 (`EXTRACTION_FAILED` recuperável + fallback `old.reddit.com` + `yt-dlp`) de conteúdo realmente privado (`PRIVATE_MEDIA`) no `GalleryDlLocalResolver` e `ErrorClassifier`, além de resolver links `/r/<sub>/s/<id>` sem anexar `.json` em paths não resolvidos
 - [x] Bump para `v3.0.0-rc.2` (`versionCode 30002`), suítes de testes (`vitest` + `testDebugUnitTest`), build de APKs assinados, atualização do `graphify-out/` e prerelease no GitHub
+
+## Etapa 9 — v3.0.0-rc.3: Pinterest Vídeo, TikTok, Threads, Contas Multiplataforma & Diagnóstico
+- [x] Corrigir detecção de Pins de vídeo no Pinterest (`GalleryDlLocalResolver.kt` + validação MIME/magic bytes em `HttpMediaDownloader.kt`) delegando HLS/vídeo ao `yt-dlp` sem retornar thumbnail como sucesso
+- [x] Corrigir falso positivo de `EXTRACTOR_OUTDATED` no TikTok (`ResolverContract.kt`), leitura/persistência real do binário zipapp `yt-dlp` (`LocalEngineManager.kt`), preservação do `--user-agent` nativo no `yt-dlp` e captura de `exitCode` / `httpStatus` / `rawErrorSanitized` (`DevwolfDownloadService.kt`)
+- [x] Implementar suporte completo ao **Threads** (`threads.net` / `threads.com`): `UrlExtractor.kt`, `ThreadsNativeResolver.kt`, `EngineRouter.kt`, frontend (`url.ts`, `HistoryView.tsx`, `EnginesView.tsx`) e cookies `.threads.net`/`.threads.com`
+- [x] Implementar gerenciador **Contas e Sessões** multiplataforma (`Instagram`, `Reddit` OAuth2 PKCE + WebView, `Threads`) em `SecureVault.kt`, `InstagramSessionActivity.kt`, `DevwolfNativePlugin.kt` e `SettingsView.tsx` com logout isolado por domínio e `AUTH_REQUIRED` contextualizado (`errorContract.ts`, `JobCard.tsx`)
+- [x] Expandir `PerformanceTracker.kt` e **Diagnóstico e Performance** em `SettingsView.tsx` com todos os 9 campos sanitizados
+- [x] Bump para `v3.0.0-rc.3` (`versionCode 30003`), suítes de testes, build de APKs assinados, `graphify update .` e prerelease no GitHub

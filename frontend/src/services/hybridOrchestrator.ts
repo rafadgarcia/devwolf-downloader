@@ -27,6 +27,14 @@ export const PLATFORM_ROUTING_TABLE: PlatformEngineRoute[] = [
     localSupported: true,
   },
   {
+    platform: 'threads',
+    label: 'Threads',
+    primaryEngine: 'dnr',
+    fallbackEngines: ['yt-dlp'],
+    routeDescription: 'DNR (fallback yt-dlp)',
+    localSupported: true,
+  },
+  {
     platform: 'youtube',
     label: 'YouTube',
     primaryEngine: 'yt-dlp',

@@ -25,6 +25,7 @@ import com.devwolf.downloader.resolvers.ResolverException
 import com.devwolf.downloader.resolvers.SafeHttpClient
 import com.devwolf.downloader.resolvers.StrategyAttemptMetric
 import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLException
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -120,16 +121,51 @@ class DevwolfDownloadService : Service() {
 
         internal fun resolveYtdlpUserAgent(
             platform: String,
-            instagramUserAgent: String?,
-        ): String {
-            if (platform.equals("instagram", ignoreCase = true)) {
-                val cleanUa = instagramUserAgent?.trim()
+            sessionUserAgent: String?,
+        ): String? {
+            if (platform.equals("instagram", ignoreCase = true) ||
+                platform.equals("threads", ignoreCase = true)
+            ) {
+                return sessionUserAgent?.trim()
                     ?.takeIf { it.isNotEmpty() && !it.contains('\n') && !it.contains('\r') }
-                if (cleanUa != null) {
-                    return cleanUa
-                }
             }
-            return SafeHttpClient.DEFAULT_MOBILE_CHROME_UA
+            return null
+        }
+
+        internal fun parseHttpStatusFromYtdlpError(rawErr: String?): Int? {
+            if (rawErr.isNullOrBlank()) return null
+            val match = Regex("""(?:HTTP Error|status code|http status)\s*[:=]?\s*(\d{3})""", RegexOption.IGNORE_CASE)
+                .find(rawErr)
+            val code = match?.groupValues?.getOrNull(1)?.toIntOrNull()
+            return if (code != null && code in 100..599) code else null
+        }
+
+        internal fun parseExitCodeFromYtdlpError(rawErr: String?): Int {
+            if (!rawErr.isNullOrBlank()) {
+                val match = Regex("""exit\s*(?:code|status)\s*[:=]?\s*(\d+)""", RegexOption.IGNORE_CASE)
+                    .find(rawErr)
+                val parsed = match?.groupValues?.getOrNull(1)?.toIntOrNull()
+                if (parsed != null && parsed > 0) return parsed
+            }
+            return 1
+        }
+
+        internal fun classifyMediaTypeFromItems(items: List<ResolvedMediaItem>): String {
+            if (items.isEmpty()) return "unknown"
+            if (items.size > 1) return "carousel (${items.size} itens)"
+            return items[0].type.wireName
+        }
+
+        internal fun classifyMediaTypeFromRawFiles(rawFiles: List<File>): String {
+            if (rawFiles.isEmpty()) return "unknown"
+            if (rawFiles.size > 1) return "carousel (${rawFiles.size} itens)"
+            val mime = StatusModeProcessor.guessMimeType(rawFiles[0].name)
+            return when {
+                mime.startsWith("image/") -> "image"
+                mime.startsWith("audio/") -> "audio"
+                mime.startsWith("video/") -> "video"
+                else -> "unknown"
+            }
         }
 
         internal fun parseYtdlpProgressLine(line: String): ProgressParseResult? {
@@ -214,6 +250,17 @@ class DevwolfDownloadService : Service() {
         val width: Int?,
         val height: Int?,
     )
+
+    private data class YtdlpExecutionOutcome(
+        val meta: YtdlpMetadata?,
+        val exitCode: Int,
+    )
+
+    private class YtdlpFailureException(
+        val resolverException: ResolverException,
+        val exitCode: Int,
+        val rawErrorSanitized: String?,
+    ) : RuntimeException(resolverException.userMessage, resolverException)
 
     private data class PreparedLocalFile(
         val file: File,
@@ -307,6 +354,9 @@ class DevwolfDownloadService : Service() {
         var currentPlatform = initialPlatform
         val strategyAttempts = mutableListOf<StrategyAttemptMetric>()
         var lastHttpStatus: Int? = null
+        var lastExitCode: Int? = null
+        var lastRawErrorSanitized: String? = null
+        var mediaTypeIdentified = "unknown"
         var errorCapturedFromLoop = false
 
         var currentSnapshot = buildSnapshot(
@@ -360,16 +410,21 @@ class DevwolfDownloadService : Service() {
                 try {
                     when (engineKind) {
                         EngineKind.DNR, EngineKind.GALLERY_DL_LOCAL -> {
+                            val platformSession = secureVault.getPlatformSession(currentPlatform)
                             val igSession = if (currentPlatform == "instagram") secureVault.getInstagramSession() else null
-                            val cookieHeader = igSession?.cookieHeader ?: secureVault.getCookieForPlatform(currentPlatform)
+                            val cookieHeader = igSession?.cookieHeader
+                                ?: platformSession?.cookieHeader
+                                ?: secureVault.getCookieForPlatform(currentPlatform)
                             val req = ResolutionRequest(
                                 url = targetUrl,
                                 platform = currentPlatform,
                                 format = format,
                                 quality = quality,
                                 cookieHeader = cookieHeader,
-                                userAgent = igSession?.userAgent,
+                                userAgent = igSession?.userAgent ?: platformSession?.userAgent,
                                 cancellationCheck = { isJobCancelled(jobId) },
+                                accessToken = platformSession?.accessToken,
+                                username = platformSession?.username,
                             )
                             val resolution: ResolutionResult = EngineRouter.shared.resolveNative(req, engineKind)
                             resolutionMs += resolution.metrics.resolutionMs
@@ -379,6 +434,7 @@ class DevwolfDownloadService : Service() {
                             activeEngineVersion = resolution.engineVersion
                             activeStrategy = resolution.strategyUsed
                             resolvedTitle = resolution.title ?: resolvedTitle
+                            mediaTypeIdentified = classifyMediaTypeFromItems(resolution.items)
 
                             val itemsState = buildInitialCarouselItemsArray(resolution.items)
                             currentSnapshot = buildSnapshot(
@@ -506,7 +562,7 @@ class DevwolfDownloadService : Service() {
                             activeStrategy = "yt-dlp-single-pass"
 
                             val dlStart = System.currentTimeMillis()
-                            val ytdlpMeta = executeSinglePassYtdlp(
+                            val ytdlpOutcome = executeSinglePassYtdlp(
                                 jobId = jobId,
                                 url = targetUrl,
                                 platform = currentPlatform,
@@ -524,6 +580,8 @@ class DevwolfDownloadService : Service() {
                                     publishSnapshot(snap)
                                 },
                             )
+                            lastExitCode = ytdlpOutcome.exitCode
+                            val ytdlpMeta = ytdlpOutcome.meta
                             val ytdlpElapsed = (System.currentTimeMillis() - dlStart).coerceAtLeast(1L)
                             transferMs += ytdlpElapsed
 
@@ -546,6 +604,7 @@ class DevwolfDownloadService : Service() {
                                     strategyUsed = activeStrategy,
                                 )
                             }
+                            mediaTypeIdentified = classifyMediaTypeFromRawFiles(rawFiles)
 
                             val procStart = System.currentTimeMillis()
                             preparedFiles = prepareYtdlpFiles(
@@ -569,12 +628,21 @@ class DevwolfDownloadService : Service() {
                         }
                     }
                 } catch (e: Throwable) {
-                    val mapped = mapThrowableToResolverException(e, activeStrategy)
+                    if (e is YtdlpFailureException) {
+                        lastExitCode = e.exitCode
+                        if (!e.rawErrorSanitized.isNullOrBlank()) {
+                            lastRawErrorSanitized = e.rawErrorSanitized
+                        }
+                    }
+                    val mapped = mapThrowableToResolverException(e, activeStrategy, currentPlatform)
                     lastFailure = mapped
                     resolutionMs += mapped.metrics.resolutionMs
                     httpRequestCount += mapped.metrics.httpRequestCount
                     if (mapped.httpStatus != null) {
                         lastHttpStatus = mapped.httpStatus
+                    }
+                    if (!mapped.technicalReason.isNullOrBlank() && lastRawErrorSanitized.isNullOrBlank()) {
+                        lastRawErrorSanitized = PerformanceTracker.sanitizeText(mapped.technicalReason)
                     }
                     if (mapped.metrics.strategyAttempts.isNotEmpty()) {
                         strategyAttempts.addAll(mapped.metrics.strategyAttempts)
@@ -582,6 +650,7 @@ class DevwolfDownloadService : Service() {
                         val fallbackStrategy = mapped.strategyUsed ?: activeStrategy ?: engineKind.wireName
                         val noteParts = listOfNotNull(
                             mapped.httpStatus?.let { "HTTP $it" },
+                            if (e is YtdlpFailureException) "exitCode=${e.exitCode}" else null,
                             mapped.technicalReason?.takeIf { it.isNotBlank() },
                         ).joinToString(" | ").ifBlank { null }
                         strategyAttempts.add(
@@ -704,6 +773,8 @@ class DevwolfDownloadService : Service() {
                 galleryPublishMs = galleryPublishMs,
                 totalJobMs = totalJobMs,
                 httpRequestCount = httpRequestCount,
+                exitCode = lastExitCode,
+                mediaTypeIdentified = mediaTypeIdentified,
                 strategyAttempts = strategyAttempts.toList(),
             )
             PerformanceTracker.recordJob(perfRecord)
@@ -734,7 +805,13 @@ class DevwolfDownloadService : Service() {
             if (current?.optString("status") == "cancelled" || isJobCancelled(jobId)) {
                 markCancelled(jobId, rawUrl, currentPlatform)
             } else {
-                val resolvedErr = mapThrowableToResolverException(e, activeStrategy)
+                if (e is YtdlpFailureException) {
+                    lastExitCode = e.exitCode
+                    if (!e.rawErrorSanitized.isNullOrBlank()) {
+                        lastRawErrorSanitized = e.rawErrorSanitized
+                    }
+                }
+                val resolvedErr = mapThrowableToResolverException(e, activeStrategy, currentPlatform)
                 if (!errorCapturedFromLoop) {
                     resolutionMs += resolvedErr.metrics.resolutionMs
                     httpRequestCount += resolvedErr.metrics.httpRequestCount
@@ -743,6 +820,8 @@ class DevwolfDownloadService : Service() {
                     }
                 }
                 val finalHttpStatus = resolvedErr.httpStatus ?: lastHttpStatus
+                val finalRawSanitized = lastRawErrorSanitized
+                    ?: PerformanceTracker.sanitizeText(resolvedErr.technicalReason ?: e.message)
                 val totalJobMs = (System.currentTimeMillis() - jobStartMs).coerceAtLeast(1L)
                 val perfRecord = PerformanceTracker.JobPerformanceRecord(
                     jobId = jobId,
@@ -761,7 +840,10 @@ class DevwolfDownloadService : Service() {
                     httpRequestCount = httpRequestCount,
                     errorCode = resolvedErr.errorCode.name,
                     technicalReason = resolvedErr.technicalReason ?: e.message,
+                    rawErrorSanitized = finalRawSanitized,
                     httpStatus = finalHttpStatus,
+                    exitCode = lastExitCode,
+                    mediaTypeIdentified = mediaTypeIdentified,
                     strategyAttempts = strategyAttempts.toList(),
                 )
                 PerformanceTracker.recordJob(perfRecord)
@@ -808,57 +890,85 @@ class DevwolfDownloadService : Service() {
         engineVersion: String?,
         onTitleResolved: (YtdlpMetadata) -> Unit,
         onProgressSnapshot: (JSONObject) -> Unit,
-    ): YtdlpMetadata? {
+    ): YtdlpExecutionOutcome {
         val request = buildYoutubeDlRequest(url, platform, format, quality, workDir)
         var capturedMeta: YtdlpMetadata? = null
         var lastNotifMs = 0L
         var lastBytes = 0L
         var lastTotal: Long? = null
 
-        YoutubeDL.getInstance().execute(request, jobId) { progress, etaInSeconds, line ->
-            val meta = parseYtdlpMetadataLine(line)
-            if (meta != null) {
-                capturedMeta = meta
-                onTitleResolved(meta)
-            }
+        val response = try {
+            YoutubeDL.getInstance().execute(request, jobId) { progress, etaInSeconds, line ->
+                val meta = parseYtdlpMetadataLine(line)
+                if (meta != null) {
+                    capturedMeta = meta
+                    onTitleResolved(meta)
+                }
 
-            val parsed = parseYtdlpProgressLine(line) ?: return@execute
-            val pct = parsed.percent ?: if (progress >= 0f && parsed.totalBytes != null) progress.toDouble() else null
-            lastBytes = parsed.bytesDownloaded.coerceAtLeast(lastBytes)
-            lastTotal = parsed.totalBytes ?: lastTotal
-            val isIndet = lastTotal == null
+                val parsed = parseYtdlpProgressLine(line) ?: return@execute
+                val pct = parsed.percent ?: if (progress >= 0f && parsed.totalBytes != null) progress.toDouble() else null
+                lastBytes = parsed.bytesDownloaded.coerceAtLeast(lastBytes)
+                lastTotal = parsed.totalBytes ?: lastTotal
+                val isIndet = lastTotal == null
 
-            val snap = buildSnapshot(
-                jobId = jobId,
-                url = url,
-                platform = platform,
-                engine = "yt-dlp",
-                engineVersion = engineVersion,
-                strategyUsed = "yt-dlp-single-pass",
-                status = "downloading",
-                phaseLabel = "Baixando",
-                bytesDownloaded = lastBytes,
-                totalBytes = lastTotal,
-                percent = pct,
-                isIndeterminate = isIndet,
-                speedBytesPerSec = parsed.speedBytesPerSec,
-                etaSeconds = parsed.etaSeconds ?: etaInSeconds.takeIf { it > 0 },
-                title = capturedMeta?.title,
-            )
-            onProgressSnapshot(snap)
-
-            val now = System.currentTimeMillis()
-            if (now - lastNotifMs > 600) {
-                lastNotifMs = now
-                promoteForeground(
-                    jobId,
-                    capturedMeta?.title ?: "Baixando via yt-dlp…",
-                    pct?.roundToInt(),
-                    isIndet,
+                val snap = buildSnapshot(
+                    jobId = jobId,
+                    url = url,
+                    platform = platform,
+                    engine = "yt-dlp",
+                    engineVersion = engineVersion,
+                    strategyUsed = "yt-dlp-single-pass",
+                    status = "downloading",
+                    phaseLabel = "Baixando",
+                    bytesDownloaded = lastBytes,
+                    totalBytes = lastTotal,
+                    percent = pct,
+                    isIndeterminate = isIndet,
+                    speedBytesPerSec = parsed.speedBytesPerSec,
+                    etaSeconds = parsed.etaSeconds ?: etaInSeconds.takeIf { it > 0 },
+                    title = capturedMeta?.title,
                 )
+                onProgressSnapshot(snap)
+
+                val now = System.currentTimeMillis()
+                if (now - lastNotifMs > 600) {
+                    lastNotifMs = now
+                    promoteForeground(
+                        jobId,
+                        capturedMeta?.title ?: "Baixando via yt-dlp…",
+                        pct?.roundToInt(),
+                        isIndet,
+                    )
+                }
             }
+        } catch (canceled: YoutubeDL.CanceledException) {
+            throw ResolverException(DevwolfErrorCode.CANCELLED, cause = canceled)
+        } catch (ytErr: YoutubeDLException) {
+            val rawErr = ytErr.message.orEmpty()
+            val fatalLines = ErrorClassifier.extractFatalErrorLines(rawErr)
+            val sanitizedRaw = PerformanceTracker.sanitizeText(fatalLines.ifBlank { rawErr })
+            val httpStatus = parseHttpStatusFromYtdlpError(rawErr)
+            val exitCode = parseExitCodeFromYtdlpError(rawErr)
+            val (code, classifiedMsg) = ErrorClassifier.fromYtdlpOutput(rawErr)
+            val userMsg = if (code == DevwolfErrorCode.AUTH_REQUIRED) {
+                ErrorClassifier.authRequiredMessageForPlatform(platform)
+            } else {
+                classifiedMsg
+            }
+            throw YtdlpFailureException(
+                resolverException = ResolverException(
+                    errorCode = code,
+                    userMessage = userMsg,
+                    technicalReason = sanitizedRaw,
+                    strategyUsed = "yt-dlp-single-pass",
+                    httpStatus = httpStatus,
+                    cause = ytErr,
+                ),
+                exitCode = exitCode,
+                rawErrorSanitized = sanitizedRaw,
+            )
         }
-        return capturedMeta
+        return YtdlpExecutionOutcome(meta = capturedMeta, exitCode = response.exitCode)
     }
 
     private fun prepareDownloadedNativeItems(
@@ -1038,12 +1148,16 @@ class DevwolfDownloadService : Service() {
         workDir: File,
     ): YoutubeDLRequest {
         return YoutubeDLRequest(url).apply {
+            val platformSession = secureVault.getPlatformSession(platform)
             val igSession = if (platform.equals("instagram", ignoreCase = true)) {
                 secureVault.getInstagramSession()
             } else {
                 null
             }
-            val effectiveUserAgent = resolveYtdlpUserAgent(platform, igSession?.userAgent)
+            val effectiveUserAgent = resolveYtdlpUserAgent(
+                platform,
+                igSession?.userAgent ?: platformSession?.userAgent,
+            )
 
             addOption("-o", "${workDir.absolutePath}/%(title).60B_%(id)s.%(ext)s")
             addOption("--no-playlist")
@@ -1055,7 +1169,9 @@ class DevwolfDownloadService : Service() {
             addOption("--newline")
             addOption("--progress")
             addOption("--restrict-filenames")
-            addOption("--user-agent", effectiveUserAgent)
+            if (effectiveUserAgent != null) {
+                addOption("--user-agent", effectiveUserAgent)
+            }
 
             if (format == "audio" || quality == "audio") {
                 addOption("-x")
@@ -1074,6 +1190,7 @@ class DevwolfDownloadService : Service() {
 
             // Host-scoped Netscape cookie file so cookies are never leaked on CLI args or third-party redirects
             val cookie = igSession?.cookieHeader?.takeIf { it.isNotBlank() }
+                ?: platformSession?.cookieHeader?.takeIf { it.isNotBlank() }
                 ?: secureVault.getCookieForPlatform(platform)
             if (!cookie.isNullOrBlank()) {
                 val cookieFile = writeScopedCookiesFile(workDir, platform, cookie)
@@ -1085,14 +1202,15 @@ class DevwolfDownloadService : Service() {
     }
 
     private fun writeScopedCookiesFile(workDir: File, platform: String, cookieHeader: String): File? {
-        val domain = when (platform.lowercase()) {
-            "instagram" -> ".instagram.com"
-            "facebook" -> ".facebook.com"
-            "tiktok" -> ".tiktok.com"
-            "youtube" -> ".youtube.com"
-            "twitter" -> ".x.com"
-            "reddit" -> ".reddit.com"
-            "pinterest" -> ".pinterest.com"
+        val domains = when (platform.lowercase()) {
+            "instagram" -> listOf(".instagram.com")
+            "threads" -> listOf(".threads.net", ".threads.com")
+            "facebook" -> listOf(".facebook.com")
+            "tiktok" -> listOf(".tiktok.com")
+            "youtube" -> listOf(".youtube.com")
+            "twitter" -> listOf(".x.com")
+            "reddit" -> listOf(".reddit.com")
+            "pinterest" -> listOf(".pinterest.com")
             else -> return null
         }
         return try {
@@ -1105,12 +1223,14 @@ class DevwolfDownloadService : Service() {
                 val key = trimmed.substring(0, eq).trim()
                 val value = trimmed.substring(eq + 1).trim()
                 if (key.isNotEmpty() && value.isNotEmpty()) {
-                    sb.append(domain)
-                        .append("\tTRUE\t/\tTRUE\t2147483647\t")
-                        .append(key)
-                        .append('\t')
-                        .append(value)
-                        .append('\n')
+                    for (domain in domains) {
+                        sb.append(domain)
+                            .append("\tTRUE\t/\tTRUE\t2147483647\t")
+                            .append(key)
+                            .append('\t')
+                            .append(value)
+                            .append('\n')
+                    }
                 }
             }
             file.writeText(sb.toString(), Charsets.UTF_8)
@@ -1120,12 +1240,35 @@ class DevwolfDownloadService : Service() {
         }
     }
 
-    private fun mapThrowableToResolverException(error: Throwable, strategyUsed: String?): ResolverException {
-        if (error is ResolverException) return error
+    private fun mapThrowableToResolverException(
+        error: Throwable,
+        strategyUsed: String?,
+        platform: String,
+    ): ResolverException {
+        if (error is YtdlpFailureException) return error.resolverException
+        if (error is ResolverException) {
+            if (error.errorCode == DevwolfErrorCode.AUTH_REQUIRED) {
+                return ResolverException(
+                    errorCode = error.errorCode,
+                    userMessage = ErrorClassifier.authRequiredMessageForPlatform(platform),
+                    technicalReason = error.technicalReason,
+                    strategyUsed = error.strategyUsed,
+                    httpStatus = error.httpStatus,
+                    metrics = error.metrics,
+                    cause = error.cause,
+                )
+            }
+            return error
+        }
         val (code, message) = ErrorClassifier.fromThrowable(error)
+        val userMsg = if (code == DevwolfErrorCode.AUTH_REQUIRED) {
+            ErrorClassifier.authRequiredMessageForPlatform(platform)
+        } else {
+            message
+        }
         return ResolverException(
             errorCode = code,
-            userMessage = message,
+            userMessage = userMsg,
             technicalReason = ErrorClassifier.extractFatalErrorLines(error.message.orEmpty()).ifBlank { error.javaClass.simpleName },
             strategyUsed = strategyUsed,
             cause = error,

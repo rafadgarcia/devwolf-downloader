@@ -9,6 +9,11 @@ export const PLATFORM_META: Record<
     shortLabel: 'IG',
     badgeClass: 'bg-pink-500/15 text-pink-300 border-pink-500/30',
   },
+  threads: {
+    label: 'Threads',
+    shortLabel: 'TH',
+    badgeClass: 'bg-zinc-500/15 text-zinc-700 dark:text-zinc-200 border-zinc-500/30',
+  },
   youtube: {
     label: 'YouTube',
     shortLabel: 'YT',
@@ -66,14 +71,18 @@ export function getPhaseLabel(status: JobStatus): string {
 
 export function formatDisplayEngine(
   engine: string | null | undefined,
-  _origin?: string | null
+  _origin?: string | null,
+  platform?: string | null
 ): string {
   const normalized = (engine ?? '').trim().toLowerCase();
+  const normalizedPlatform = (platform ?? '').trim().toLowerCase();
   switch (normalized) {
     case 'dnr':
     case 'instagram-dnr':
     case 'devwolf-native-resolver':
-      return 'Local • DNR (Instagram)';
+      return normalizedPlatform === 'threads'
+        ? 'Local • DNR (Threads)'
+        : 'Local • DNR (Instagram)';
     case 'gallery-dl':
     case 'local-gallery-dl':
       return 'Local • gallery-dl';

@@ -226,6 +226,34 @@ describe('localQueue, individual carousel items & local history', () => {
     expect(failed.error_message).toBe(
       'Esta publicação exige login no Instagram. Você pode conectar uma sessão opcional nos Ajustes.'
     );
+
+    const redditInitial = createInitialLocalJob({
+      jobId: 'local-reddit-err',
+      url: 'https://www.reddit.com/r/pics/comments/abc123/test',
+      normalizedUrl: 'https://www.reddit.com/r/pics/comments/abc123/test',
+      platform: 'reddit',
+      format: 'auto',
+      quality: 'best',
+      statusMode: false,
+      primaryEngine: 'gallery-dl',
+    });
+    const redditFailed = applyLocalProgressToJob(redditInitial, {
+      jobId: 'local-reddit-err',
+      status: 'failed',
+      phaseLabel: 'Falhou',
+      engine: 'gallery-dl',
+      platform: 'reddit',
+      bytesDownloaded: 0,
+      totalBytes: null,
+      percent: null,
+      isIndeterminate: true,
+      speedBytesPerSec: null,
+      etaSeconds: null,
+      errorCode: 'AUTH_REQUIRED',
+      error: 'HTTP 403',
+    });
+    expect(redditFailed.error_message).toContain('Reddit');
+    expect(redditFailed.error_message?.toLowerCase()).not.toContain('instagram');
   });
 
   it('filtra histórico 100% local por plataforma e termo de busca', () => {

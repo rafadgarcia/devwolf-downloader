@@ -35,6 +35,7 @@ interface HistoryViewProps {
 const PLATFORM_FILTERS: { id: string; label: string }[] = [
   { id: 'all', label: 'Todas' },
   { id: 'instagram', label: 'Instagram' },
+  { id: 'threads', label: 'Threads' },
   { id: 'tiktok', label: 'TikTok' },
   { id: 'youtube', label: 'YouTube' },
   { id: 'twitter', label: 'X / Twitter' },
@@ -242,7 +243,7 @@ export function HistoryView({
             const isMulti = carouselItems.length > 1;
             const hasVideo = readyCarousel.some((c) => c.type === 'video');
             const engineBadge =
-              item.display_engine || formatDisplayEngine(item.selected_engine, 'local');
+              item.display_engine || formatDisplayEngine(item.selected_engine, 'local', item.platform);
 
             return (
               <li
@@ -289,7 +290,7 @@ export function HistoryView({
 
                 {item.status === 'failed' && (item.error_code || item.error_message) && (
                   <p className="mt-1.5 text-xs text-red-500 dark:text-red-400">
-                    {getUserFacingErrorMessage(item.error_code, item.error_message)}
+                    {getUserFacingErrorMessage(item.error_code, item.error_message, item.platform)}
                   </p>
                 )}
 

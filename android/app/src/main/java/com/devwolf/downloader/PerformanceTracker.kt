@@ -1,5 +1,6 @@
 package com.devwolf.downloader
 
+import com.devwolf.downloader.resolvers.SafeHttpClient
 import com.devwolf.downloader.resolvers.StrategyAttemptMetric
 import org.json.JSONArray
 import org.json.JSONObject
@@ -10,7 +11,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Local-only performance and diagnostics instrumentation (zero external telemetry).
- * Records per-stage timings, HTTP request counts, active strategy, and sanitized error logs.
+ * Records per-stage timings, HTTP request counts, active strategy, exit code,
+ * identified media type, and sanitized error logs.
  */
 object PerformanceTracker {
 
@@ -31,11 +33,19 @@ object PerformanceTracker {
         val httpRequestCount: Int = 0,
         val errorCode: String? = null,
         val technicalReason: String? = null,
+        val rawErrorSanitized: String? = null,
         val httpStatus: Int? = null,
+        val exitCode: Int? = null,
+        val mediaTypeIdentified: String = "unknown",
         val strategyAttempts: List<StrategyAttemptMetric> = emptyList(),
         val recordedAt: String = Instant.now().toString(),
     ) {
         fun toMetricsJson(): JSONObject = JSONObject().apply {
+            put("platform", platform)
+            put("engineUsed", engineUsed)
+            put("engineVersion", engineVersion ?: JSONObject.NULL)
+            put("strategyUsed", strategyUsed ?: JSONObject.NULL)
+            put("mediaTypeIdentified", mediaTypeIdentified)
             put("engineInitMs", engineInitMs)
             put("resolutionMs", resolutionMs)
             put("ttfbMs", ttfbMs)
@@ -48,6 +58,15 @@ object PerformanceTracker {
             put("clipboardDetectMs", getClipboardDetectMs())
             if (httpStatus != null) {
                 put("httpStatus", httpStatus)
+            }
+            if (exitCode != null) {
+                put("exitCode", exitCode)
+            }
+            if (!rawErrorSanitized.isNullOrBlank()) {
+                put("rawErrorSanitized", rawErrorSanitized)
+            }
+            if (!errorCode.isNullOrBlank()) {
+                put("errorCode", errorCode)
             }
             if (strategyAttempts.isNotEmpty()) {
                 put("strategyAttempts", strategyAttemptsToJson(strategyAttempts))
@@ -87,6 +106,7 @@ object PerformanceTracker {
     fun recordJob(record: JobPerformanceRecord) {
         val sanitized = record.copy(
             technicalReason = sanitizeText(record.technicalReason),
+            rawErrorSanitized = sanitizeText(record.rawErrorSanitized ?: record.technicalReason),
             strategyAttempts = record.strategyAttempts.map { attempt ->
                 attempt.copy(note = sanitizeText(attempt.note))
             },
@@ -126,6 +146,7 @@ object PerformanceTracker {
         val rec = latestRecord.get()
         val sanitizedLog = buildSanitizedLog(rec, ytdlpVersion, wrapperVersion, lastUpdateAt)
         return JSONObject().apply {
+            put("platform", rec?.platform ?: JSONObject.NULL)
             put("engineUsed", rec?.engineUsed ?: JSONObject.NULL)
             put("engineVersion", rec?.engineVersion ?: ytdlpVersion ?: JSONObject.NULL)
             put("lastUpdateAt", lastUpdateAt ?: JSONObject.NULL)
@@ -142,7 +163,10 @@ object PerformanceTracker {
             put("strategyUsed", rec?.strategyUsed ?: JSONObject.NULL)
             put("errorCode", rec?.errorCode ?: JSONObject.NULL)
             put("technicalReason", rec?.technicalReason ?: JSONObject.NULL)
+            put("rawErrorSanitized", rec?.rawErrorSanitized ?: JSONObject.NULL)
             put("httpStatus", rec?.httpStatus ?: JSONObject.NULL)
+            put("exitCode", rec?.exitCode ?: JSONObject.NULL)
+            put("mediaTypeIdentified", rec?.mediaTypeIdentified ?: "unknown")
             put("strategyAttempts", strategyAttemptsToJson(rec?.strategyAttempts.orEmpty()))
             put("sanitizedLog", sanitizedLog)
         }
@@ -163,7 +187,9 @@ object PerformanceTracker {
             sb.appendLine("Nenhum job registrado nesta sessão.")
             return sb.toString().trim()
         }
-        sb.appendLine("Último job: ${rec.jobId} | plataforma=${rec.platform} | status=${rec.status}")
+        sb.appendLine(
+            "Último job: ${rec.jobId} | plataforma=${rec.platform} | status=${rec.status} | mídia=${rec.mediaTypeIdentified}",
+        )
         sb.appendLine("Motor: ${rec.engineUsed} (${rec.engineVersion ?: "-"}) | Estratégia: ${rec.strategyUsed ?: "-"}")
         sb.appendLine(
             "Tempos (ms): init=${rec.engineInitMs}, resolução=${rec.resolutionMs}, " +
@@ -181,9 +207,19 @@ object PerformanceTracker {
                 )
             }
         }
-        if (!rec.errorCode.isNullOrBlank() || !rec.technicalReason.isNullOrBlank() || rec.httpStatus != null) {
+        if (
+            !rec.errorCode.isNullOrBlank() ||
+            !rec.technicalReason.isNullOrBlank() ||
+            !rec.rawErrorSanitized.isNullOrBlank() ||
+            rec.httpStatus != null ||
+            rec.exitCode != null
+        ) {
             val httpPart = rec.httpStatus?.let { " | http=$it" } ?: ""
-            sb.appendLine("Erro: code=${rec.errorCode ?: "-"}$httpPart | motivo=${sanitizeText(rec.technicalReason) ?: "-"}")
+            val exitPart = rec.exitCode?.let { " | exitCode=$it" } ?: ""
+            val rawPart = sanitizeText(rec.rawErrorSanitized)?.let { " | raw=$it" } ?: ""
+            sb.appendLine(
+                "Erro: code=${rec.errorCode ?: "-"}$httpPart$exitPart$rawPart | motivo=${sanitizeText(rec.technicalReason) ?: "-"}",
+            )
         }
         return sb.toString().trim()
     }
@@ -211,14 +247,18 @@ object PerformanceTracker {
      */
     fun sanitizeText(raw: String?): String? {
         if (raw.isNullOrBlank()) return null
-        var cleaned = raw
+        val preCleaned = SafeHttpClient.sanitizeForDiagnostics(raw)
+        var cleaned = preCleaned
             .replace(Regex("""(?i)\bBearer\s+[A-Za-z0-9._\-+/=]+"""), "Bearer [REDACTED]")
             .replace(Regex("""(?i)(cookie|set-cookie|authorization|x-csrftoken|x-ig-[a-z0-9-]+)\s*[:=]\s*[^\r\n;|]+"""), "$1=[REDACTED]")
-            .replace(Regex("""(?i)\b(sessionid|csrftoken|ds_user_id|mid|ig_did|rur|token|auth|signature|sig|oe|oh)=([^&\s;"'|]+)"""), "$1=[REDACTED]")
+            .replace(
+                Regex("""(?i)\b(sessionid|csrftoken|ds_user_id|mid|ig_did|rur|shbid|shbts|reddit_session|token_v2|loid|access_token|refresh_token|client_secret|token|auth|signature|sig|oe|oh)=([^&\s;"'|]+)"""),
+                "$1=[REDACTED]",
+            )
             .replace(Regex("""(https?://[^\s?#]+)\?[^\s"']+"""), "$1?[REDACTED_QUERY]")
         if (cleaned.length > 600) {
             cleaned = cleaned.take(600) + "…"
         }
-        return cleaned.trim()
+        return cleaned.trim().ifBlank { null }
     }
 }

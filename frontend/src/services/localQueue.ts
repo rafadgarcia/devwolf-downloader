@@ -185,7 +185,7 @@ export function createInitialLocalJob(params: {
     current_engine: initialEngine,
     selected_engine: initialEngine,
     execution_origin: 'local',
-    display_engine: formatDisplayEngine(initialEngine, 'local'),
+    display_engine: formatDisplayEngine(initialEngine, 'local', params.platform),
     bytes_downloaded: 0,
     total_bytes: null,
     percent: null,
@@ -213,17 +213,18 @@ export function applyLocalProgressToJob(
   const items = rawList ? mapLocalFilesToCarouselItems(rawList, status) : existing?.items ?? [];
   const files = rawList ? mapLocalFilesToJobFiles(rawList, status) : existing?.files ?? [];
   const engine = event.engine || existing?.current_engine || existing?.selected_engine || 'yt-dlp';
+  const platform = event.platform ?? existing?.platform ?? 'instagram';
   const errorCode = event.errorCode ?? existing?.error_code ?? null;
   const errorMessage =
     status === 'failed' || errorCode || event.error
-      ? getUserFacingErrorMessage(errorCode, event.error ?? existing?.error_message)
+      ? getUserFacingErrorMessage(errorCode, event.error ?? existing?.error_message, platform)
       : null;
 
   return {
     id: event.jobId,
     original_url: existing?.original_url ?? '',
     normalized_url: existing?.normalized_url ?? '',
-    platform: event.platform ?? existing?.platform ?? 'instagram',
+    platform,
     title: event.title ?? existing?.title ?? null,
     format: existing?.format ?? 'auto',
     quality: existing?.quality ?? 'best',
@@ -232,7 +233,7 @@ export function applyLocalProgressToJob(
     current_engine: engine,
     selected_engine: engine,
     execution_origin: 'local',
-    display_engine: formatDisplayEngine(engine, 'local'),
+    display_engine: formatDisplayEngine(engine, 'local', platform),
     engine_version: event.engineVersion ?? existing?.engine_version ?? null,
     strategy_used: event.strategyUsed ?? existing?.strategy_used ?? null,
     bytes_downloaded: event.bytesDownloaded ?? existing?.bytes_downloaded ?? 0,
@@ -265,18 +266,19 @@ export function snapshotToJobResponse(snapshot: LocalDownloadSnapshot): JobRespo
   const rawList = snapshot.items ?? snapshot.files;
   const items = mapLocalFilesToCarouselItems(rawList, snapshot.status);
   const files = mapLocalFilesToJobFiles(rawList, snapshot.status);
-  const engine = snapshot.engine || (snapshot.platform === 'instagram' ? 'dnr' : 'yt-dlp');
+  const platform = snapshot.platform ?? 'instagram';
+  const engine = snapshot.engine || (platform === 'instagram' || platform === 'threads' ? 'dnr' : 'yt-dlp');
   const errorCode = snapshot.errorCode ?? null;
   const errorMessage =
     snapshot.status === 'failed' || errorCode || snapshot.error
-      ? getUserFacingErrorMessage(errorCode, snapshot.error)
+      ? getUserFacingErrorMessage(errorCode, snapshot.error, platform)
       : null;
 
   return {
     id: snapshot.jobId,
     original_url: snapshot.url,
     normalized_url: snapshot.url,
-    platform: snapshot.platform ?? 'instagram',
+    platform,
     title: snapshot.title ?? null,
     format: snapshot.format,
     quality: snapshot.quality,
@@ -285,7 +287,7 @@ export function snapshotToJobResponse(snapshot: LocalDownloadSnapshot): JobRespo
     current_engine: engine,
     selected_engine: engine,
     execution_origin: 'local',
-    display_engine: formatDisplayEngine(engine, 'local'),
+    display_engine: formatDisplayEngine(engine, 'local', platform),
     engine_version: snapshot.engineVersion ?? null,
     strategy_used: snapshot.strategyUsed ?? null,
     bytes_downloaded: snapshot.bytesDownloaded ?? 0,
@@ -362,7 +364,7 @@ export function localJobToHistoryItem(job: JobResponse): HistoryItem {
     phase_label: job.phase_label || getPhaseLabel(job.status),
     selected_engine: job.selected_engine ?? 'yt-dlp',
     execution_origin: 'local',
-    display_engine: job.display_engine ?? formatDisplayEngine(job.selected_engine, 'local'),
+    display_engine: job.display_engine ?? formatDisplayEngine(job.selected_engine, 'local', job.platform),
     status_mode: job.status_mode,
     error_code: job.error_code ?? null,
     error_message: job.error_message,

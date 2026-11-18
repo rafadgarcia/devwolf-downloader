@@ -82,12 +82,27 @@ describe('parseAndValidateUrl & normalizeUrl (100% Local)', () => {
     expect(fbShareVideo?.platform).toBe('facebook');
     expect(fbShareVideo?.routeLabel).toBe('Facebook Vídeo');
     expect(fbShareVideo?.localSupported).toBe(true);
+
+    const threadsNet = parseAndValidateUrl(
+      'https://www.threads.net/@zuck/post/C12345abc/?xmt=AQGz123&slof=1'
+    );
+    expect(threadsNet?.platform).toBe('threads');
+    expect(threadsNet?.routeLabel).toBe('Threads');
+    expect(threadsNet?.localSupported).toBe(true);
+    expect(threadsNet?.normalizedUrl).toBe('https://www.threads.net/@zuck/post/C12345abc');
+
+    const threadsCom = parseAndValidateUrl('https://www.threads.com/@user/post/XYZ987?utm_source=ig');
+    expect(threadsCom?.platform).toBe('threads');
+    expect(threadsCom?.routeLabel).toBe('Threads');
+    expect(threadsCom?.normalizedUrl).toBe('https://www.threads.com/@user/post/XYZ987');
   });
 
   it('garante localSupported === true para todas as plataformas e formatos sem VPS', () => {
     const urls = [
       'https://www.instagram.com/reel/ABC123/',
       'https://www.instagram.com/p/CAROUSEL1/',
+      'https://www.threads.net/@user/post/TH123/',
+      'https://www.threads.com/@user/post/TH456/',
       'https://pin.it/abc123',
       'https://www.pinterest.com/pin/123456789/',
       'https://www.reddit.com/r/pics/comments/abc123/foto/',

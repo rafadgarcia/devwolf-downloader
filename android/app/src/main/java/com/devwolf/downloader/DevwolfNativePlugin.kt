@@ -296,7 +296,7 @@ class DevwolfNativePlugin : Plugin() {
     @PluginMethod
     fun getDiagnosticsReport(call: PluginCall) {
         val appCtx = context.applicationContext
-        val ytdlpVer = LocalEngineManager.getCachedYtdlpVersion(appCtx)
+        val ytdlpVer = LocalEngineManager.getFastYtdlpVersion(appCtx)
         val report = PerformanceTracker.buildDiagnosticsReport(
             ytdlpVersion = ytdlpVer,
             lastUpdateAt = secureVault.lastUpdateAt,
@@ -306,27 +306,57 @@ class DevwolfNativePlugin : Plugin() {
 
     @PluginMethod
     fun openInstagramLoginWebView(call: PluginCall) {
+        launchPlatformLoginActivity(call, InstagramSessionActivity.PLATFORM_INSTAGRAM, null)
+    }
+
+    @PluginMethod
+    fun openPlatformLoginWebView(call: PluginCall) {
+        val platform = call.getString("platform", InstagramSessionActivity.PLATFORM_INSTAGRAM)
+            ?.trim()
+            ?.lowercase()
+            ?: InstagramSessionActivity.PLATFORM_INSTAGRAM
+        if (platform !in InstagramSessionActivity.SUPPORTED_PLATFORMS) {
+            call.reject("Plataforma não suportada para login: $platform")
+            return
+        }
+        val redditClientId = call.getString("redditClientId")?.trim()?.takeIf { it.isNotEmpty() }
+        launchPlatformLoginActivity(call, platform, redditClientId)
+    }
+
+    private fun launchPlatformLoginActivity(
+        call: PluginCall,
+        platform: String,
+        redditClientId: String?,
+    ) {
         val act = activity
         if (act == null) {
             call.reject("Atividade Android indisponível para abrir WebView de login.")
             return
         }
-        val intent = Intent(act, InstagramSessionActivity::class.java)
-        startActivityForResult(call, intent, "handleInstagramLoginResult")
+        val intent = Intent(act, InstagramSessionActivity::class.java).apply {
+            putExtra(InstagramSessionActivity.EXTRA_PLATFORM, platform)
+            if (!redditClientId.isNullOrBlank()) {
+                putExtra(InstagramSessionActivity.EXTRA_REDDIT_CLIENT_ID, redditClientId)
+            }
+        }
+        startActivityForResult(call, intent, "handlePlatformLoginResult")
     }
 
     @ActivityCallback
-    private fun handleInstagramLoginResult(call: PluginCall?, result: ActivityResult) {
+    private fun handlePlatformLoginResult(call: PluginCall?, result: ActivityResult) {
         if (call == null) return
         val data = result.data
+        val platform = data?.getStringExtra(InstagramSessionActivity.EXTRA_PLATFORM)
+            ?: InstagramSessionActivity.PLATFORM_INSTAGRAM
         val saved = result.resultCode == Activity.RESULT_OK &&
             (data?.getBooleanExtra(InstagramSessionActivity.EXTRA_SAVED, false) == true)
         val updatedAt = data?.getStringExtra(InstagramSessionActivity.EXTRA_UPDATED_AT)
         val message = data?.getStringExtra(InstagramSessionActivity.EXTRA_MESSAGE)
-            ?: if (saved) "Sessão do Instagram salva localmente." else "Login do Instagram não concluído."
+            ?: if (saved) "Sessão de $platform salva localmente." else "Login de $platform não concluído."
         call.resolve(
             JSObject().apply {
                 put("saved", saved)
+                put("platform", platform)
                 put("updatedAt", updatedAt ?: JSONObject.NULL)
                 put("message", message)
             },
@@ -377,12 +407,33 @@ class DevwolfNativePlugin : Plugin() {
     @PluginMethod
     fun savePlatformSession(call: PluginCall) {
         val platform = call.getString("platform").orEmpty().trim().lowercase()
-        val cookieHeader = call.getString("cookieHeader").orEmpty()
+        val cookieHeader = call.getString("cookieHeader")?.trim()?.takeIf { it.isNotEmpty() }
+        val accessToken = call.getString("accessToken")?.trim()?.takeIf { it.isNotEmpty() }
+        val clientId = call.getString("clientId")?.trim()?.takeIf { it.isNotEmpty() }
+        val username = call.getString("username")?.trim()?.takeIf { it.isNotEmpty() }
+        val userAgent = call.getString("userAgent")?.trim()?.takeIf { it.isNotEmpty() }
+        val authType = call.getString("authType")?.trim()?.takeIf { it.isNotEmpty() }
         try {
-            val updatedAt = if (platform == "instagram") {
-                secureVault.saveInstagramSession(cookieHeader = cookieHeader, source = "manual")
-            } else {
-                secureVault.savePlatformSession(platform, cookieHeader)
+            val updatedAt = when {
+                platform == "instagram" && cookieHeader != null ->
+                    secureVault.saveInstagramSession(cookieHeader = cookieHeader, userAgent = userAgent, source = "manual")
+                accessToken != null ->
+                    secureVault.savePlatformOAuthSession(
+                        platform = platform,
+                        accessToken = accessToken,
+                        clientId = clientId,
+                        username = username,
+                        source = "manual",
+                    )
+                else ->
+                    secureVault.savePlatformSession(
+                        platform = platform,
+                        cookieHeader = cookieHeader,
+                        username = username,
+                        userAgent = userAgent,
+                        authType = authType,
+                        source = "manual",
+                    )
             }
             call.resolve(
                 JSObject().apply {
@@ -400,9 +451,9 @@ class DevwolfNativePlugin : Plugin() {
     fun revokePlatformSession(call: PluginCall) {
         val platform = call.getString("platform").orEmpty().trim().lowercase()
         pluginScope.launch {
-            val revoked = if (platform == "instagram") {
+            val revoked = if (platform in InstagramSessionActivity.SUPPORTED_PLATFORMS) {
                 withContext(Dispatchers.Main) {
-                    InstagramSessionActivity.clearWebViewSession(context.applicationContext)
+                    InstagramSessionActivity.clearWebViewSession(context.applicationContext, platform)
                 }
             } else {
                 secureVault.revokePlatformSession(platform)

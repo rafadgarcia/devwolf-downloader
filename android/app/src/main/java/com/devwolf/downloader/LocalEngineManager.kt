@@ -15,6 +15,7 @@ import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.zip.ZipFile
 
 /**
  * Manages lazy initialization, real binary version discovery, daily/manual updates
@@ -107,16 +108,61 @@ object LocalEngineManager {
 
     fun getInstalledYtdlpVersion(context: Context): String? {
         return try {
-            ensureYtdlpInitialized(context)
-            val realVersion = YoutubeDL.getInstance().version(context.applicationContext)
+            val appCtx = context.applicationContext
+            ensureYtdlpInitialized(appCtx)
+            val binaryVersion = readBinaryVersionFromZipapp(findYtdlpBinary(appCtx))
+            val prefVersion = YoutubeDL.getInstance().version(appCtx)
                 ?.trim()
                 ?.takeIf { it.isNotBlank() }
+            val realVersion = binaryVersion ?: prefVersion
             if (realVersion != null) {
-                cacheYtdlpVersion(context, realVersion)
+                cacheYtdlpVersion(appCtx, realVersion)
             }
-            realVersion
+            realVersion ?: getCachedYtdlpVersion(appCtx)
         } catch (_: Throwable) {
             getCachedYtdlpVersion(context)
+        }
+    }
+
+    /**
+     * Reads the persisted yt-dlp version without forcing Python/YoutubeDL initialization
+     * when the binary is already on disk or cached in preferences.
+     */
+    fun getFastYtdlpVersion(context: Context): String? {
+        val appCtx = context.applicationContext
+        if (ytdlpInitialized.get()) {
+            return getInstalledYtdlpVersion(appCtx)
+        }
+        val diskVersion = readBinaryVersionFromZipapp(findYtdlpBinary(appCtx))
+        if (!diskVersion.isNullOrBlank()) {
+            cacheYtdlpVersion(appCtx, diskVersion)
+            return diskVersion
+        }
+        val prefVersion = try {
+            YoutubeDL.getInstance().version(appCtx)?.trim()?.takeIf { it.isNotBlank() }
+        } catch (_: Throwable) {
+            null
+        }
+        if (!prefVersion.isNullOrBlank()) {
+            cacheYtdlpVersion(appCtx, prefVersion)
+            return prefVersion
+        }
+        return getCachedYtdlpVersion(appCtx)
+    }
+
+    internal fun readBinaryVersionFromZipapp(binaryFile: File?): String? {
+        if (binaryFile == null || !binaryFile.exists() || !binaryFile.isFile || binaryFile.length() == 0L) {
+            return null
+        }
+        return try {
+            ZipFile(binaryFile).use { zip ->
+                val entry = zip.getEntry("yt_dlp/version.py") ?: return@use null
+                val content = zip.getInputStream(entry).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val match = Regex("""__version__\s*=\s*['"]([^'"]+)['"]""").find(content)
+                match?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+            }
+        } catch (_: Throwable) {
+            null
         }
     }
 
@@ -254,8 +300,9 @@ object LocalEngineManager {
 
         return try {
             val status = YoutubeDL.getInstance().updateYoutubeDL(appCtx, channel)
+            val updatedBinary = findYtdlpBinary(appCtx)
             val newVersion = getInstalledYtdlpVersion(appCtx)
-            if (newVersion.isNullOrBlank()) {
+            if (newVersion.isNullOrBlank() || updatedBinary == null || updatedBinary.length() < 100_000L) {
                 if (backupSuccess) restoreBackupYtdlpBinary(appCtx)
                 vault.lastEngineError = "Validação do binário yt-dlp falhou após atualização; rollback aplicado."
                 return JSONObject().apply {

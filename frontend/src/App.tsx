@@ -77,6 +77,7 @@ export function App() {
   const [submitting, setSubmitting] = useState(false);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [multiCandidates, setMultiCandidates] = useState<ParsedPlatformUrl[]>([]);
+  const [focusAccountPlatform, setFocusAccountPlatform] = useState<string | null>(null);
 
   const autoStartLockRef = useRef(false);
   const { job: activeJob, setActiveJob, engineSwitchNotice, connectionMode } =
@@ -473,6 +474,10 @@ export function App() {
             onRetryJob={(url) => startJob(url, { forceManual: true })}
             onReturnToSourceApp={handleReturnToSourceApp}
             onOpenSettings={() => setActiveTab('settings')}
+            onOpenAccountSettings={(platform) => {
+              setFocusAccountPlatform(platform);
+              setActiveTab('settings');
+            }}
             showReturnToSourceApp={showReturnToSourceApp}
             clipboardGuidance={guidanceMessage}
             statusNotice={statusNotice}
@@ -507,6 +512,8 @@ export function App() {
             settings={settings}
             isNativeAndroid={isNativeAndroid}
             latestJob={activeJob ?? localJobs[0] ?? null}
+            focusAccountPlatform={focusAccountPlatform}
+            onClearFocusAccount={() => setFocusAccountPlatform(null)}
             onUpdateSettings={handleUpdateSettings}
           />
         )}

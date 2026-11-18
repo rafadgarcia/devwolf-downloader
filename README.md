@@ -2,7 +2,7 @@
 
 **Copiou. Abriu. Baixou.**
 
-O **Devwolf Downloader** é um aplicativo Android nativo e 100% local (Capacitor + motor Kotlin + `yt-dlp` + `FFmpeg`) para baixar vídeos, fotos, áudios e carrosséis públicos autorizados de **Instagram**, **YouTube / Shorts**, **TikTok**, **Facebook**, **Twitter/X**, **Pinterest** e **Reddit**, diretamente para a galeria do dispositivo e com **Modo Status (WhatsApp)**.
+O **Devwolf Downloader** é um aplicativo Android nativo e 100% local (Capacitor + motor Kotlin + `yt-dlp` + `FFmpeg`) para baixar vídeos, fotos, áudios e carrosséis públicos autorizados de **Instagram**, **Threads**, **YouTube / Shorts**, **TikTok**, **Facebook**, **Twitter/X**, **Pinterest** e **Reddit**, diretamente para a galeria do dispositivo e com **Modo Status (WhatsApp)**.
 
 > **Nota de Arquitetura**: A partir da versão **3.0.0**, o aplicativo opera de forma **100% autônoma e local no Android** (zero dependência de VPS). O código da arquitetura híbrida anterior (FastAPI + Docker + Cobalt) permanece preservado integralmente na branch [`archive/vps-hybrid`](../../tree/archive/vps-hybrid) e na tag `v2.0.0`.
 
@@ -10,18 +10,18 @@ O **Devwolf Downloader** é um aplicativo Android nativo e 100% local (Capacitor
 
 ## Principais Recursos (`v3.0.0`)
 
-- **Motor Nativo para Instagram (`DNR`)**: resolve Reels, vídeos, fotos e carrosséis mistos diretamente em Kotlin (`EmbedCaptionedStrategy`, `WebPageJsonStrategy`, `AuthorizedWebApiStrategy`) sem inicializar Python/yt-dlp, com fallback automático para `yt-dlp` apenas em falhas recuperáveis.
+- **Motor Nativo para Instagram & Threads (`DNR`)**: resolve Reels, vídeos, fotos e carrosséis mistos diretamente em Kotlin (`InstagramNativeResolver` e `ThreadsNativeResolver`) sem inicializar Python/yt-dlp, com fallback automático para `yt-dlp` apenas em falhas recuperáveis.
 - **Carrosséis Individuais na Galeria (`MediaStore`)**: cada foto e vídeo de um carrossel é baixado e salvo individualmente em `Pictures/Devwolf Downloader` e `Movies/Devwolf Downloader`, preservando ordem (`01`, `02`, ...), resolução e ações individuais (**Abrir**, **Compartilhar** e **Compartilhar todos**).
 - **Resolvedores Locais Multi-Plataforma**:
-  - **Instagram**: `DNR` (primário) -> `yt-dlp` (fallback recuperável).
-  - **Pinterest & Reddit**: resolvedor Kotlin local de imagens/galerias -> `yt-dlp` (vídeos/DASH `v.redd.it`).
+  - **Instagram & Threads**: `DNR` (primário) -> `yt-dlp` (fallback recuperável).
+  - **Pinterest & Reddit**: resolvedor Kotlin local -> `yt-dlp` (vídeos HLS no Pinterest e DASH `v.redd.it` no Reddit).
   - **Twitter/X**: `yt-dlp` -> fallback local para posts só de imagens.
   - **YouTube / Shorts, TikTok, Facebook**: `yt-dlp` em passo único (`--no-simulate --no-warnings --print before_dl:...`) com cookies por plataforma isolados por host.
-- **Atualização Real do `yt-dlp` (Stable & Nightly)**: lê a versão real do binário `yt-dlp` em execução, verifica atualizações automaticamente na inicialização e a cada 24h, suporta canais `Stable`/`Nightly`, valida o binário após atualizar e realiza rollback automático se falhar.
+- **Atualização Real do `yt-dlp` (Stable & Nightly)**: lê a versão real do binário zipapp `yt-dlp` em execução, verifica atualizações automaticamente na inicialização e a cada 24h, suporta canais `Stable`/`Nightly`, valida o binário após atualizar e realiza rollback automático se falhar.
 - **Modo Status (WhatsApp)**: remux instantâneo (`-c copy`) quando já compatível com H.264/AAC MP4 ou transcodificação preservando proporção original, sem marca d'água e com corte em segmentos de N segundos.
 - **Receptor Nativo (`ACTION_SEND`) & Clipboard Inteligente**: compartilhamento direto de outros apps com início automático e botão rápido **Voltar ao app de origem**, além de detecção automática local ao abrir/focar o app (com deduplicação de 10 minutos).
-- **Sessão Opcional do Instagram via WebView**: login opcional na página oficial do Instagram (`EncryptedSharedPreferences` + Android Keystore) com limpeza completa em um toque; mídias públicas não exigem login.
-- **Diagnóstico & Performance Local**: telemetria estritamente local (`resolução`, `TTFB`, `transferência`, `processamento`, `galeria`, `requisições HTTP`) com exportação de log sanitizado nos Ajustes.
+- **Contas e Sessões Opcionais (`Instagram`, `Reddit`, `Threads`)**: login opcional via WebView oficial ou **Reddit OAuth2 Installed App PKCE** (`EncryptedSharedPreferences` + Android Keystore) com logout isolado por plataforma; mídias públicas não exigem login.
+- **Diagnóstico & Performance Local**: telemetria estritamente local (`plataforma`, `motor/versão`, `estratégias`, `httpStatus`, `exitCode`, `tipo de mídia`, `tempos`, `requisições HTTP`) com exportação de log sanitizado nos Ajustes.
 
 ---
 

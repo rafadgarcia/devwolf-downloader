@@ -2,6 +2,34 @@
 
 Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
+## [3.0.0-rc.3] — Pinterest Vídeo, TikTok `yt-dlp`, Threads Nativo, Contas Multiplataforma & Diagnóstico Completo
+
+### Adicionado
+- **Suporte Nativo ao Threads (`threads.net` / `threads.com`)**:
+  - Extração/normalização de URLs (`UrlExtractor.kt`, `frontend/src/utils/url.ts`), badge `✓ Threads detectado`, filtro no Histórico e entrada na tabela de roteamento (`DNR -> yt-dlp`).
+  - Novo resolvedor `ThreadsNativeResolver.kt` (`ThreadsWebPageJsonStrategy` -> `ThreadsEmbedMetaStrategy`) com suporte a vídeos, fotos e carrosséis mistos, além de sessão opcional isolada a `*.threads.net` / `*.threads.com`.
+- **Gerenciador Multiplataforma "Contas e Sessões" (`InstagramSessionActivity.kt`, `DevwolfNativePlugin.kt`, `SecureVault.kt`, `SettingsView.tsx`)**:
+  - Cartões independentes nos Ajustes para **Instagram**, **Reddit** e **Threads** com status (`Conectado` / `Não conectado`), método, última atualização, **Conectar** e **Encerrar e excluir sessão** isolados por domínio.
+  - Suporte oficial ao **Reddit OAuth2 Installed App PKCE** (`authorize.compact` + `oauth.reddit.com` com `client_id` do usuário em `developers.reddit.com`, sem client secret) e WebView padrão do Reddit / Threads / Instagram.
+  - Método nativo `openPlatformLoginWebView({ platform, redditClientId? })` preservando `openInstagramLoginWebView()`.
+- **Mensagens `AUTH_REQUIRED` e Ação Inline por Plataforma (`errorContract.ts`, `JobCard.tsx`, `ResolverContract.kt`)**:
+  - `getErrorContract` / `getUserFacingErrorMessage` e `ErrorClassifier.authRequiredMessageForPlatform` exibem orientações específicas para Reddit, Threads e Instagram (nunca atribuindo erros do Reddit ou Threads ao Instagram).
+  - `JobCard.tsx` exibe botão contextual **Autenticar no Reddit** / **Autenticar no Instagram** / **Autenticar no Threads** direcionando para o cartão correspondente em **Contas e Sessões**.
+- **Diagnóstico Sanitizado de 9 Campos (`PerformanceTracker.kt`, `DevwolfDownloadService.kt`, `SettingsView.tsx`)**:
+  - Relatório e log sanitizado passam a incluir: `platform`, `engineUsed`/`engineVersion`, `strategyAttempts`, `httpStatus`, `exitCode`, `rawErrorSanitized`, `errorCode`, `mediaTypeIdentified` e tempos (`resolutionMs`/`transferMs`/`totalJobMs`), removendo cookies, `Bearer` tokens, `access_token` e queries assinadas.
+
+### Corrigido
+- **Pinterest Vídeo (`GalleryDlLocalResolver.kt`, `HttpMediaDownloader.kt`)**:
+  - Impedida a devolução de thumbnail (`og:image` / `images.orig`) como sucesso em Pins de vídeo/HLS; seleção do maior `.mp4` direto quando disponível e delegação limpa via `EXTRACTION_FAILED` para o extrator HLS/vídeo do `yt-dlp`, com validação de `Content-Type` e magic bytes.
+- **TikTok `EXTRACTOR_OUTDATED` & Runtime `yt-dlp` (`ResolverContract.kt`, `LocalEngineManager.kt`, `DevwolfDownloadService.kt`)**:
+  - Corrigido falso positivo de `EXTRACTOR_OUTDATED` causado pelo rodapé padrão do `yt-dlp` (`"Make sure you are using the latest version"` / `"unable to extract"`).
+  - `LocalEngineManager` agora lê diretamente a versão do binário zipapp (`yt_dlp/version.py`) após `ensureYtdlpInitialized`, garantindo persistência e relatório preciso após reinicializações e rollbacks sem corromper as preferências internas do `youtubedl-android`.
+  - `DevwolfDownloadService.buildYoutubeDlRequest` deixa de sobrescrever `--user-agent` no TikTok/YouTube, preservando o `User-Agent` nativo dos extratores do `yt-dlp`, e grava `scoped.cookies.txt` também para `threads` (`.threads.net`/`.threads.com`) e `reddit`.
+- **Reddit WAF/Auth & Remoção de Host Cycling (`GalleryDlLocalResolver.kt`)**:
+  - Removido fallback para `old.reddit.com`; respostas 401/403 sem sessão/OAuth retornam `AUTH_REQUIRED` contextualizado para o Reddit.
+- **Build & Versionamento (`android/app/build.gradle`, `frontend/package.json`)**:
+  - Atualizado para `versionCode 30003` e `versionName "3.0.0-rc.3"` mantendo assinatura compatível com `v2.0.0` / `v3.0.0-rc.2`.
+
 ## [3.0.0-rc.2] — Correções de Diagnóstico RC1 (Instagram & Reddit)
 
 ### Corrigido

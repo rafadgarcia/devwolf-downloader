@@ -2,7 +2,8 @@ package com.devwolf.downloader
 
 import com.devwolf.downloader.resolvers.DevwolfErrorCode
 import com.devwolf.downloader.resolvers.ErrorClassifier
-import com.devwolf.downloader.resolvers.SafeHttpClient
+import com.devwolf.downloader.resolvers.MediaItemType
+import com.devwolf.downloader.resolvers.ResolvedMediaItem
 import com.devwolf.downloader.resolvers.StrategyAttemptMetric
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,6 +12,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class PerformanceAndErrorContractTest {
 
@@ -156,41 +159,78 @@ class PerformanceAndErrorContractTest {
     }
 
     @Test
-    fun alignsYtdlpUserAgentWithStoredInstagramSessionAndFallsBackSafely() {
+    fun alignsYtdlpUserAgentWithStoredSessionAndAvoidsOverridingTikTokUa() {
         val webViewUa = "Mozilla/5.0 (Linux; Android 15; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/131.0.0.0 Mobile Safari/537.36"
         assertEquals(
             webViewUa,
             DevwolfDownloadService.resolveYtdlpUserAgent("instagram", webViewUa),
         )
         assertEquals(
-            SafeHttpClient.DEFAULT_MOBILE_CHROME_UA,
-            DevwolfDownloadService.resolveYtdlpUserAgent("instagram", "   "),
+            webViewUa,
+            DevwolfDownloadService.resolveYtdlpUserAgent("threads", webViewUa),
         )
-        assertEquals(
-            SafeHttpClient.DEFAULT_MOBILE_CHROME_UA,
-            DevwolfDownloadService.resolveYtdlpUserAgent("instagram", "BadUA\r\nX-Injected: 1"),
-        )
-        assertEquals(
-            SafeHttpClient.DEFAULT_MOBILE_CHROME_UA,
-            DevwolfDownloadService.resolveYtdlpUserAgent("reddit", webViewUa),
-        )
+        assertNull(DevwolfDownloadService.resolveYtdlpUserAgent("instagram", "   "))
+        assertNull(DevwolfDownloadService.resolveYtdlpUserAgent("instagram", "BadUA\r\nX-Injected: 1"))
+        // TikTok, YouTube, Reddit must use yt-dlp's own tuned User-Agent unless explicitly required
+        assertNull(DevwolfDownloadService.resolveYtdlpUserAgent("tiktok", webViewUa))
+        assertNull(DevwolfDownloadService.resolveYtdlpUserAgent("youtube", webViewUa))
+        assertNull(DevwolfDownloadService.resolveYtdlpUserAgent("reddit", webViewUa))
     }
 
     @Test
-    fun recordsStrategyAttemptsAndHttpStatusInSanitizedDiagnosticsLog() {
+    fun readsPersistedYtdlpVersionDirectlyFromZipappBinary() {
+        val tempFile = File.createTempFile("yt-dlp-test-", ".bin")
+        try {
+            ZipOutputStream(tempFile.outputStream()).use { zos ->
+                zos.putNextEntry(ZipEntry("yt_dlp/version.py"))
+                zos.write("__version__ = '2026.11.17'\n".toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+            }
+            assertEquals("2026.11.17", LocalEngineManager.readBinaryVersionFromZipapp(tempFile))
+        } finally {
+            tempFile.delete()
+        }
+    }
+
+    @Test
+    fun parsesYtdlpHttpStatusExitCodeAndClassifiesMediaTypes() {
+        assertEquals(403, DevwolfDownloadService.parseHttpStatusFromYtdlpError("ERROR: [TikTok] HTTP Error 403: Forbidden"))
+        assertNull(DevwolfDownloadService.parseHttpStatusFromYtdlpError("ERROR: Unable to extract video data"))
+        assertEquals(2, DevwolfDownloadService.parseExitCodeFromYtdlpError("yt-dlp failed with exit code 2"))
+        assertEquals(1, DevwolfDownloadService.parseExitCodeFromYtdlpError("ERROR: Generic failure"))
+
+        val singleVideo = listOf(
+            ResolvedMediaItem(1, "1", MediaItemType.VIDEO, "https://example.com/v.mp4", "v.mp4", "video/mp4"),
+        )
+        val carousel = listOf(
+            ResolvedMediaItem(1, "1", MediaItemType.IMAGE, "https://example.com/1.jpg", "1.jpg", "image/jpeg"),
+            ResolvedMediaItem(2, "2", MediaItemType.VIDEO, "https://example.com/2.mp4", "2.mp4", "video/mp4"),
+        )
+        assertEquals("video", DevwolfDownloadService.classifyMediaTypeFromItems(singleVideo))
+        assertEquals("carousel (2 itens)", DevwolfDownloadService.classifyMediaTypeFromItems(carousel))
+        assertEquals("unknown", DevwolfDownloadService.classifyMediaTypeFromItems(emptyList()))
+    }
+
+    @Test
+    fun recordsAllNineDiagnosticsFieldsAndSanitizesSecrets() {
         PerformanceTracker.recordJob(
             PerformanceTracker.JobPerformanceRecord(
                 jobId = "job-fail-diag",
                 platform = "reddit",
                 engineUsed = "yt-dlp",
-                engineVersion = "2026.11.14",
+                engineVersion = "2026.11.17",
                 strategyUsed = "yt-dlp-single-pass",
                 status = "failed",
                 resolutionMs = 310L,
+                transferMs = 120L,
+                totalJobMs = 430L,
                 httpRequestCount = 2,
-                errorCode = "EXTRACTION_FAILED",
-                technicalReason = "HTTP 403 Blocked; Cookie: sessionid=supersecret",
-                httpStatus = 403,
+                errorCode = "AUTH_REQUIRED",
+                technicalReason = "HTTP 401 Unauthorized; Authorization: Bearer secretOAuth99; reddit_session=topsecret",
+                rawErrorSanitized = "ERROR: [Reddit] HTTP Error 401: access_token=tok123&signature=sig999",
+                httpStatus = 401,
+                exitCode = 1,
+                mediaTypeIdentified = "carousel (3 itens)",
                 strategyAttempts = listOf(
                     StrategyAttemptMetric(
                         strategyName = "RedditJsonStrategy",
@@ -205,26 +245,43 @@ class PerformanceAndErrorContractTest {
                         durationMs = 170L,
                         httpRequests = 0,
                         success = false,
-                        errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
-                        note = "HTTP Error 403: Blocked",
+                        errorCode = DevwolfErrorCode.AUTH_REQUIRED,
+                        note = "HTTP Error 401: Unauthorized",
                     ),
                 ),
             ),
         )
 
-        val report = PerformanceTracker.buildDiagnosticsReport("2026.11.14", "2026-11-17T22:00:00Z")
-        assertEquals(403, report.getInt("httpStatus"))
+        val report = PerformanceTracker.buildDiagnosticsReport("2026.11.17", "2026-11-18T01:00:00Z")
+        assertEquals("reddit", report.getString("platform"))
+        assertEquals("yt-dlp", report.getString("engineUsed"))
+        assertEquals("2026.11.17", report.getString("engineVersion"))
+        assertEquals(401, report.getInt("httpStatus"))
+        assertEquals(1, report.getInt("exitCode"))
+        assertEquals("AUTH_REQUIRED", report.getString("errorCode"))
+        assertEquals("carousel (3 itens)", report.getString("mediaTypeIdentified"))
+        assertEquals(310L, report.getLong("resolutionMs"))
+        assertEquals(120L, report.getLong("transferMs"))
+        assertEquals(430L, report.getLong("totalJobMs"))
+
+        val rawSanitized = report.getString("rawErrorSanitized")
+        assertFalse(rawSanitized.contains("tok123"))
+        assertFalse(rawSanitized.contains("sig999"))
+
         val attemptsJson = report.getJSONArray("strategyAttempts")
         assertEquals(2, attemptsJson.length())
         assertEquals("RedditJsonStrategy", attemptsJson.getJSONObject(0).getString("strategyName"))
         assertFalse(attemptsJson.getJSONObject(0).getString("note").contains("leak123"))
 
         val log = report.getString("sanitizedLog")
+        assertTrue(log.contains("plataforma=reddit"))
+        assertTrue(log.contains("mídia=carousel (3 itens)"))
         assertTrue(log.contains("Tentativas por estratégia:"))
-        assertTrue(log.contains("RedditJsonStrategy: FALHA(EXTRACTION_FAILED)"))
-        assertTrue(log.contains("yt-dlp-single-pass: FALHA(EXTRACTION_FAILED)"))
-        assertTrue(log.contains("http=403"))
-        assertFalse(log.contains("supersecret"))
+        assertTrue(log.contains("http=401"))
+        assertTrue(log.contains("exitCode=1"))
+        assertFalse(log.contains("secretOAuth99"))
+        assertFalse(log.contains("topsecret"))
         assertFalse(log.contains("leak123"))
+        assertFalse(log.contains("tok123"))
     }
 }

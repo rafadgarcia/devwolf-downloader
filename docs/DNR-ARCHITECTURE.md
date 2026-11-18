@@ -13,12 +13,15 @@ flowchart TD
     A[URL compartilhada / colada] --> B[UrlExtractor: Parsing & SSRF Guard]
     B --> C[EngineRouter: Plano de Roteamento]
     C -->|Instagram| D[InstagramNativeResolver - DNR]
+    C -->|Threads| T[ThreadsNativeResolver - DNR]
     C -->|Pinterest / Reddit| E[GalleryDlLocalResolver]
     C -->|YouTube / TikTok / Facebook / X| F[yt-dlp + FFmpeg local]
     D -->|Falha recuperável| F
-    E -->|Vídeo / v.redd.it DASH| F
+    T -->|Falha recuperável| F
+    E -->|Vídeo / HLS / v.redd.it DASH| F
     F -->|X/Twitter apenas imagens| E
     D --> G[Lista ordenada: ResolvedMediaItem 1..N]
+    T --> G
     E --> G
     G --> H[HttpMediaDownloader: Stream direto OkHttp]
     H --> I[StatusModeProcessor opcional + MediaStoreHelper]
@@ -30,7 +33,8 @@ flowchart TD
 - **`SafeHttpClient.kt`**: Pool compartilhado `OkHttpClient` com validação DNS antes da conexão, seguimento manual de redirecionamentos (máximo 5 saltos com checagem SSRF por salto), medição real de TTFB, contagem de requisições HTTP e escopo de headers sensíveis por domínio.
 - **`InstagramParsers.kt`**: Parsers puros em Kotlin (`Jsoup` + `org.json`) para HTML/JSON público do Instagram e classificação precisa de falhas.
 - **`InstagramNativeResolver.kt`**: Orquestrador de estratégias isoladas e cronometradas do DNR.
-- **`HttpMediaDownloader.kt`**: Downloader HTTP direto com progresso honesto em bytes, verificação de `Content-Type` contra páginas HTML disfarçadas de mídia, cancelamento imediato e gravação atômica via arquivo `.part`.
+- **`ThreadsNativeResolver.kt`**: Resolvedor nativo independente para Meta Threads (`threads.com` / `threads.net`), suportando vídeos, fotos e carrosséis (`data-sjs`, `thread_items`, `ld+json`, OpenGraph e `/embed`) com sessão opcional no `SecureVault`.
+- **`HttpMediaDownloader.kt`**: Downloader HTTP direto com progresso honesto em bytes, verificação de `Content-Type` e *magic bytes* (rejeitando HTML, playlists `.m3u8` e miniaturas disfarçadas de vídeo), cancelamento imediato e gravação atômica via arquivo `.part`.
 - **`GalleryDlLocalResolver.kt`**: Resolvedor nativo local para Pinterest, Reddit e fallback de imagens do Twitter/X.
 - **`EngineRouter.kt`**: Registro central de capacidades por plataforma, inicialização preguiçosa (*lazy*) do `yt-dlp`/Python e regras de fallback seguro.
 
@@ -111,8 +115,8 @@ Contudo, empacotar o `gallery-dl` Python como segundo zipapp dentro desse runtim
 
 ### Solução Adotada: Resolvedores Estruturados Nativos em Kotlin
 O `GalleryDlLocalResolver.kt` implementa nativamente em Kotlin sobre o pool compartilhado `OkHttpClient`:
-- **Pinterest (`pinterest.com`, `br.pinterest.com`, `pin.it`)**: Resolve redirecionamentos com proteção SSRF, lê `__PWS_DATA__`, `application/ld+json` e OpenGraph para extrair imagens originais (`images.orig`), vídeos (`video_list`) e *Story/Idea Pins* multipágina em ordem `1..N`.
-- **Reddit (`reddit.com`, `redd.it`)**: Resolve shortlinks e links de compartilhamento móvel `/r/<sub>/s/<id>` (via redirect HTTP 3xx ou `<link rel="canonical">` / `og:url` no HTML, nunca anexando `.json` a `/s/<id>` não resolvido), consulta `{url}.json?raw_json=1` (com fallback para `old.reddit.com` e `yt-dlp` quando houver HTTP 403 WAF/Fastly, preservando `PRIVATE_MEDIA` apenas para respostas explícitas de comunidade/post privado), extrai galerias (`is_gallery` + `gallery_data.items` + `media_metadata`) na ordem exata, imagens diretas (`i.redd.it`) e GIFs silenciosos; para vídeos `v.redd.it` com áudio separado em DASH, delega automaticamente para o `yt-dlp` + `FFmpeg` para mesclagem perfeita de vídeo + áudio.
+- **Pinterest (`pinterest.com`, `br.pinterest.com`, `pin.it`)**: Resolve redirecionamentos com proteção SSRF, lê `__PWS_DATA__`, `application/ld+json` (`VideoObject`) e OpenGraph para extrair imagens originais (`images.orig`), vídeos MP4 diretos (`V_1080P`/`V_720P` em `video_list`) e *Story/Idea Pins* multipágina em ordem `1..N`; quando um Pin de vídeo possui apenas stream HLS `.m3u8` ou capa sem `.mp4` direto, lança `EXTRACTION_FAILED` para delegar ao `yt-dlp` sem jamais retornar a capa como sucesso.
+- **Reddit (`reddit.com`, `redd.it`, `oauth.reddit.com`)**: Resolve shortlinks e links de compartilhamento móvel `/r/<sub>/s/<id>` (via redirect HTTP 3xx ou `<link rel="canonical">` / `og:url` no HTML, nunca anexando `.json` a `/s/<id>` não resolvido); quando há token OAuth2 (`SecureVault`), consulta `https://oauth.reddit.com/.../.json?raw_json=1` com `Authorization: Bearer` e `User-Agent` compatível; sem credenciais, bloqueios explícitos HTTP 401/403 retornam `AUTH_REQUIRED` específico do Reddit (sem alternância de hosts como `old.reddit.com`), enquanto respostas explícitas de comunidade/post privado preservam `PRIVATE_MEDIA`. Extrai galerias (`is_gallery` + `gallery_data.items` + `media_metadata`) na ordem exata, imagens diretas (`i.redd.it`) e GIFs silenciosos; para vídeos `v.redd.it` com áudio separado em DASH, delega automaticamente para o `yt-dlp` + `FFmpeg`.
 - **Twitter/X Imagens (`x.com`, `twitter.com`)**: Fallback nativo via `cdn.syndication.twimg.com` quando o `yt-dlp` encontra um tweet contendo apenas fotos/carrossel de imagens.
 
 Essa abordagem entrega **0 KB de aumento no APK**, resolução sub-segundo e 100% de autonomia local no dispositivo.
@@ -124,6 +128,7 @@ Essa abordagem entrega **0 KB de aumento no APK**, resolução sub-segundo e 100
 | Plataforma | Motor Primário | Fallback | Inicializa `yt-dlp`/Python antes? |
 |---|---|---|---|
 | **Instagram** (`/reel/`, `/p/`, `/tv/`, `/stories/`, `/share/`) | `DNR` | `yt-dlp` (apenas em erros recuperáveis) | Não (*lazy*) |
+| **Threads** (`threads.com`, `threads.net`) | `DNR` (`ThreadsNativeResolver`) | `yt-dlp` (apenas em erros recuperáveis) | Não (*lazy*) |
 | **Pinterest** (`pinterest.com`, `pin.it`) | `GalleryDlLocalResolver` | `yt-dlp` (Pins de vídeo) | Não (*lazy*) |
 | **Reddit** (`reddit.com`, `redd.it`) | `GalleryDlLocalResolver` | `yt-dlp` (`v.redd.it` DASH) | Não (*lazy*) |
 | **Twitter / X** (`x.com`, `twitter.com`) | `yt-dlp` | `GalleryDlLocalResolver` (tweets de imagem) | Sim |

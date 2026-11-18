@@ -26,6 +26,21 @@ data class ParsedInstagramUrl(
     val storyId: String? = null,
 )
 
+enum class ThreadsUrlKind {
+    POST,
+    SHORTLINK,
+    UNKNOWN,
+}
+
+data class ParsedThreadsUrl(
+    val normalizedUrl: String,
+    val canonicalUrl: String,
+    val canonicalPath: String,
+    val kind: ThreadsUrlKind,
+    val shortcode: String?,
+    val username: String? = null,
+)
+
 /**
  * Extracts, normalizes, validates, and classifies social media URLs from share texts or user input
  * without executing shell commands or allowing SSRF-prone hosts.
@@ -58,11 +73,22 @@ object UrlExtractor {
         "context",
         "rdt",
         "ref_source",
+        "xmt",
+        "slof",
+        "_d",
+        "tt_from",
+        "share_app_id",
+        "share_link_id",
+        "sender_web_id",
+        "u_code",
+        "sec_uid",
     )
 
     private val SUPPORTED_HOSTS = mapOf(
         "instagram.com" to "instagram",
         "instagr.am" to "instagram",
+        "threads.net" to "threads",
+        "threads.com" to "threads",
         "facebook.com" to "facebook",
         "fb.watch" to "facebook",
         "fb.com" to "facebook",
@@ -86,10 +112,20 @@ object UrlExtractor {
         "www.instagr.am",
     )
 
+    private val THREADS_HOSTS = setOf(
+        "threads.net",
+        "www.threads.net",
+        "m.threads.net",
+        "threads.com",
+        "www.threads.com",
+        "m.threads.com",
+    )
+
     private val SHORTCODE_REGEX = Regex("""^[A-Za-z0-9_-]{5,64}$""")
 
     val ALLOWED_VAULT_PLATFORMS = setOf(
         "instagram",
+        "threads",
         "facebook",
         "tiktok",
         "youtube",
@@ -279,6 +315,66 @@ object UrlExtractor {
             }
             else -> null
         }
+    }
+
+    /**
+     * Strictly parses a Meta Threads URL (`threads.com` / `threads.net`) for `/@user/post/{code}`,
+     * `/t/{code}`, or `/post/{code}` without accepting impostor domains.
+     */
+    fun parseThreadsUrl(rawUrl: String?): ParsedThreadsUrl? {
+        if (rawUrl.isNullOrBlank() || !isSafePublicHttpUrl(rawUrl)) return null
+        val normalized = normalizeUrl(rawUrl)
+        val uri = try {
+            URI(normalized)
+        } catch (_: Exception) {
+            return null
+        }
+        val host = uri.host?.lowercase()?.trimEnd('.') ?: return null
+        if (host !in THREADS_HOSTS) return null
+
+        val segments = (uri.path ?: "")
+            .split('/')
+            .filter { it.isNotBlank() }
+        if (segments.isEmpty()) return null
+
+        val canonicalHost = if (host.endsWith("threads.net")) "www.threads.net" else "www.threads.com"
+        val first = segments[0]
+        if (first.startsWith("@") && first.length > 1 && segments.getOrNull(1)?.equals("post", ignoreCase = true) == true) {
+            val user = first.removePrefix("@")
+            val code = segments.getOrNull(2)?.takeIf { SHORTCODE_REGEX.matches(it) } ?: return null
+            val path = "/@$user/post/$code"
+            return ParsedThreadsUrl(
+                normalizedUrl = normalized,
+                canonicalUrl = "https://$canonicalHost$path",
+                canonicalPath = path,
+                kind = ThreadsUrlKind.POST,
+                shortcode = code,
+                username = user,
+            )
+        }
+        if (first.equals("t", ignoreCase = true)) {
+            val code = segments.getOrNull(1)?.takeIf { SHORTCODE_REGEX.matches(it) } ?: return null
+            val path = "/t/$code"
+            return ParsedThreadsUrl(
+                normalizedUrl = normalized,
+                canonicalUrl = "https://$canonicalHost$path",
+                canonicalPath = path,
+                kind = ThreadsUrlKind.SHORTLINK,
+                shortcode = code,
+            )
+        }
+        if (first.equals("post", ignoreCase = true)) {
+            val code = segments.getOrNull(1)?.takeIf { SHORTCODE_REGEX.matches(it) } ?: return null
+            val path = "/post/$code"
+            return ParsedThreadsUrl(
+                normalizedUrl = normalized,
+                canonicalUrl = "https://$canonicalHost$path",
+                canonicalPath = path,
+                kind = ThreadsUrlKind.POST,
+                shortcode = code,
+            )
+        }
+        return null
     }
 
     /**
