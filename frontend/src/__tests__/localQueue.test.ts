@@ -30,7 +30,7 @@ describe('localQueue, individual carousel items & local history', () => {
 
     upsertLocalJob(initial);
     expect(getLocalJobs()).toHaveLength(1);
-    expect(getLocalJobs()[0].display_engine).toBe('Local • DNR (Instagram)');
+    expect(getLocalJobs()[0].display_engine).toBe('DNR • Instagram');
 
     const updated = applyLocalProgressToJob(initial, {
       jobId: 'local-1',
@@ -57,7 +57,7 @@ describe('localQueue, individual carousel items & local history', () => {
     const saved = getLocalJobs()[0];
     expect(saved.percent).toBe(50);
     expect(saved.speed_bytes_per_sec).toBe(524_288);
-    expect(saved.display_engine).toBe('Local • DNR (Instagram)');
+    expect(saved.display_engine).toBe('DNR • Instagram');
     expect(saved.strategy_used).toBe('EmbedCaptioned');
     expect(saved.metrics?.resolutionMs).toBe(320);
     expect(saved.status_mode).toBe(true);
@@ -170,6 +170,7 @@ describe('localQueue, individual carousel items & local history', () => {
             width: 1080,
             height: 1350,
             sizeBytes: 500,
+            thumbnailDataUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==',
             status: 'ready',
           },
           {
@@ -191,8 +192,10 @@ describe('localQueue, individual carousel items & local history', () => {
     ]);
 
     expect(merged).toHaveLength(1);
+    expect(merged[0].thumbnail_data_url).toBe('data:image/jpeg;base64,/9j/4AAQSkZJRg==');
     expect(merged[0].items).toHaveLength(2);
     expect(merged[0].items?.[0].mediaUri).toBe('content://media/external/images/media/99');
+    expect(merged[0].items?.[0].thumbnailDataUrl).toBe('data:image/jpeg;base64,/9j/4AAQSkZJRg==');
     expect(merged[0].items?.[1].type).toBe('video');
   });
 
@@ -285,8 +288,8 @@ describe('localQueue, individual carousel items & local history', () => {
 
     const all = filterLocalHistory([ig, pin]);
     expect(all).toHaveLength(2);
-    expect(all[0].display_engine).toBe('Local • DNR (Instagram)');
-    expect(all[1].display_engine).toBe('Local • gallery-dl');
+    expect(all[0].display_engine).toBe('DNR • Instagram');
+    expect(all[1].display_engine).toBe('gallery-dl');
 
     const onlyPin = filterLocalHistory([ig, pin], { platform: 'pinterest' });
     expect(onlyPin).toHaveLength(1);

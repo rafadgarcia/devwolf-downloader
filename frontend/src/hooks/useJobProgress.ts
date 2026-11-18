@@ -22,7 +22,7 @@ export function useJobProgress(initialJob: JobResponse | null) {
       if (nextJob.fallback_notice) {
         setEngineSwitchNotice(nextJob.fallback_notice);
       } else if (prevEngine && nextEngine && prevEngine !== nextEngine) {
-        setEngineSwitchNotice(`Alternando motor local: ${prevEngine} → ${nextEngine}`);
+        setEngineSwitchNotice(`Alternando motor: ${prevEngine} → ${nextEngine}`);
       }
       if (nextEngine) {
         lastEngineRef.current = nextEngine;

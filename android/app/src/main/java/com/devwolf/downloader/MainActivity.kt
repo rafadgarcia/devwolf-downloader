@@ -3,10 +3,14 @@ package com.devwolf.downloader
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.getcapacitor.BridgeActivity
 import org.json.JSONObject
 import java.time.Instant
@@ -17,8 +21,25 @@ class MainActivity : BridgeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         registerPlugin(DevwolfNativePlugin::class.java)
         super.onCreate(savedInstanceState)
+        applyPurpleSystemChrome()
         requestNotificationPermissionIfNeeded()
         handleIncomingIntent(intent)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyPurpleSystemChrome() {
+        val deepViolet = Color.parseColor("#0D0B1E")
+        window?.apply {
+            addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            setBackgroundDrawable(ColorDrawable(deepViolet))
+            statusBarColor = deepViolet
+            navigationBarColor = deepViolet
+            WindowInsetsControllerCompat(this, decorView).apply {
+                isAppearanceLightStatusBars = false
+                isAppearanceLightNavigationBars = false
+            }
+        }
+        bridge?.webView?.setBackgroundColor(deepViolet)
     }
 
     override fun onNewIntent(intent: Intent) {

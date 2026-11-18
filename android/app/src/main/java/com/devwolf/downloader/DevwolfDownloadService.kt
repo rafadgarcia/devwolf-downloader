@@ -365,7 +365,7 @@ class DevwolfDownloadService : Service() {
             platform = currentPlatform,
             engine = activeEngineName,
             status = "resolving",
-            phaseLabel = "Link detectado",
+            phaseLabel = "Resolvendo publicação...",
             bytesDownloaded = 0L,
             totalBytes = null,
             percent = null,
@@ -385,7 +385,7 @@ class DevwolfDownloadService : Service() {
                 platform = currentPlatform,
                 engine = plan.primaryEngine.wireName,
                 status = "resolving",
-                phaseLabel = "Procurando mídia",
+                phaseLabel = "Resolvendo publicação...",
                 bytesDownloaded = 0L,
                 totalBytes = null,
                 percent = null,
@@ -445,7 +445,7 @@ class DevwolfDownloadService : Service() {
                                 engineVersion = activeEngineVersion,
                                 strategyUsed = activeStrategy,
                                 status = "downloading",
-                                phaseLabel = "Baixando",
+                                phaseLabel = "Baixando mídia...",
                                 bytesDownloaded = 0L,
                                 totalBytes = null,
                                 percent = null,
@@ -507,9 +507,9 @@ class DevwolfDownloadService : Service() {
                                     strategyUsed = activeStrategy,
                                     status = "downloading",
                                     phaseLabel = if (resolution.items.size > 1) {
-                                        "Baixando (${prog.itemIndex}/${prog.totalItems})"
+                                        "Baixando mídia (${prog.itemIndex}/${prog.totalItems})..."
                                     } else {
-                                        "Baixando"
+                                        "Baixando mídia..."
                                     },
                                     bytesDownloaded = aggBytes,
                                     totalBytes = aggTotal,
@@ -527,7 +527,7 @@ class DevwolfDownloadService : Service() {
                                     lastNotifMs = now
                                     promoteForeground(
                                         jobId,
-                                        resolvedTitle ?: "Baixando (${prog.itemIndex}/${prog.totalItems})…",
+                                        resolvedTitle ?: "Baixando mídia (${prog.itemIndex}/${prog.totalItems})…",
                                         aggPct?.roundToInt(),
                                         aggPct == null,
                                     )
@@ -684,7 +684,7 @@ class DevwolfDownloadService : Service() {
                 engineVersion = activeEngineVersion,
                 strategyUsed = activeStrategy,
                 status = "processing",
-                phaseLabel = "Preparando arquivo",
+                phaseLabel = "Processando mídia...",
                 bytesDownloaded = totalPrepBytes,
                 totalBytes = totalPrepBytes,
                 percent = 95.0,
@@ -697,6 +697,7 @@ class DevwolfDownloadService : Service() {
             val publishStart = System.currentTimeMillis()
             val outputFilesJson = JSONArray()
             var totalOutBytes = 0L
+            var heroThumbnailDataUrl: String? = null
             finalPrepared.forEachIndexed { idx, item ->
                 val itemNum = (idx + 1).toString().padStart(2, '0')
                 val baseTitle = resolvedTitle ?: item.baseNameHint ?: item.file.nameWithoutExtension
@@ -731,6 +732,10 @@ class DevwolfDownloadService : Service() {
                         cause = storageEx,
                     )
                 }
+                val thumbDataUrl = MediaStoreHelper.generateThumbnailDataUrl(item.file, saved.mimeType)
+                if (heroThumbnailDataUrl == null && !thumbDataUrl.isNullOrBlank()) {
+                    heroThumbnailDataUrl = thumbDataUrl
+                }
                 totalOutBytes += saved.sizeBytes
                 outputFilesJson.put(
                     JSONObject().apply {
@@ -752,6 +757,7 @@ class DevwolfDownloadService : Service() {
                         put("isSegment", item.isSegment)
                         put("segmentIndex", item.segmentIndex ?: JSONObject.NULL)
                         put("isOriginal", item.isOriginal)
+                        put("thumbnailDataUrl", thumbDataUrl ?: JSONObject.NULL)
                     },
                 )
             }
@@ -787,12 +793,13 @@ class DevwolfDownloadService : Service() {
                 engineVersion = activeEngineVersion,
                 strategyUsed = activeStrategy,
                 status = "ready",
-                phaseLabel = "Pronto para baixar",
+                phaseLabel = "Salvo na galeria",
                 bytesDownloaded = totalOutBytes,
                 totalBytes = totalOutBytes,
                 percent = 100.0,
                 isIndeterminate = false,
                 title = resolvedTitle,
+                thumbnailDataUrl = heroThumbnailDataUrl,
                 files = outputFilesJson,
                 metrics = perfRecord.toMetricsJson(),
             )
@@ -919,7 +926,7 @@ class DevwolfDownloadService : Service() {
                     engineVersion = engineVersion,
                     strategyUsed = "yt-dlp-single-pass",
                     status = "downloading",
-                    phaseLabel = "Baixando",
+                    phaseLabel = "Baixando mídia...",
                     bytesDownloaded = lastBytes,
                     totalBytes = lastTotal,
                     percent = pct,
@@ -935,7 +942,7 @@ class DevwolfDownloadService : Service() {
                     lastNotifMs = now
                     promoteForeground(
                         jobId,
-                        capturedMeta?.title ?: "Baixando via yt-dlp…",
+                        capturedMeta?.title ?: "Baixando mídia…",
                         pct?.roundToInt(),
                         isIndet,
                     )
@@ -1119,6 +1126,7 @@ class DevwolfDownloadService : Service() {
                     put("status", "queued")
                     put("mediaUri", JSONObject.NULL)
                     put("displayPath", JSONObject.NULL)
+                    put("thumbnailDataUrl", JSONObject.NULL)
                 },
             )
         }
@@ -1321,6 +1329,7 @@ class DevwolfDownloadService : Service() {
         error: String? = null,
         errorCode: String? = null,
         technicalReason: String? = null,
+        thumbnailDataUrl: String? = null,
         files: JSONArray? = null,
         metrics: JSONObject? = null,
     ): JSONObject {
@@ -1343,6 +1352,7 @@ class DevwolfDownloadService : Service() {
             put("error", error ?: JSONObject.NULL)
             put("errorCode", errorCode ?: JSONObject.NULL)
             put("technicalReason", technicalReason ?: JSONObject.NULL)
+            put("thumbnailDataUrl", thumbnailDataUrl ?: JSONObject.NULL)
             if (files != null) {
                 put("files", files)
                 put("items", files)

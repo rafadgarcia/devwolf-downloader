@@ -1,4 +1,5 @@
 import { Link2, X } from 'lucide-react';
+import { useModalDialog } from '../utils/dialogHelpers';
 import { PLATFORM_META } from '../utils/format';
 import type { ParsedPlatformUrl } from '../utils/url';
 
@@ -9,20 +10,21 @@ interface MultiUrlModalProps {
 }
 
 export function MultiUrlModal({ candidates, onSelect, onClose }: MultiUrlModalProps) {
-  if (candidates.length === 0) return null;
+  const open = candidates.length > 0;
+  const dialogRef = useModalDialog(open, onClose);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
+    <dialog
+      ref={dialogRef}
       aria-labelledby="multi-url-title"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center"
+      {...({ closedby: 'any' } as Record<string, string>)}
+      className="w-[calc(100%-2rem)] max-w-md rounded-3xl border border-[#7C5CFF]/25 bg-[#F5F3FF] p-0 text-[#1E1940] shadow-2xl dark:border-[#9382FF]/25 dark:bg-[#191538] dark:text-[#F5F3FF]"
     >
-      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-800 dark:bg-[#1C1C20]">
+      <div className="p-5">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Link2 className="h-5 w-5 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
-            <h2 id="multi-url-title" className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+            <Link2 className="h-5 w-5 text-[#7C5CFF] dark:text-[#A78BFA]" aria-hidden="true" />
+            <h2 id="multi-url-title" className="text-base font-bold">
               Vários links encontrados
             </h2>
           </div>
@@ -30,13 +32,13 @@ export function MultiUrlModal({ candidates, onSelect, onClose }: MultiUrlModalPr
             type="button"
             onClick={onClose}
             aria-label="Fechar seleção"
-            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-[#5B5482] hover:bg-[#7C5CFF]/10 dark:text-[#A5A1C8] dark:hover:bg-[#7C5CFF]/15"
           >
-            <X className="h-5 w-5" />
+            <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
 
-        <p className="mt-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+        <p className="mt-1.5 text-xs text-[#5B5482] dark:text-[#A5A1C8]">
           Escolha qual link deseja importar:
         </p>
 
@@ -48,14 +50,14 @@ export function MultiUrlModal({ candidates, onSelect, onClose }: MultiUrlModalPr
                 <button
                   type="button"
                   onClick={() => onSelect(item)}
-                  className="flex min-h-[52px] w-full flex-col items-start gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-left transition hover:border-[#A3E635] dark:border-zinc-800 dark:bg-[#101012] dark:hover:border-[#A3E635]"
+                  className="dw-glass-subtle flex min-h-[52px] w-full flex-col items-start gap-1 rounded-2xl p-3 text-left transition hover:border-[#7C5CFF]"
                 >
                   <span
                     className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium ${meta.badgeClass}`}
                   >
                     {item.routeLabel}
                   </span>
-                  <span className="w-full truncate text-xs text-zinc-700 dark:text-zinc-300">
+                  <span className="w-full truncate text-xs text-[#4C3F91] dark:text-[#E0DBFF]">
                     {item.normalizedUrl}
                   </span>
                 </button>
@@ -64,6 +66,6 @@ export function MultiUrlModal({ candidates, onSelect, onClose }: MultiUrlModalPr
           })}
         </ul>
       </div>
-    </div>
+    </dialog>
   );
 }

@@ -3,6 +3,7 @@ package com.devwolf.downloader
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
@@ -10,7 +11,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Base64
 import androidx.core.content.FileProvider
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 
@@ -23,6 +26,7 @@ data class SavedMediaResult(
     val mediaType: String,
     val width: Int? = null,
     val height: Int? = null,
+    val thumbnailDataUrl: String? = null,
 )
 
 /**
@@ -32,6 +36,98 @@ data class SavedMediaResult(
  */
 object MediaStoreHelper {
     const val ALBUM_NAME = "Devwolf Downloader"
+    const val THUMBNAIL_MAX_DIM = 480
+    const val THUMBNAIL_JPEG_QUALITY = 75
+
+    internal fun calculateInSampleSize(rawWidth: Int, rawHeight: Int, maxDim: Int = THUMBNAIL_MAX_DIM): Int {
+        var inSampleSize = 1
+        if (rawHeight > maxDim || rawWidth > maxDim) {
+            val halfHeight = rawHeight / 2
+            val halfWidth = rawWidth / 2
+            while ((halfHeight / inSampleSize) >= maxDim && (halfWidth / inSampleSize) >= maxDim) {
+                inSampleSize *= 2
+            }
+        }
+        return inSampleSize.coerceAtLeast(1)
+    }
+
+    internal fun computeScaledDimensions(width: Int, height: Int, maxDim: Int = THUMBNAIL_MAX_DIM): Pair<Int, Int> {
+        if (width <= 0 || height <= 0) return maxDim to maxDim
+        val longest = maxOf(width, height)
+        if (longest <= maxDim) return width to height
+        val scale = maxDim.toDouble() / longest.toDouble()
+        val targetW = (width * scale).toInt().coerceAtLeast(1)
+        val targetH = (height * scale).toInt().coerceAtLeast(1)
+        return targetW to targetH
+    }
+
+    /**
+     * Generates a compact JPEG base64 Data URL (`data:image/jpeg;base64,...`) scaled to at most
+     * [THUMBNAIL_MAX_DIM]px for video and image MIME types without needing external
+     * storage read permissions in the Capacitor WebView.
+     */
+    fun generateThumbnailDataUrl(file: File, mimeType: String): String? {
+        if (!file.exists() || !file.isFile) return null
+        val normalizedMime = mimeType.trim().lowercase()
+        var bitmap: Bitmap? = null
+        var scaled: Bitmap? = null
+        return try {
+            bitmap = when {
+                normalizedMime.startsWith("video/") -> decodeVideoFrame(file)
+                normalizedMime.startsWith("image/") -> decodeSampledImage(file)
+                else -> null
+            } ?: return null
+
+            val (targetW, targetH) = computeScaledDimensions(bitmap.width, bitmap.height, THUMBNAIL_MAX_DIM)
+            scaled = if (bitmap.width == targetW && bitmap.height == targetH) {
+                bitmap
+            } else {
+                Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+            }
+
+            val baos = ByteArrayOutputStream()
+            val ok = scaled.compress(Bitmap.CompressFormat.JPEG, THUMBNAIL_JPEG_QUALITY, baos)
+            if (!ok) return null
+            val bytes = baos.toByteArray()
+            if (bytes.isEmpty()) return null
+            "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+        } catch (_: Throwable) {
+            null
+        } finally {
+            if (scaled != null && scaled !== bitmap && !scaled.isRecycled) {
+                scaled.recycle()
+            }
+            if (bitmap != null && !bitmap.isRecycled) {
+                bitmap.recycle()
+            }
+        }
+    }
+
+    private fun decodeVideoFrame(file: File): Bitmap? {
+        val mmr = MediaMetadataRetriever()
+        return try {
+            mmr.setDataSource(file.absolutePath)
+            mmr.getFrameAtTime(1_000_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: mmr.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: mmr.frameAtTime
+        } finally {
+            try {
+                mmr.release()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private fun decodeSampledImage(file: File): Bitmap? {
+        val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, boundsOpts)
+        if (boundsOpts.outWidth <= 0 || boundsOpts.outHeight <= 0) return null
+        val decodeOpts = BitmapFactory.Options().apply {
+            inSampleSize = calculateInSampleSize(boundsOpts.outWidth, boundsOpts.outHeight, THUMBNAIL_MAX_DIM)
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        return BitmapFactory.decodeFile(file.absolutePath, decodeOpts)
+    }
 
     fun sanitizeFileName(rawName: String, fallbackExt: String = "mp4"): String {
         val base = rawName.substringBeforeLast('.', rawName)

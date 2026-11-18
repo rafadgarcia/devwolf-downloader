@@ -29,6 +29,7 @@ export interface LocalOutputFile {
   filePath?: string | null;
   mediaUri: string | null;
   displayPath: string | null;
+  thumbnailDataUrl?: string | null;
   mimeType: string;
   width?: number | null;
   height?: number | null;
@@ -61,6 +62,7 @@ export interface LocalDownloadProgressEvent {
   errorCode?: string | null;
   technicalReason?: string | null;
   metrics?: JobPerformanceMetrics | null;
+  thumbnailDataUrl?: string | null;
   files?: LocalOutputFile[];
   items?: LocalOutputFile[];
 }
@@ -90,6 +92,7 @@ export interface LocalDownloadSnapshot {
   errorCode?: string | null;
   technicalReason?: string | null;
   metrics?: JobPerformanceMetrics | null;
+  thumbnailDataUrl?: string | null;
   files?: LocalOutputFile[];
   items?: LocalOutputFile[];
   createdAt?: string;

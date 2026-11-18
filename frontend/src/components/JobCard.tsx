@@ -29,7 +29,7 @@ import {
 interface JobCardProps {
   job: JobResponse;
   engineSwitchNotice: string | null;
-  connectionMode: 'local' | 'idle';
+  connectionMode?: 'local' | 'idle';
   isNativeAndroid: boolean;
   onCancel: (jobId: string) => void;
   onRetry: (url: string) => void;
@@ -40,7 +40,11 @@ interface JobCardProps {
 
 const ACTIVE_STATUSES = new Set(['queued', 'resolving', 'downloading', 'processing']);
 
-function fileToCarouselItem(file: JobFile, idx: number, jobStatus: JobResponse['status']): CarouselItemState {
+function fileToCarouselItem(
+  file: JobFile,
+  idx: number,
+  jobStatus: JobResponse['status']
+): CarouselItemState {
   const mime = (file.mime_type || '').toLowerCase();
   const inferredType =
     file.type ??
@@ -67,6 +71,7 @@ function fileToCarouselItem(file: JobFile, idx: number, jobStatus: JobResponse['
     mediaUri: file.media_uri ?? null,
     displayPath: file.display_path ?? null,
     filePath: file.file_path ?? null,
+    thumbnailDataUrl: file.thumbnail_data_url ?? null,
     durationSeconds: file.duration_seconds ?? null,
     isSegment: file.is_segment,
     segmentIndex: file.segment_index ?? null,
@@ -111,7 +116,6 @@ function getAuthActionLabel(platform?: string | null): string {
 export function JobCard({
   job,
   engineSwitchNotice,
-  connectionMode,
   isNativeAndroid,
   onCancel,
   onRetry,
@@ -122,9 +126,11 @@ export function JobCard({
   const isActive = ACTIVE_STATUSES.has(job.status);
   const phaseLabel = job.phase_label || getPhaseLabel(job.status);
   const platformMeta =
-    PLATFORM_META[(job.platform as PlatformId) in PLATFORM_META ? (job.platform as PlatformId) : 'instagram'];
+    PLATFORM_META[
+      (job.platform as PlatformId) in PLATFORM_META ? (job.platform as PlatformId) : 'instagram'
+    ];
   const activeEngine = job.current_engine || job.selected_engine;
-  const displayEngine = job.display_engine || formatDisplayEngine(activeEngine, 'local', job.platform);
+  const displayEngine = formatDisplayEngine(activeEngine, 'local', job.platform);
   const speedText = formatSpeed(job.speed_bytes_per_sec);
 
   const items: CarouselItemState[] = (
@@ -183,7 +189,14 @@ export function JobCard({
     await nativeBridge.shareMedia({
       uris: uris.length > 0 ? uris : undefined,
       filePaths: filePaths.length > 0 ? filePaths : undefined,
-      mimeType: list.length === 1 ? list[0].mimeType : allImages ? 'image/*' : allVideos ? 'video/*' : '*/*',
+      mimeType:
+        list.length === 1
+          ? list[0].mimeType
+          : allImages
+          ? 'image/*'
+          : allVideos
+          ? 'video/*'
+          : '*/*',
       title: job.title || 'Devwolf Downloader',
       targetWhatsApp,
     });
@@ -198,10 +211,7 @@ export function JobCard({
   };
 
   return (
-    <section
-      aria-live="polite"
-      className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-[#1C1C20]"
-    >
+    <section aria-live="polite" className="dw-glass-card rounded-3xl p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
           <span
@@ -209,16 +219,16 @@ export function JobCard({
           >
             {platformMeta.label}
           </span>
-          <span className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-300">
+          <span className="rounded-lg border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-2 py-0.5 text-[11px] font-medium text-[#5E43F3] dark:text-[#C4B5FD]">
             {displayEngine}
           </span>
           {job.strategy_used && (
-            <span className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] text-zinc-500 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-400">
+            <span className="rounded-lg border border-[#7C5CFF]/20 bg-[#7C5CFF]/5 px-2 py-0.5 text-[11px] text-[#5B5482] dark:text-[#A5A1C8]">
               {job.strategy_used}
             </span>
           )}
           {job.status_mode && (
-            <span className="rounded-lg border border-[#A3E635]/30 bg-[#A3E635]/10 px-2 py-0.5 text-[11px] font-medium text-[#4d7c0f] dark:text-[#A3E635]">
+            <span className="rounded-lg border border-[#7C5CFF]/35 bg-[#7C5CFF]/15 px-2 py-0.5 text-[11px] font-medium text-[#5E43F3] dark:text-[#C4B5FD]">
               Modo Status
             </span>
           )}
@@ -230,14 +240,14 @@ export function JobCard({
         </div>
 
         {durationSeconds ? (
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+          <span className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
             {formatDuration(durationSeconds)}
           </span>
         ) : null}
       </div>
 
       {job.title && (
-        <p className="mt-2 line-clamp-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+        <p className="mt-2 line-clamp-2 text-sm font-medium text-[#1E1940] dark:text-[#F5F3FF]">
           {job.title}
         </p>
       )}
@@ -246,31 +256,27 @@ export function JobCard({
         <div className="flex items-center gap-2">
           {isActive && (
             <Loader2
-              className="h-4 w-4 animate-spin text-[#65a30d] dark:text-[#A3E635]"
+              className="h-4 w-4 animate-spin text-[#7C5CFF] dark:text-[#A78BFA]"
               aria-hidden="true"
             />
           )}
           {job.status === 'ready' && (
             <CheckCircle2
-              className="h-4 w-4 text-[#65a30d] dark:text-[#A3E635]"
+              className="h-4 w-4 text-[#7C5CFF] dark:text-[#A78BFA]"
               aria-hidden="true"
             />
           )}
           {job.status === 'failed' && (
-            <AlertCircle className="h-4 w-4 text-red-500" aria-hidden="true" />
+            <AlertCircle className="h-4 w-4 text-rose-500" aria-hidden="true" />
           )}
           {job.status === 'cancelled' && (
-            <XCircle className="h-4 w-4 text-zinc-400" aria-hidden="true" />
+            <XCircle className="h-4 w-4 text-[#7D75A8]" aria-hidden="true" />
           )}
-          <span className="font-medium text-zinc-900 dark:text-zinc-100">
+          <span className="font-medium text-[#1E1940] dark:text-[#F5F3FF]">
             {phaseLabel}
             {isActive ? ` • ${displayEngine}…` : ''}
           </span>
         </div>
-
-        {isActive && connectionMode !== 'idle' && (
-          <span className="text-[11px] uppercase tracking-wider text-zinc-400">Local</span>
-        )}
       </div>
 
       {engineSwitchNotice && (
@@ -281,17 +287,17 @@ export function JobCard({
 
       {isActive && (
         <div className="mt-3">
-          <div className="h-2.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#7C5CFF]/15">
             {percentValue !== null ? (
               <div
-                className="h-full rounded-full bg-[#A3E635] transition-all duration-300"
+                className="h-full rounded-full bg-gradient-to-r from-[#7C5CFF] to-[#A78BFA] transition-all duration-300"
                 style={{ width: `${percentValue}%` }}
               />
             ) : (
-              <div className="animate-indeterminate h-full rounded-full bg-[#A3E635]" />
+              <div className="animate-indeterminate h-full rounded-full bg-gradient-to-r from-[#7C5CFF] to-[#A78BFA]" />
             )}
           </div>
-          <div className="mt-1.5 flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+          <div className="mt-1.5 flex items-center justify-between text-xs text-[#5B5482] dark:text-[#A5A1C8]">
             <span>
               {percentValue !== null ? `${percentValue}%` : 'Tamanho total desconhecido'}
               {speedText ? ` • ${speedText}` : ''}
@@ -307,12 +313,12 @@ export function JobCard({
       {errorDisplay && (
         <div
           role="alert"
-          className="mt-3 space-y-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs text-red-600 dark:text-red-300"
+          className="mt-3 space-y-2 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-3 py-2.5 text-xs text-rose-700 dark:text-rose-200"
         >
           <div className="flex items-start justify-between gap-2">
             <span>{errorDisplay}</span>
             {job.error_code && (
-              <span className="shrink-0 rounded bg-red-500/15 px-1.5 py-0.5 font-mono text-[10px]">
+              <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 font-mono text-[10px]">
                 {job.error_code}
               </span>
             )}
@@ -327,7 +333,7 @@ export function JobCard({
                   onOpenSettings?.();
                 }
               }}
-              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-red-500/20 px-2.5 text-xs font-semibold text-red-700 transition hover:bg-red-500/30 dark:text-red-200"
+              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl bg-rose-500/20 px-3 text-xs font-semibold text-rose-800 transition hover:bg-rose-500/30 dark:text-rose-100"
             >
               <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
               <span>{getAuthActionLabel(job.platform)}</span>
@@ -343,30 +349,28 @@ export function JobCard({
             const resolution = formatResolution(item.width, item.height);
             const sizeText = formatBytes(item.sizeBytes);
             const canAct = Boolean(item.mediaUri || item.filePath) && item.status === 'ready';
-            const ItemIcon = item.type === 'image' ? ImageIcon : item.type === 'audio' ? Music : Film;
+            const ItemIcon =
+              item.type === 'image' ? ImageIcon : item.type === 'audio' ? Music : Film;
 
             return (
-              <li
-                key={item.id}
-                className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs dark:border-zinc-800 dark:bg-[#101012]"
-              >
+              <li key={item.id} className="dw-glass-subtle rounded-2xl px-3 py-2.5 text-xs">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="inline-flex items-center gap-1 rounded-md bg-[#A3E635]/15 px-2 py-0.5 text-[11px] font-semibold text-[#4d7c0f] dark:text-[#A3E635]">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-[#7C5CFF]/15 px-2 py-0.5 text-[11px] font-semibold text-[#5E43F3] dark:text-[#C4B5FD]">
                         <ItemIcon className="h-3 w-3" aria-hidden="true" />
                         <span>{label}</span>
                       </span>
                       {resolution && (
-                        <span className="rounded-md bg-zinc-200/80 px-1.5 py-0.5 font-mono text-[10px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                        <span className="rounded-md bg-[#7C5CFF]/10 px-1.5 py-0.5 font-mono text-[10px] text-[#4C3F91] dark:text-[#C4B5FD]">
                           {resolution}
                         </span>
                       )}
-                      <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                      <span className="text-[11px] font-medium text-[#5B5482] dark:text-[#A5A1C8]">
                         {getItemStatusLabel(item.status, item.percent)}
                       </span>
                     </div>
-                    <p className="mt-1 truncate text-[11px] text-zinc-500 dark:text-zinc-400">
+                    <p className="mt-1 truncate text-[11px] text-[#5B5482] dark:text-[#A5A1C8]">
                       {item.fileName}
                       {sizeText ? ` • ${sizeText}` : ''}
                       {item.durationSeconds ? ` • ${formatDuration(item.durationSeconds)}` : ''}
@@ -378,14 +382,14 @@ export function JobCard({
                       <button
                         type="button"
                         onClick={() => void handleOpenItem(item)}
-                        className="min-h-[40px] rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-[#1C1C20] dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        className="min-h-[40px] rounded-xl border border-[#7C5CFF]/25 px-2.5 text-xs font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/10 dark:text-[#E0DBFF]"
                       >
                         Abrir
                       </button>
                       <button
                         type="button"
                         onClick={() => void handleShareItem(item, false)}
-                        className="min-h-[40px] rounded-lg bg-[#A3E635]/20 px-2.5 text-xs font-semibold text-[#4d7c0f] transition hover:bg-[#A3E635]/30 dark:text-[#A3E635]"
+                        className="min-h-[40px] rounded-xl bg-[#7C5CFF]/20 px-2.5 text-xs font-semibold text-[#5E43F3] transition hover:bg-[#7C5CFF]/30 dark:text-[#C4B5FD]"
                       >
                         Compartilhar
                       </button>
@@ -394,10 +398,12 @@ export function JobCard({
                 </div>
 
                 {item.status === 'downloading' && item.percent !== null && (
-                  <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+                  <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#7C5CFF]/15">
                     <div
-                      className="h-full rounded-full bg-[#A3E635] transition-all"
-                      style={{ width: `${Math.min(100, Math.max(0, Math.round(item.percent)))}%` }}
+                      className="h-full rounded-full bg-gradient-to-r from-[#7C5CFF] to-[#A78BFA] transition-all"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, Math.round(item.percent)))}%`,
+                      }}
                     />
                   </div>
                 )}
@@ -409,7 +415,7 @@ export function JobCard({
 
       {job.status === 'ready' && readyItems.length > 0 && (
         <div className="mt-3 space-y-2.5">
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
             Salvo na Galeria (Devwolf Downloader
             {totalBytesSum > 0 ? ` • ${formatBytes(totalBytesSum)}` : ''} • {displayEngine}).
           </p>
@@ -419,7 +425,7 @@ export function JobCard({
               <button
                 type="button"
                 onClick={() => void handleShareAll(true)}
-                className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#A3E635] px-4 text-sm font-semibold text-zinc-950 transition hover:bg-[#84CC16]"
+                className="dw-btn-primary inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-semibold transition"
               >
                 <MessageCircle className="h-4 w-4" aria-hidden="true" />
                 <span>Compartilhar no Status / WhatsApp</span>
@@ -430,10 +436,10 @@ export function JobCard({
               <button
                 type="button"
                 onClick={() => void handleShareAll(false)}
-                className={`inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition ${
+                className={`inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl px-4 text-sm font-semibold transition ${
                   hasVideo
-                    ? 'border border-zinc-300 bg-zinc-100 text-zinc-800 hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800'
-                    : 'flex-1 bg-[#A3E635] text-zinc-950 hover:bg-[#84CC16]'
+                    ? 'border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 text-[#4C3F91] hover:bg-[#7C5CFF]/20 dark:text-[#E0DBFF]'
+                    : 'dw-btn-primary flex-1'
                 }`}
               >
                 <Share2 className="h-4 w-4" aria-hidden="true" />
@@ -445,7 +451,7 @@ export function JobCard({
                   <button
                     type="button"
                     onClick={() => void handleOpenItem(primaryItem)}
-                    className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-zinc-100 px-4 text-sm font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-2xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-4 text-sm font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 dark:text-[#E0DBFF]"
                   >
                     <ExternalLink className="h-4 w-4" aria-hidden="true" />
                     <span>Abrir na Galeria</span>
@@ -453,7 +459,7 @@ export function JobCard({
                   <button
                     type="button"
                     onClick={() => void handleShareItem(primaryItem, false)}
-                    className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-zinc-100 px-4 text-sm font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-4 text-sm font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 dark:text-[#E0DBFF]"
                   >
                     <Share2 className="h-4 w-4" aria-hidden="true" />
                     <span>Compartilhar</span>
@@ -467,7 +473,7 @@ export function JobCard({
             <button
               type="button"
               onClick={() => void onReturnToSourceApp()}
-              className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-4 text-xs font-medium text-zinc-700 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-2xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-4 text-xs font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 dark:text-[#C4B5FD]"
             >
               <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
               <span>Voltar ao app de origem</span>
@@ -481,7 +487,7 @@ export function JobCard({
           <button
             type="button"
             onClick={() => onCancel(job.id)}
-            className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-zinc-300 px-4 text-xs font-medium text-zinc-700 transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-500 dark:border-zinc-700 dark:text-zinc-300 dark:hover:text-red-400"
+            className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-2xl border border-[#7C5CFF]/25 px-4 text-xs font-medium text-[#4C3F91] transition hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-500 dark:text-[#C4B5FD] dark:hover:text-rose-300"
           >
             <XCircle className="h-4 w-4" aria-hidden="true" />
             <span>Cancelar</span>
@@ -492,7 +498,7 @@ export function JobCard({
           <button
             type="button"
             onClick={() => onRetry(job.normalized_url || job.original_url)}
-            className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-[#A3E635] px-4 text-xs font-semibold text-zinc-950 transition hover:bg-[#84CC16]"
+            className="dw-btn-primary inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-2xl px-4 text-xs font-semibold transition"
           >
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
             <span>Tentar novamente</span>

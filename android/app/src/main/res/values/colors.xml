@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#6D5DF6</color>
+    <color name="colorPrimaryDark">#0D0B1E</color>
+    <color name="colorAccent">#7C5CFF</color>
+    <color name="devwolfBackground">#0D0B1E</color>
+    <color name="devwolfSurface">#1E1940</color>
+</resources>

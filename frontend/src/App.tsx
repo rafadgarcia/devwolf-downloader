@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BottomNav, type NavTab } from './components/BottomNav';
+import { AddLinkModal } from './components/AddLinkModal';
 import { EnginesView } from './components/EnginesView';
-import { Header } from './components/Header';
+import { Header, type NavTab } from './components/Header';
 import { HistoryView } from './components/HistoryView';
 import { HomeView } from './components/HomeView';
+import { HowToDownloadModal } from './components/HowToDownloadModal';
 import { MultiUrlModal } from './components/MultiUrlModal';
 import { SettingsView } from './components/SettingsView';
 import { useClipboardAutoDetect } from './hooks/useClipboardAutoDetect';
@@ -78,10 +79,13 @@ export function App() {
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [multiCandidates, setMultiCandidates] = useState<ParsedPlatformUrl[]>([]);
   const [focusAccountPlatform, setFocusAccountPlatform] = useState<string | null>(null);
+  const [scrollToAccounts, setScrollToAccounts] = useState(false);
+
+  const [addLinkOpen, setAddLinkOpen] = useState(false);
+  const [howToOpen, setHowToOpen] = useState(false);
 
   const autoStartLockRef = useRef(false);
-  const { job: activeJob, setActiveJob, engineSwitchNotice, connectionMode } =
-    useJobProgress(null);
+  const { job: activeJob, setActiveJob, engineSwitchNotice } = useJobProgress(null);
 
   useEffect(() => {
     if (activeJob) {
@@ -314,6 +318,8 @@ export function App() {
           .finally(() => {
             autoStartLockRef.current = false;
           });
+      } else {
+        setAddLinkOpen(true);
       }
     } else if (candidates.length > 1) {
       setActiveTab('home');
@@ -332,22 +338,30 @@ export function App() {
       setUrlInput(parsed.normalizedUrl);
       setStatusNotice(null);
 
-      if (settings.auto_download && !autoStartLockRef.current) {
+      if (settings.auto_download && !fromExplicitPaste && !autoStartLockRef.current) {
         autoStartLockRef.current = true;
-        void startJob(parsed.normalizedUrl, { forceManual: fromExplicitPaste })
+        void startJob(parsed.normalizedUrl, { forceManual: false })
           .catch((err) => {
             setStatusNotice(err instanceof Error ? err.message : 'Falha ao iniciar download.');
           })
           .finally(() => {
             autoStartLockRef.current = false;
           });
+      } else if (!fromExplicitPaste && !settings.auto_download) {
+        setAddLinkOpen(true);
       }
     },
     [settings.auto_download, startJob]
   );
 
+  // No Android nativo detecta links novos ao abrir/focar mesmo com auto_download desligado (abre modal pré-preenchido);
+  // na Web, leitura automática em foco só ocorre se auto_download estiver ativado.
   const { guidanceMessage, readClipboardExplicitly, setGuidanceMessage } = useClipboardAutoDetect({
-    enabled: !booting && onboardingDone && settings.auto_download && activeTab === 'home',
+    enabled:
+      !booting &&
+      onboardingDone &&
+      activeTab === 'home' &&
+      (settings.auto_download || isNativeAndroid),
     isUserEditing,
     onSingleUrlDetected: (parsed, explicitUserGesture) =>
       handleDetectedSingleUrl(parsed, explicitUserGesture),
@@ -374,17 +388,27 @@ export function App() {
     await handleUpdateSettings({ auto_download: enableAuto });
   };
 
-  const handleToggleAutoDownload = async () => {
-    await handleUpdateSettings({ auto_download: !settings.auto_download });
-  };
-
-  const handleToggleStatusMode = async () => {
-    await handleUpdateSettings({ status_mode_enabled: !settings.status_mode_enabled });
-  };
-
   const handleExplicitPaste = async () => {
     setGuidanceMessage(null);
     await readClipboardExplicitly();
+  };
+
+  const handleOpenAddLinkModal = async () => {
+    setGuidanceMessage(null);
+    if (!urlInput.trim() && isNativeAndroid) {
+      try {
+        const text = await nativeBridge.readClipboard();
+        if (text) {
+          const candidates = extractSupportedUrlsFromText(text);
+          if (candidates.length === 1) {
+            setUrlInput(candidates[0].normalizedUrl);
+          }
+        }
+      } catch {
+        // Ignorar falha ao ler clipboard
+      }
+    }
+    setAddLinkOpen(true);
   };
 
   const handleManualDownload = async (rawUrl: string) => {
@@ -422,8 +446,9 @@ export function App() {
 
   const handleEditFromHistory = (url: string) => {
     setUrlInput(url);
-    setStatusNotice('Link carregado para edição.');
+    setStatusNotice(null);
     setActiveTab('home');
+    setAddLinkOpen(true);
   };
 
   const handleReturnToSourceApp = async () => {
@@ -432,8 +457,8 @@ export function App() {
 
   if (booting) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#F4F4F5] dark:bg-[#101012]">
-        <div className="text-sm text-zinc-500 dark:text-zinc-400">
+      <main className="flex min-h-screen items-center justify-center bg-[#F5F3FF] dark:bg-[#0D0B1E]">
+        <div className="text-sm font-medium text-[#5B5482] dark:text-[#A5A1C8]">
           Carregando Devwolf Downloader…
         </div>
       </main>
@@ -441,50 +466,48 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F4F4F5] pb-24 text-zinc-900 dark:bg-[#101012] dark:text-zinc-100">
+    <div className="min-h-screen pb-8 text-[#1E1940] dark:text-[#F5F3FF]">
       <Header
-        isNativeAndroid={isNativeAndroid}
-        theme={settings.theme}
-        onToggleTheme={() =>
-          void handleUpdateSettings({
-            theme: settings.theme === 'dark' ? 'light' : 'dark',
-          })
-        }
+        activeTab={activeTab}
+        onNavigate={(tab) => {
+          setScrollToAccounts(false);
+          setActiveTab(tab);
+        }}
+        onOpenAccounts={() => {
+          setFocusAccountPlatform(null);
+          setScrollToAccounts(true);
+          setActiveTab('settings');
+        }}
+        onOpenAddLink={() => void handleOpenAddLinkModal()}
+        onOpenHowTo={() => setHowToOpen(true)}
       />
 
       <main className="mx-auto max-w-2xl px-4 pt-4">
         {activeTab === 'home' && (
           <HomeView
-            urlInput={urlInput}
-            onUrlInputChange={setUrlInput}
-            onUserEditingChange={setIsUserEditing}
-            selectedFormat={selectedFormat}
-            selectedQuality={selectedQuality}
-            onFormatChange={setSelectedFormat}
-            onQualityChange={setSelectedQuality}
-            settings={settings}
+            localJobs={localJobs}
+            activeJob={activeJob}
+            engineSwitchNotice={engineSwitchNotice}
             isNativeAndroid={isNativeAndroid}
             onboardingDone={onboardingDone}
+            showReturnToSourceApp={showReturnToSourceApp}
+            statusNotice={statusNotice}
             onOnboardingChoice={(enable) => void handleOnboardingChoice(enable)}
-            onToggleAutoDownload={() => void handleToggleAutoDownload()}
-            onToggleStatusMode={() => void handleToggleStatusMode()}
-            onExplicitPaste={handleExplicitPaste}
-            onSubmitManualDownload={handleManualDownload}
+            onOpenAddLink={() => void handleOpenAddLinkModal()}
+            onOpenHistory={() => setActiveTab('history')}
+            onOpenHowTo={() => setHowToOpen(true)}
+            onOpenSettings={() => {
+              setScrollToAccounts(false);
+              setActiveTab('settings');
+            }}
+            onOpenAccountSettings={(platform) => {
+              setFocusAccountPlatform(platform);
+              setScrollToAccounts(true);
+              setActiveTab('settings');
+            }}
             onCancelJob={handleCancelJob}
             onRetryJob={(url) => startJob(url, { forceManual: true })}
             onReturnToSourceApp={handleReturnToSourceApp}
-            onOpenSettings={() => setActiveTab('settings')}
-            onOpenAccountSettings={(platform) => {
-              setFocusAccountPlatform(platform);
-              setActiveTab('settings');
-            }}
-            showReturnToSourceApp={showReturnToSourceApp}
-            clipboardGuidance={guidanceMessage}
-            statusNotice={statusNotice}
-            submitting={submitting}
-            activeJob={activeJob}
-            engineSwitchNotice={engineSwitchNotice}
-            connectionMode={connectionMode}
           />
         )}
 
@@ -513,22 +536,47 @@ export function App() {
             isNativeAndroid={isNativeAndroid}
             latestJob={activeJob ?? localJobs[0] ?? null}
             focusAccountPlatform={focusAccountPlatform}
-            onClearFocusAccount={() => setFocusAccountPlatform(null)}
+            scrollToAccounts={scrollToAccounts}
+            onClearFocusAccount={() => {
+              setFocusAccountPlatform(null);
+              setScrollToAccounts(false);
+            }}
             onUpdateSettings={handleUpdateSettings}
           />
         )}
       </main>
+
+      <AddLinkModal
+        open={addLinkOpen}
+        urlInput={urlInput}
+        onUrlInputChange={setUrlInput}
+        onUserEditingChange={setIsUserEditing}
+        selectedFormat={selectedFormat}
+        selectedQuality={selectedQuality}
+        onFormatChange={setSelectedFormat}
+        onQualityChange={setSelectedQuality}
+        clipboardGuidance={guidanceMessage}
+        statusNotice={statusNotice}
+        submitting={submitting}
+        onExplicitPaste={handleExplicitPaste}
+        onSubmitDownload={handleManualDownload}
+        onOpenHowTo={() => setHowToOpen(true)}
+        onClose={() => setAddLinkOpen(false)}
+      />
+
+      <HowToDownloadModal open={howToOpen} onClose={() => setHowToOpen(false)} />
 
       <MultiUrlModal
         candidates={multiCandidates}
         onSelect={(picked) => {
           setMultiCandidates([]);
           handleDetectedSingleUrl(picked, true);
+          if (!settings.auto_download) {
+            setAddLinkOpen(true);
+          }
         }}
         onClose={() => setMultiCandidates([])}
       />
-
-      <BottomNav activeTab={activeTab} onSelectTab={setActiveTab} />
     </div>
   );
 }

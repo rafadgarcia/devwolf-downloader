@@ -5,6 +5,8 @@ import com.devwolf.downloader.resolvers.ErrorClassifier
 import com.devwolf.downloader.resolvers.MediaItemType
 import com.devwolf.downloader.resolvers.ResolvedMediaItem
 import com.devwolf.downloader.resolvers.StrategyAttemptMetric
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -283,5 +285,54 @@ class PerformanceAndErrorContractTest {
         assertFalse(log.contains("topsecret"))
         assertFalse(log.contains("leak123"))
         assertFalse(log.contains("tok123"))
+    }
+
+    @Test
+    fun computesThumbnailSampleSizeAndAspectPreservingDimensions() {
+        assertEquals(1, MediaStoreHelper.calculateInSampleSize(480, 480))
+        assertEquals(1, MediaStoreHelper.calculateInSampleSize(720, 1280))
+        assertEquals(4, MediaStoreHelper.calculateInSampleSize(3840, 2160))
+        assertEquals(4, MediaStoreHelper.calculateInSampleSize(4000, 3000))
+
+        // Smaller images must not be upscaled
+        assertEquals(320 to 240, MediaStoreHelper.computeScaledDimensions(320, 240))
+        // Portrait 1080x1920 -> 270x480
+        assertEquals(270 to 480, MediaStoreHelper.computeScaledDimensions(1080, 1920))
+        // Landscape 1920x1080 -> 480x270
+        assertEquals(480 to 270, MediaStoreHelper.computeScaledDimensions(1920, 1080))
+
+        // Audio / nonexistent files safely return null without throwing
+        assertNull(MediaStoreHelper.generateThumbnailDataUrl(File("missing.mp4"), "video/mp4"))
+        val tempAudio = File.createTempFile("thumb-audio-", ".mp3")
+        try {
+            assertNull(MediaStoreHelper.generateThumbnailDataUrl(tempAudio, "audio/mpeg"))
+        } finally {
+            tempAudio.delete()
+        }
+    }
+
+    @Test
+    fun stripsOldQueueThumbnailsWithoutMutatingOriginalSnapshot() {
+        val fileObj = JSONObject().apply {
+            put("id", "job-1_0")
+            put("type", "video")
+            put("thumbnailDataUrl", "data:image/jpeg;base64,/9j/4AAQ")
+        }
+        val original = JSONObject().apply {
+            put("jobId", "job-1")
+            put("status", "ready")
+            put("thumbnailDataUrl", "data:image/jpeg;base64,/9j/4AAQ")
+            put("files", JSONArray().put(fileObj))
+            put("items", JSONArray().put(JSONObject(fileObj.toString())))
+        }
+
+        val copy = LocalQueueStore.stripThumbnailsCopy(original)
+
+        assertFalse(copy.has("thumbnailDataUrl"))
+        assertFalse(copy.getJSONArray("files").getJSONObject(0).has("thumbnailDataUrl"))
+        assertFalse(copy.getJSONArray("items").getJSONObject(0).has("thumbnailDataUrl"))
+        assertTrue(original.has("thumbnailDataUrl"))
+        assertTrue(original.getJSONArray("files").getJSONObject(0).has("thumbnailDataUrl"))
+        assertEquals(24, LocalQueueStore.MAX_JOBS_WITH_THUMBNAILS)
     }
 }

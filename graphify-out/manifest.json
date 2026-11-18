@@ -1,8 +1,8 @@
 {
   "frontend/package.json": {
-    "mtime": 1794974539.5754547,
-    "seen": 1794974885.221085,
-    "ast_hash": "3df99201734bd15c0fb6a49801f0df67",
+    "mtime": 1795006346.4200876,
+    "seen": 1795006645.4316707,
+    "ast_hash": "e4e968d760b94117c8b85ec481f1fb6a",
     "semantic_hash": ""
   },
   "frontend/postcss.config.js": {
@@ -18,9 +18,9 @@
     "semantic_hash": ""
   },
   "frontend/src/App.tsx": {
-    "mtime": 1794974404.2124841,
-    "seen": 1794974885.2210908,
-    "ast_hash": "31a984315771e6c843821dd2eaca2f73",
+    "mtime": 1795006307.3539712,
+    "seen": 1795006645.431676,
+    "ast_hash": "b02ff734f18abcba9676ba093f71efef",
     "semantic_hash": ""
   },
   "frontend/src/__tests__/dedupe.test.ts": {
@@ -35,58 +35,52 @@
     "ast_hash": "e35cfd1f2ebf346e753aac7a22fc3686",
     "semantic_hash": ""
   },
-  "frontend/src/components/BottomNav.tsx": {
-    "mtime": 1794945888.4199665,
-    "seen": 1794947429.5878277,
-    "ast_hash": "ad2c6b9bf873b9611249bbbdeda1a9c5",
-    "semantic_hash": ""
-  },
   "frontend/src/components/EnginesView.tsx": {
-    "mtime": 1794974352.7327118,
-    "seen": 1794974885.2211013,
-    "ast_hash": "63c2e711571a1aba184ab1c459bae652",
+    "mtime": 1795006303.5745423,
+    "seen": 1795006645.4316862,
+    "ast_hash": "fdae94ba2ae9dfc7e6a36c6fe551692a",
     "semantic_hash": ""
   },
   "frontend/src/components/Header.tsx": {
-    "mtime": 1794957866.1199677,
-    "seen": 1794958914.0716836,
-    "ast_hash": "1c9e5b9dd3a5e6994be3b6e697241848",
+    "mtime": 1795006345.1086104,
+    "seen": 1795006645.4316874,
+    "ast_hash": "8748888289f68898e5143c433b3ef32c",
     "semantic_hash": ""
   },
   "frontend/src/components/HistoryView.tsx": {
-    "mtime": 1794974369.2820046,
-    "seen": 1794974885.2211037,
-    "ast_hash": "ca5ab542411315e72e4599ae85cd2ba8",
+    "mtime": 1795006302.3626373,
+    "seen": 1795006645.4316912,
+    "ast_hash": "7c14017877bb7097313eef15947cbdc3",
     "semantic_hash": ""
   },
   "frontend/src/components/HomeView.tsx": {
-    "mtime": 1794974386.695778,
-    "seen": 1794974885.2211049,
-    "ast_hash": "db8b06aee712acd7d210b8c08c89ea49",
+    "mtime": 1795006193.8838646,
+    "seen": 1795006645.4316924,
+    "ast_hash": "e550cb08c70da6d8e02af0a8e657679f",
     "semantic_hash": ""
   },
   "frontend/src/components/JobCard.tsx": {
-    "mtime": 1794974400.330019,
-    "seen": 1794974885.2211065,
-    "ast_hash": "d06603598a7ee30d9fbc38f545aa8dba",
+    "mtime": 1795006192.62639,
+    "seen": 1795006645.4316947,
+    "ast_hash": "faaecf5db8e858992db55fc45ca6dd88",
     "semantic_hash": ""
   },
   "frontend/src/components/MultiUrlModal.tsx": {
-    "mtime": 1794945892.4083862,
-    "seen": 1794947429.5878348,
-    "ast_hash": "af4ae5710a3e0c0c275deed71a6bf2f8",
+    "mtime": 1795006123.6525497,
+    "seen": 1795006645.431701,
+    "ast_hash": "6bcaccf03c5533a5aab5376a9ce11b7a",
     "semantic_hash": ""
   },
   "frontend/src/components/OnboardingBanner.tsx": {
-    "mtime": 1794948456.9254005,
-    "seen": 1794949061.4614189,
-    "ast_hash": "53506ab945f0a97f0a32d2ee7944693b",
+    "mtime": 1795006191.4170704,
+    "seen": 1795006645.431702,
+    "ast_hash": "819add4378140e1aff7290555d8728a6",
     "semantic_hash": ""
   },
   "frontend/src/components/SettingsView.tsx": {
-    "mtime": 1794974481.5928378,
-    "seen": 1794974885.221111,
-    "ast_hash": "42a27bd94e3820bd3b657c498c37f88d",
+    "mtime": 1795006305.9251802,
+    "seen": 1795006645.4317033,
+    "ast_hash": "d3948e10d077aec9c10fbe0af9b1853a",
     "semantic_hash": ""
   },
   "frontend/src/hooks/useClipboardAutoDetect.ts": {
@@ -96,9 +90,9 @@
     "semantic_hash": ""
   },
   "frontend/src/hooks/useJobProgress.ts": {
-    "mtime": 1794957863.4388626,
-    "seen": 1794958914.0717144,
-    "ast_hash": "4ffb4d4c44d678a0e26931a2876e5a82",
+    "mtime": 1795006001.7242548,
+    "seen": 1795006645.431706,
+    "ast_hash": "2df18a81be85d10121124b1c8139c5db",
     "semantic_hash": ""
   },
   "frontend/src/main.tsx": {
@@ -114,9 +108,9 @@
     "semantic_hash": ""
   },
   "frontend/src/types/api.ts": {
-    "mtime": 1794974283.6420548,
-    "seen": 1794974885.2211277,
-    "ast_hash": "64aa14260d9f0c25c67b186cc11a1143",
+    "mtime": 1795005996.5191073,
+    "seen": 1795006645.4317153,
+    "ast_hash": "49e3672afb5a474ed5d91acd1cc7629f",
     "semantic_hash": ""
   },
   "frontend/src/utils/dedupe.ts": {
@@ -126,9 +120,9 @@
     "semantic_hash": ""
   },
   "frontend/src/utils/format.ts": {
-    "mtime": 1794974313.1311688,
-    "seen": 1794974885.221132,
-    "ast_hash": "4df9e573e9336c7bba004b24011e8df9",
+    "mtime": 1795006000.3586679,
+    "seen": 1795006645.4317207,
+    "ast_hash": "4320f89b929489a36d0148bcac8ffe33",
     "semantic_hash": ""
   },
   "frontend/src/utils/url.ts": {
@@ -144,9 +138,9 @@
     "semantic_hash": ""
   },
   "frontend/tailwind.config.js": {
-    "mtime": 1794945728.418899,
-    "seen": 1794947429.5878484,
-    "ast_hash": "badaf67c3dffbe5336d3602323cbb989",
+    "mtime": 1795005977.2371466,
+    "seen": 1795006645.4317248,
+    "ast_hash": "bed95b704f61b31ee5f6b7ad05d6c6c1",
     "semantic_hash": ""
   },
   "frontend/tsconfig.json": {
@@ -192,9 +186,9 @@
     "semantic_hash": ""
   },
   "TASKS.md": {
-    "mtime": 1794974638.0517354,
-    "seen": 1794974885.221155,
-    "ast_hash": "8cb4ef5611a5c04b3e584b132b13d196",
+    "mtime": 1795006496.6301603,
+    "seen": 1795006645.4317374,
+    "ast_hash": "9b1d0d27be9ef0f7ab7a32fd697cb731",
     "semantic_hash": ""
   },
   "docs/deployment.md": {
@@ -216,9 +210,9 @@
     "semantic_hash": ""
   },
   "frontend/index.html": {
-    "mtime": 1794948236.732828,
-    "seen": 1794949061.4629188,
-    "ast_hash": "c1bd455516a986d4744e2626d7b5c16d",
+    "mtime": 1795005974.2879097,
+    "seen": 1795006645.4317627,
+    "ast_hash": "53f0549b5f5e9b793260a6e882f929a8",
     "semantic_hash": ""
   },
   "frontend/public/icons/icon-192.png": {
@@ -246,14 +240,14 @@
     "semantic_hash": ""
   },
   "android/app/build.gradle": {
-    "mtime": 1794974537.60047,
-    "seen": 1794974885.2210047,
-    "ast_hash": "1e45ba6d3f0dd2ab1354da21ae3b86a3",
+    "mtime": 1795006013.1363947,
+    "seen": 1795006645.431583,
+    "ast_hash": "a9805fac08e22b76753d8bdb42614732",
     "semantic_hash": ""
   },
   "android/app/capacitor.build.gradle": {
-    "mtime": 1794974593.63068,
-    "seen": 1794974885.2210093,
+    "mtime": 1795006462.5397155,
+    "seen": 1795006645.4315994,
     "ast_hash": "b863e425fbde80251bd3c68ac8ccba02",
     "semantic_hash": ""
   },
@@ -264,9 +258,9 @@
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/DevwolfDownloadService.kt": {
-    "mtime": 1794974209.267385,
-    "seen": 1794974885.2210143,
-    "ast_hash": "5e8294a2319c23932b836778ecf9e78c",
+    "mtime": 1795006006.0310557,
+    "seen": 1795006645.4316037,
+    "ast_hash": "632238e33a3bfcccd41b10baafce4ddf",
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/DevwolfNativePlugin.kt": {
@@ -282,21 +276,21 @@
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/LocalQueueStore.kt": {
-    "mtime": 1794957927.5230901,
-    "seen": 1794958914.0714817,
-    "ast_hash": "fe289f962fbe70be23284d088bccdff1",
+    "mtime": 1795006204.0706303,
+    "seen": 1795006645.4316103,
+    "ast_hash": "7ccd92820adde3e375f929a07878b4d9",
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/MainActivity.kt": {
-    "mtime": 1794948542.6266942,
-    "seen": 1794949061.4561665,
-    "ast_hash": "32333e376f909fa6501e143192207a68",
+    "mtime": 1795006011.2364945,
+    "seen": 1795006645.431612,
+    "ast_hash": "28be00d3f85e46f074316b2ff750f7fe",
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/MediaStoreHelper.kt": {
-    "mtime": 1794957926.091812,
-    "seen": 1794958914.0714893,
-    "ast_hash": "dcc4d2076b099ae29009a66a166fc4f6",
+    "mtime": 1795006115.1502092,
+    "seen": 1795006645.431613,
+    "ast_hash": "4df81efe224aa5e96f46e27d61fdef98",
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/NotificationActionReceiver.kt": {
@@ -348,8 +342,8 @@
     "semantic_hash": ""
   },
   "android/capacitor.settings.gradle": {
-    "mtime": 1794974593.63068,
-    "seen": 1794974885.2210598,
+    "mtime": 1795006462.538208,
+    "seen": 1795006645.431647,
     "ast_hash": "e982b9568e2df93dbe843a6635070b90",
     "semantic_hash": ""
   },
@@ -384,9 +378,9 @@
     "semantic_hash": ""
   },
   "frontend/src/__tests__/localQueue.test.ts": {
-    "mtime": 1794974527.4739065,
-    "seen": 1794974885.2210956,
-    "ast_hash": "2ec6598d61e2bb8ee313b84b6171f638",
+    "mtime": 1795006039.6670191,
+    "seen": 1795006645.4316819,
+    "ast_hash": "8ca0fb506e10e44e31146cd9d4a4c790",
     "semantic_hash": ""
   },
   "frontend/src/services/hybridOrchestrator.ts": {
@@ -396,15 +390,15 @@
     "semantic_hash": ""
   },
   "frontend/src/services/localQueue.ts": {
-    "mtime": 1794974383.029603,
-    "seen": 1794974885.2211187,
-    "ast_hash": "fa48ccdd7ac1d94a55f7865d8216254c",
+    "mtime": 1795006021.1747587,
+    "seen": 1795006645.43171,
+    "ast_hash": "b02bc72b578a29e879a430373d31fd43",
     "semantic_hash": ""
   },
   "frontend/src/services/nativeBridge.ts": {
-    "mtime": 1794974350.017783,
-    "seen": 1794974885.2211204,
-    "ast_hash": "3c8036bb9d5a9786ffe79e45e696f228",
+    "mtime": 1795006034.29414,
+    "seen": 1795006645.431711,
+    "ast_hash": "38233adbb1505ddce458e6774286ac4a",
     "semantic_hash": ""
   },
   "frontend/src/services/settingsStorage.ts": {
@@ -414,9 +408,9 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1794974636.756152,
-    "seen": 1794974885.2211473,
-    "ast_hash": "0c90d2960747296b1a9390a0a7776804",
+    "mtime": 1795006495.5783732,
+    "seen": 1795006645.4317317,
+    "ast_hash": "d2e0ab361da6a85fc94888a3dc330d1d",
     "semantic_hash": ""
   },
   "android/app/src/main/res/drawable-land-hdpi/splash.png": {
@@ -630,9 +624,9 @@
     "semantic_hash": ""
   },
   "android/app/src/test/java/com/devwolf/downloader/PerformanceAndErrorContractTest.kt": {
-    "mtime": 1794974237.704152,
-    "seen": 1794974885.2210462,
-    "ast_hash": "926a0783af7e0454b3f5f8384bf9616d",
+    "mtime": 1795006205.2305362,
+    "seen": 1795006645.4316335,
+    "ast_hash": "55e4e34dbc67139a2978f6c0de849b1b",
     "semantic_hash": ""
   },
   "android/app/src/test/java/com/devwolf/downloader/resolvers/DnrAndLocalResolversIntegrationTest.kt": {
@@ -795,6 +789,36 @@
     "mtime": 1794974098.1060662,
     "seen": 1794974885.221164,
     "ast_hash": "34c4b217d38e31e74a7d6e76c52d91ff",
+    "semantic_hash": ""
+  },
+  "frontend/src/components/AddLinkModal.tsx": {
+    "mtime": 1795006119.874149,
+    "seen": 1795006645.4316845,
+    "ast_hash": "a55ab8cb12020b0681abd0fd612d236f",
+    "semantic_hash": ""
+  },
+  "frontend/src/components/HeroActionsModal.tsx": {
+    "mtime": 1795006122.349172,
+    "seen": 1795006645.4316888,
+    "ast_hash": "218097ef590d0a01a45841558bf7aed9",
+    "semantic_hash": ""
+  },
+  "frontend/src/components/HowToDownloadModal.tsx": {
+    "mtime": 1795006121.1382973,
+    "seen": 1795006645.4316936,
+    "ast_hash": "32ce0ff875258c551ce75293864522fa",
+    "semantic_hash": ""
+  },
+  "frontend/src/components/MediaThumbnail.tsx": {
+    "mtime": 1795006064.3708675,
+    "seen": 1795006645.431696,
+    "ast_hash": "1d3cfc53bb319e7b893d08d372048928",
+    "semantic_hash": ""
+  },
+  "frontend/src/utils/dialogHelpers.ts": {
+    "mtime": 1795006063.2798116,
+    "seen": 1795006645.4317179,
+    "ast_hash": "b11b5a0908daa56cd884190f375de009",
     "semantic_hash": ""
   }
 }

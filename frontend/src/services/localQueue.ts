@@ -35,14 +35,28 @@ function readStoredJobs(): JobResponse[] {
 }
 
 function writeStoredJobs(jobs: JobResponse[]): void {
+  const trimmed = jobs
+    .slice()
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, MAX_LOCAL_HISTORY_ITEMS);
   try {
-    const trimmed = jobs
-      .slice()
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      .slice(0, MAX_LOCAL_HISTORY_ITEMS);
     window.localStorage.setItem(LOCAL_QUEUE_STORAGE_KEY, JSON.stringify(trimmed));
   } catch {
-    // Ignorar falha de quota no localStorage
+    // Se exceder quota por conta de thumbnails em base64, preservar thumbnails apenas nos 12 itens mais recentes
+    try {
+      const compacted = trimmed.map((job, idx) => {
+        if (idx < 12) return job;
+        return {
+          ...job,
+          thumbnail_data_url: null,
+          files: (job.files ?? []).map((f) => ({ ...f, thumbnail_data_url: null })),
+          items: (job.items ?? []).map((it) => ({ ...it, thumbnailDataUrl: null })),
+        };
+      });
+      window.localStorage.setItem(LOCAL_QUEUE_STORAGE_KEY, JSON.stringify(compacted));
+    } catch {
+      // Ignorar falha de quota no localStorage
+    }
   }
 }
 
@@ -122,6 +136,7 @@ export function mapLocalFilesToCarouselItems(
         mediaUri: f.mediaUri ?? null,
         displayPath: f.displayPath ?? null,
         filePath: f.filePath ?? null,
+        thumbnailDataUrl: f.thumbnailDataUrl ?? null,
         durationSeconds: f.durationSeconds ?? null,
         isSegment: Boolean(f.isSegment),
         segmentIndex: f.segmentIndex ?? null,
@@ -151,6 +166,7 @@ export function mapLocalFilesToJobFiles(
     file_path: item.filePath ?? null,
     media_uri: item.mediaUri,
     display_path: item.displayPath,
+    thumbnail_data_url: item.thumbnailDataUrl ?? null,
     is_segment: item.isSegment,
     segment_index: item.segmentIndex ?? null,
     is_original: item.isOriginal,
@@ -250,6 +266,11 @@ export function applyLocalProgressToJob(
     error_message: errorMessage,
     technical_reason: event.technicalReason ?? existing?.technical_reason ?? null,
     metrics: event.metrics ?? existing?.metrics ?? null,
+    thumbnail_data_url:
+      event.thumbnailDataUrl ??
+      items.find((i) => Boolean(i.thumbnailDataUrl))?.thumbnailDataUrl ??
+      existing?.thumbnail_data_url ??
+      null,
     files,
     items,
     created_at: existing?.created_at ?? now,
@@ -303,6 +324,10 @@ export function snapshotToJobResponse(snapshot: LocalDownloadSnapshot): JobRespo
     error_message: errorMessage,
     technical_reason: snapshot.technicalReason ?? null,
     metrics: snapshot.metrics ?? null,
+    thumbnail_data_url:
+      snapshot.thumbnailDataUrl ??
+      items.find((i) => Boolean(i.thumbnailDataUrl))?.thumbnailDataUrl ??
+      null,
     files,
     items,
     created_at: snapshot.createdAt ?? now,
@@ -370,6 +395,11 @@ export function localJobToHistoryItem(job: JobResponse): HistoryItem {
     error_message: job.error_message,
     created_at: job.created_at,
     completed_at: job.completed_at,
+    thumbnail_data_url:
+      job.thumbnail_data_url ??
+      job.items?.find((i) => Boolean(i.thumbnailDataUrl))?.thumbnailDataUrl ??
+      primaryFile?.thumbnail_data_url ??
+      null,
     file: primaryFile,
     files: job.files,
     items: job.items,

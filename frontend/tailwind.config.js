@@ -6,16 +6,21 @@ export default {
     extend: {
       colors: {
         bg: {
-          dark: '#101012',
-          light: '#F4F4F5',
+          dark: '#0D0B1E',
+          indigo: '#14112E',
+          light: '#F5F3FF',
         },
         surface: {
-          dark: '#1C1C20',
+          dark: '#1E1940',
+          elevated: '#262052',
           light: '#FFFFFF',
         },
         accent: {
-          DEFAULT: '#A3E635',
-          hover: '#84CC16',
+          DEFAULT: '#7C5CFF',
+          deep: '#5E43F3',
+          hover: '#8F73FF',
+          lavender: '#A78BFA',
+          soft: '#C4B5FD',
         },
       },
       fontFamily: {

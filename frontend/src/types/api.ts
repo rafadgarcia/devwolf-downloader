@@ -65,6 +65,7 @@ export interface CarouselItemState {
   mediaUri: string | null;
   displayPath: string | null;
   filePath?: string | null;
+  thumbnailDataUrl?: string | null;
   durationSeconds?: number | null;
   isSegment?: boolean;
   segmentIndex?: number | null;
@@ -90,6 +91,7 @@ export interface JobFile {
   file_path?: string | null;
   media_uri?: string | null;
   display_path?: string | null;
+  thumbnail_data_url?: string | null;
   is_segment?: boolean;
   segment_index?: number | null;
   is_original?: boolean;
@@ -182,6 +184,7 @@ export interface JobResponse {
   technical_reason?: string | null;
   metrics?: JobPerformanceMetrics | null;
   deduplicated?: boolean;
+  thumbnail_data_url?: string | null;
   files: JobFile[];
   items?: CarouselItemState[];
   created_at: string;
@@ -208,6 +211,7 @@ export interface HistoryItem {
   error_message?: string | null;
   created_at: string;
   completed_at?: string | null;
+  thumbnail_data_url?: string | null;
   file?: JobFile | null;
   files?: JobFile[];
   items?: CarouselItemState[];

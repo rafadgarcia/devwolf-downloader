@@ -81,21 +81,21 @@ export function formatDisplayEngine(
     case 'instagram-dnr':
     case 'devwolf-native-resolver':
       return normalizedPlatform === 'threads'
-        ? 'Local • DNR (Threads)'
-        : 'Local • DNR (Instagram)';
+        ? 'DNR • Threads'
+        : 'DNR • Instagram';
     case 'gallery-dl':
     case 'local-gallery-dl':
-      return 'Local • gallery-dl';
+      return 'gallery-dl';
     case 'local-pinterest':
-      return 'Local • Resolvedor Pinterest';
+      return 'Resolvedor Pinterest';
     case 'local-reddit':
-      return 'Local • Resolvedor Reddit';
+      return 'Resolvedor Reddit';
     case 'yt-dlp':
     case 'local-ytdlp':
     case '':
-      return 'Local • yt-dlp Android';
+      return 'yt-dlp';
     default:
-      return `Local • ${engine}`;
+      return engine ? engine.trim() : 'yt-dlp';
   }
 }
 

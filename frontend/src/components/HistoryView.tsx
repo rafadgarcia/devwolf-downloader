@@ -24,6 +24,7 @@ import {
   getPhaseLabel,
   PLATFORM_META,
 } from '../utils/format';
+import { MediaThumbnail } from './MediaThumbnail';
 
 interface HistoryViewProps {
   localJobs: JobResponse[];
@@ -44,7 +45,11 @@ const PLATFORM_FILTERS: { id: string; label: string }[] = [
   { id: 'pinterest', label: 'Pinterest' },
 ];
 
-function toCarouselItem(file: JobFile, idx: number, status: HistoryItem['status']): CarouselItemState {
+function toCarouselItem(
+  file: JobFile,
+  idx: number,
+  status: HistoryItem['status']
+): CarouselItemState {
   const mime = (file.mime_type || '').toLowerCase();
   const type =
     file.type ??
@@ -64,6 +69,7 @@ function toCarouselItem(file: JobFile, idx: number, status: HistoryItem['status'
     mediaUri: file.media_uri ?? null,
     displayPath: file.display_path ?? null,
     filePath: file.file_path ?? null,
+    thumbnailDataUrl: file.thumbnail_data_url ?? null,
     durationSeconds: file.duration_seconds ?? null,
     isSegment: file.is_segment,
     segmentIndex: file.segment_index ?? null,
@@ -114,7 +120,8 @@ export function HistoryView({
 
   const handleDelete = async (item: HistoryItem) => {
     try {
-      const filesToDelete = item.files && item.files.length > 0 ? item.files : item.file ? [item.file] : [];
+      const filesToDelete =
+        item.files && item.files.length > 0 ? item.files : item.file ? [item.file] : [];
       for (const f of filesToDelete) {
         if (f.media_uri || f.file_path) {
           await nativeBridge
@@ -153,13 +160,15 @@ export function HistoryView({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-8">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Histórico</h2>
+        <h2 className="text-base font-bold text-[#1E1940] dark:text-[#F5F3FF]">
+          Histórico de downloads
+        </h2>
         <button
           type="button"
           onClick={loadHistory}
-          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-zinc-600 transition hover:bg-zinc-200/70 dark:text-zinc-300 dark:hover:bg-[#1C1C20]"
+          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-[#5B5482] transition hover:bg-[#7C5CFF]/10 dark:text-[#C4B5FD] dark:hover:bg-[#7C5CFF]/15"
         >
           <RefreshCw className="h-4 w-4" aria-hidden="true" />
           <span>Atualizar</span>
@@ -168,7 +177,7 @@ export function HistoryView({
 
       <div className="relative">
         <Search
-          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7D75A8]"
           aria-hidden="true"
         />
         <input
@@ -177,7 +186,7 @@ export function HistoryView({
           placeholder="Buscar por título ou URL…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="min-h-[44px] w-full rounded-xl border border-zinc-300 bg-white pl-10 pr-3.5 text-sm text-zinc-900 placeholder-zinc-400 outline-none focus:border-[#A3E635] dark:border-zinc-800 dark:bg-[#1C1C20] dark:text-zinc-100"
+          className="dw-glass-card min-h-[46px] w-full rounded-2xl pl-10 pr-3.5 text-sm text-[#1E1940] placeholder-[#7D75A8] outline-none focus:border-[#7C5CFF] dark:text-[#F5F3FF] dark:placeholder-[#7A74A6]"
         />
       </div>
 
@@ -189,10 +198,10 @@ export function HistoryView({
               key={f.id}
               type="button"
               onClick={() => setPlatform(f.id)}
-              className={`min-h-[44px] shrink-0 rounded-xl px-3 text-xs font-medium transition ${
+              className={`min-h-[42px] shrink-0 rounded-xl px-3.5 text-xs font-semibold transition ${
                 active
-                  ? 'bg-[#A3E635] text-zinc-950'
-                  : 'border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-[#1C1C20] dark:text-zinc-300 dark:hover:bg-zinc-800'
+                  ? 'dw-btn-primary'
+                  : 'dw-glass-card text-[#5B5482] hover:border-[#7C5CFF]/40 dark:text-[#C4B5FD]'
               }`}
             >
               {f.label}
@@ -204,18 +213,18 @@ export function HistoryView({
       {error && (
         <div
           role="alert"
-          className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-600 dark:text-red-300"
+          className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-300"
         >
           {error}
         </div>
       )}
 
       {loading ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-center text-xs text-zinc-500 dark:border-zinc-800 dark:bg-[#1C1C20] dark:text-zinc-400">
+        <div className="dw-glass-card rounded-3xl p-6 text-center text-xs text-[#5B5482] dark:text-[#A5A1C8]">
           Carregando histórico…
         </div>
       ) : items.length === 0 ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-[#1C1C20] dark:text-zinc-400">
+        <div className="dw-glass-card rounded-3xl p-6 text-center text-sm text-[#5B5482] dark:text-[#A5A1C8]">
           Nenhum download encontrado.
         </div>
       ) : (
@@ -242,54 +251,69 @@ export function HistoryView({
             const primaryItem = readyCarousel[0] ?? null;
             const isMulti = carouselItems.length > 1;
             const hasVideo = readyCarousel.some((c) => c.type === 'video');
-            const engineBadge =
-              item.display_engine || formatDisplayEngine(item.selected_engine, 'local', item.platform);
+            const engineBadge = formatDisplayEngine(item.selected_engine, 'local', item.platform);
+            const thumb =
+              item.thumbnail_data_url ||
+              carouselItems.find((c) => Boolean(c.thumbnailDataUrl))?.thumbnailDataUrl ||
+              null;
 
             return (
-              <li
-                key={item.id}
-                className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-[#1C1C20]"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium ${meta.badgeClass}`}
-                    >
-                      {meta.label}
-                    </span>
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                      {formatDateTime(item.created_at)}
-                    </span>
+              <li key={item.id} className="dw-glass-card rounded-3xl p-4">
+                <div className="flex items-start gap-3">
+                  <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-[#7C5CFF]/20">
+                    <MediaThumbnail
+                      thumbnailDataUrl={thumb}
+                      mediaUri={primaryItem?.mediaUri}
+                      filePath={primaryItem?.filePath}
+                      mediaType={primaryItem?.type ?? 'video'}
+                      platform={item.platform}
+                      compact
+                    />
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-600 dark:bg-[#101012] dark:text-zinc-300">
-                      {engineBadge}
-                    </span>
-                    <span
-                      className={`text-xs font-medium ${
-                        item.status === 'ready'
-                          ? 'text-[#4d7c0f] dark:text-[#A3E635]'
-                          : item.status === 'failed'
-                          ? 'text-red-500 dark:text-red-400'
-                          : 'text-zinc-500 dark:text-zinc-400'
-                      }`}
-                    >
-                      {item.phase_label || getPhaseLabel(item.status)}
-                    </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium ${meta.badgeClass}`}
+                        >
+                          {meta.label}
+                        </span>
+                        <span className="rounded-md bg-[#7C5CFF]/15 px-2 py-0.5 text-[11px] font-medium text-[#5E43F3] dark:text-[#C4B5FD]">
+                          {engineBadge}
+                        </span>
+                      </div>
+
+                      <span className="text-[11px] text-[#5B5482] dark:text-[#A5A1C8]">
+                        {formatDateTime(item.created_at)}
+                      </span>
+                    </div>
+
+                    <p className="mt-1.5 line-clamp-2 text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
+                      {item.title || item.normalized_url || item.original_url}
+                    </p>
+
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <p className="truncate text-[11px] text-[#5B5482] dark:text-[#A5A1C8]">
+                        {item.normalized_url || item.original_url}
+                      </p>
+                      <span
+                        className={`shrink-0 text-[11px] font-semibold ${
+                          item.status === 'ready'
+                            ? 'text-[#5E43F3] dark:text-[#A78BFA]'
+                            : item.status === 'failed'
+                            ? 'text-rose-500 dark:text-rose-300'
+                            : 'text-[#5B5482] dark:text-[#A5A1C8]'
+                        }`}
+                      >
+                        {item.phase_label || getPhaseLabel(item.status)}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                <p className="mt-2 line-clamp-2 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                  {item.title || item.normalized_url || item.original_url}
-                </p>
-
-                <p className="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">
-                  {item.normalized_url || item.original_url}
-                </p>
-
                 {item.status === 'failed' && (item.error_code || item.error_message) && (
-                  <p className="mt-1.5 text-xs text-red-500 dark:text-red-400">
+                  <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">
                     {getUserFacingErrorMessage(item.error_code, item.error_message, item.platform)}
                   </p>
                 )}
@@ -297,12 +321,11 @@ export function HistoryView({
                 {isMulti && readyCarousel.length > 0 && (
                   <ul className="mt-3 space-y-1.5">
                     {carouselItems.map((c) => {
-                      const kindLabel =
-                        c.isOriginal
-                          ? 'Original'
-                          : c.isSegment && c.segmentIndex
-                          ? `Parte ${c.segmentIndex}`
-                          : `${c.type === 'image' ? 'Foto' : c.type === 'audio' ? 'Áudio' : 'Vídeo'} ${c.index}/${carouselItems.length}`;
+                      const kindLabel = c.isOriginal
+                        ? 'Original'
+                        : c.isSegment && c.segmentIndex
+                        ? `Parte ${c.segmentIndex}`
+                        : `${c.type === 'image' ? 'Foto' : c.type === 'audio' ? 'Áudio' : 'Vídeo'} ${c.index}/${carouselItems.length}`;
                       const resolution = formatResolution(c.width, c.height);
                       const ItemIcon =
                         c.type === 'image' ? ImageIcon : c.type === 'audio' ? Music : Film;
@@ -311,21 +334,21 @@ export function HistoryView({
                       return (
                         <li
                           key={c.id}
-                          className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs dark:border-zinc-800 dark:bg-[#101012]"
+                          className="dw-glass-subtle flex items-center justify-between gap-2 rounded-2xl px-3 py-2 text-xs"
                         >
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-1.5">
-                              <span className="inline-flex items-center gap-1 font-medium text-zinc-800 dark:text-zinc-200">
-                                <ItemIcon className="h-3.5 w-3.5 text-[#65a30d] dark:text-[#A3E635]" />
+                              <span className="inline-flex items-center gap-1 font-medium text-[#1E1940] dark:text-[#F5F3FF]">
+                                <ItemIcon className="h-3.5 w-3.5 text-[#7C5CFF] dark:text-[#A78BFA]" />
                                 <span>{kindLabel}</span>
                               </span>
                               {resolution && (
-                                <span className="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-[10px] text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                                <span className="rounded bg-[#7C5CFF]/15 px-1.5 py-0.5 font-mono text-[10px] text-[#5E43F3] dark:text-[#C4B5FD]">
                                   {resolution}
                                 </span>
                               )}
                             </div>
-                            <p className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">
+                            <p className="truncate text-[11px] text-[#5B5482] dark:text-[#A5A1C8]">
                               {c.fileName}
                               {c.sizeBytes ? ` • ${formatBytes(c.sizeBytes)}` : ''}
                             </p>
@@ -342,7 +365,7 @@ export function HistoryView({
                                     mimeType: c.mimeType,
                                   })
                                 }
-                                className="min-h-[36px] rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:bg-[#1C1C20] dark:text-zinc-200"
+                                className="min-h-[36px] rounded-xl border border-[#7C5CFF]/25 px-2.5 text-xs font-medium text-[#4C3F91] dark:text-[#E0DBFF]"
                               >
                                 Abrir
                               </button>
@@ -356,7 +379,7 @@ export function HistoryView({
                                     title: item.title || c.fileName,
                                   })
                                 }
-                                className="min-h-[36px] rounded-lg bg-[#A3E635]/20 px-2.5 text-xs font-semibold text-[#4d7c0f] dark:text-[#A3E635]"
+                                className="min-h-[36px] rounded-xl bg-[#7C5CFF]/20 px-2.5 text-xs font-semibold text-[#5E43F3] dark:text-[#C4B5FD]"
                               >
                                 Compartilhar
                               </button>
@@ -379,7 +402,7 @@ export function HistoryView({
                           true
                         )
                       }
-                      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl bg-[#A3E635] px-3 text-xs font-semibold text-zinc-950 transition hover:bg-[#84CC16]"
+                      className="dw-btn-primary inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-3 text-xs font-semibold transition"
                     >
                       <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
                       <span>Status / WhatsApp</span>
@@ -396,7 +419,7 @@ export function HistoryView({
                           false
                         )
                       }
-                      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+                      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-3 text-xs font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 dark:text-[#E0DBFF]"
                     >
                       <Share2 className="h-3.5 w-3.5" aria-hidden="true" />
                       <span>Compartilhar todos</span>
@@ -413,12 +436,14 @@ export function HistoryView({
                               mimeType: primaryItem.mimeType,
                             })
                           }
-                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-3 text-xs font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 dark:text-[#E0DBFF]"
                         >
                           <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                           <span>
                             Abrir
-                            {primaryItem.sizeBytes ? ` (${formatBytes(primaryItem.sizeBytes)})` : ''}
+                            {primaryItem.sizeBytes
+                              ? ` (${formatBytes(primaryItem.sizeBytes)})`
+                              : ''}
                           </span>
                         </button>
                         <button
@@ -431,7 +456,7 @@ export function HistoryView({
                               title: item.title || primaryItem.fileName,
                             })
                           }
-                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-3 text-xs font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 dark:text-[#E0DBFF]"
                         >
                           <Share2 className="h-3.5 w-3.5" aria-hidden="true" />
                           <span>Compartilhar</span>
@@ -443,7 +468,7 @@ export function HistoryView({
                   <button
                     type="button"
                     onClick={() => void onRepeatDownload(item.normalized_url || item.original_url)}
-                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-3 text-xs font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 dark:text-[#E0DBFF]"
                   >
                     <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                     <span>Repetir</span>
@@ -452,7 +477,7 @@ export function HistoryView({
                   <button
                     type="button"
                     onClick={() => void handleCopy(item)}
-                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-3 text-xs font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 dark:text-[#E0DBFF]"
                   >
                     <Copy className="h-3.5 w-3.5" aria-hidden="true" />
                     <span>{copiedId === item.id ? 'Copiado!' : 'Copiar URL'}</span>
@@ -461,7 +486,7 @@ export function HistoryView({
                   <button
                     type="button"
                     onClick={() => onEditUrl(item.normalized_url || item.original_url)}
-                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-3 text-xs font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 dark:text-[#E0DBFF]"
                   >
                     <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
                     <span>Editar URL</span>
@@ -471,7 +496,7 @@ export function HistoryView({
                     type="button"
                     onClick={() => void handleDelete(item)}
                     aria-label="Remover do histórico"
-                    className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-zinc-300 px-3 text-xs font-medium text-zinc-600 transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-500 dark:border-zinc-700 dark:text-zinc-400 dark:hover:text-red-400"
+                    className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-[#7C5CFF]/25 px-3 text-xs font-medium text-[#5B5482] transition hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-500 dark:text-[#A5A1C8] dark:hover:text-rose-300"
                   >
                     <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>

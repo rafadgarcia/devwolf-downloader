@@ -68,3 +68,10 @@ Checklist de acompanhamento do projeto.
 - [x] Implementar gerenciador **Contas e Sessões** multiplataforma (`Instagram`, `Reddit` OAuth2 PKCE + WebView, `Threads`) em `SecureVault.kt`, `InstagramSessionActivity.kt`, `DevwolfNativePlugin.kt` e `SettingsView.tsx` com logout isolado por domínio e `AUTH_REQUIRED` contextualizado (`errorContract.ts`, `JobCard.tsx`)
 - [x] Expandir `PerformanceTracker.kt` e **Diagnóstico e Performance** em `SettingsView.tsx` com todos os 9 campos sanitizados
 - [x] Bump para `v3.0.0-rc.3` (`versionCode 30003`), suítes de testes, build de APKs assinados, `graphify update .` e prerelease no GitHub
+
+## Etapa 10 — v3.0.0-rc.4: Redesign Rposty, Tema Roxo Glassmorphism & Thumbnails Nativas
+- [x] Gerador nativo de thumbnails JPEG base64 (`480px`, `quality=75`) para vídeos e fotos em `MediaStoreHelper.kt`, anexado em `DevwolfDownloadService.kt` e persistido para os 24 itens recentes em `LocalQueueStore.kt`
+- [x] Redesign Rposty + sistema de design roxo/índigo (`#0D0B1E`, `#7C5CFF`, cards glassmórficos): Hero card no topo, grade **Baixado recentemente**, FAB `+` + modal **Adicionar link**, menu `⋮` no cabeçalho (sem barra inferior) e movimentação de **Modo Status** e **Tema** exclusivamente para **Ajustes**
+- [x] Remoção de rótulos redundantes `"Local"` na UI e nos rótulos de fase nativos em pt-BR (`DevwolfDownloadService.kt`)
+- [x] Tema nativo `#0D0B1E` em `colors.xml`, `styles.xml` (`AppTheme.NoActionBarLaunch`) e `MainActivity.kt` (status bar, navigation bar e WebView sem flash branco)
+- [x] Bump para `v3.0.0-rc.4` (`versionCode 30004`), `npx cap sync android`, suítes de testes (`vitest` + `testDebugUnitTest`), build de APKs assinados, `graphify update .` e prerelease no GitHub

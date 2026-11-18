@@ -64,6 +64,7 @@ interface SettingsViewProps {
   isNativeAndroid: boolean;
   latestJob: JobResponse | null;
   focusAccountPlatform?: string | null;
+  scrollToAccounts?: boolean;
   onClearFocusAccount?: () => void;
   onUpdateSettings: (patch: Partial<UserSettings>) => Promise<void>;
 }
@@ -73,6 +74,7 @@ export function SettingsView({
   isNativeAndroid,
   latestJob,
   focusAccountPlatform,
+  scrollToAccounts,
   onClearFocusAccount,
   onUpdateSettings,
 }: SettingsViewProps) {
@@ -126,8 +128,10 @@ export function SettingsView({
 
     setDiagReport({
       platform: metrics?.platform ?? latestJob?.platform ?? null,
-      engineUsed: metrics?.engineUsed ?? latestJob?.current_engine ?? latestJob?.selected_engine ?? null,
-      engineVersion: metrics?.engineVersion ?? latestJob?.engine_version ?? engineStatus?.ytdlpVersion ?? null,
+      engineUsed:
+        metrics?.engineUsed ?? latestJob?.current_engine ?? latestJob?.selected_engine ?? null,
+      engineVersion:
+        metrics?.engineVersion ?? latestJob?.engine_version ?? engineStatus?.ytdlpVersion ?? null,
       lastUpdateAt: engineStatus?.lastUpdateAt ?? null,
       strategyUsed: metrics?.strategyUsed ?? latestJob?.strategy_used ?? null,
       strategyAttempts: metrics?.strategyAttempts ?? [],
@@ -160,8 +164,11 @@ export function SettingsView({
   }, [diagnosticsOpen, loadDiagnostics]);
 
   useEffect(() => {
-    if (!focusAccountPlatform) return;
-    const el = document.getElementById(`session-card-${focusAccountPlatform}`);
+    if (!focusAccountPlatform && !scrollToAccounts) return;
+    const targetId = focusAccountPlatform
+      ? `session-card-${focusAccountPlatform}`
+      : 'contas-e-sessoes';
+    const el = document.getElementById(targetId);
     if (el && typeof el.scrollIntoView === 'function') {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
@@ -169,7 +176,7 @@ export function SettingsView({
       onClearFocusAccount?.();
     }, 3500);
     return () => window.clearTimeout(timer);
-  }, [focusAccountPlatform, onClearFocusAccount]);
+  }, [focusAccountPlatform, scrollToAccounts, onClearFocusAccount]);
 
   const patch = async (key: string, partial: Partial<UserSettings>) => {
     setSavingKey(key);
@@ -225,7 +232,7 @@ export function SettingsView({
   const handleSaveManualCookie = async (platform: ManagedAccountPlatform) => {
     const raw = (manualCookies[platform] ?? '').trim();
     if (!raw) {
-      setError('Cole o cabeçalho de sessão/cookie antes de salvar no cofre local.');
+      setError('Cole o cabeçalho de sessão/cookie antes de salvar no cofre.');
       return;
     }
     setError(null);
@@ -237,7 +244,7 @@ export function SettingsView({
       await loadSessions();
       setNotice(`Sessão opcional de ${platform} salva com criptografia no dispositivo.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao salvar sessão no cofre local.');
+      setError(err instanceof Error ? err.message : 'Erro ao salvar sessão no cofre.');
     }
   };
 
@@ -313,39 +320,47 @@ export function SettingsView({
     }
   };
 
+  const toggleClass = (active: boolean) =>
+    `min-h-[44px] min-w-[68px] rounded-xl px-3 text-xs font-bold transition ${
+      active
+        ? 'dw-btn-primary'
+        : 'border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 text-[#5B5482] dark:text-[#A5A1C8]'
+    }`;
+
   return (
-    <div className="space-y-4">
-      <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Ajustes</h2>
+    <div className="space-y-4 pb-8">
+      <h2 className="text-base font-bold text-[#1E1940] dark:text-[#F5F3FF]">Configurações</h2>
 
       {error && (
         <div
           role="alert"
-          className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-600 dark:text-red-300"
+          className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-300"
         >
           {error}
         </div>
       )}
 
       {notice && (
-        <div className="rounded-xl border border-[#A3E635]/30 bg-[#A3E635]/10 p-3 text-xs text-[#4d7c0f] dark:text-[#A3E635]">
+        <div className="rounded-2xl border border-[#7C5CFF]/30 bg-[#7C5CFF]/15 p-3 text-xs text-[#5E43F3] dark:text-[#C4B5FD]">
           {notice}
         </div>
       )}
 
-      {/* Modo Status (WhatsApp) */}
-      <section className="divide-y divide-zinc-200 rounded-2xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-[#1C1C20]">
+      {/* Modo Status (WhatsApp) — exclusivo das Configurações */}
+      <section className="dw-glass-card divide-y divide-[#7C5CFF]/15 rounded-3xl">
         <div className="flex items-center justify-between gap-4 p-4">
           <div>
-            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+            <p className="text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
               Modo Status (WhatsApp)
             </p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Garante H.264 + AAC em MP4 sem recompressão desnecessária
+            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
+              Garante H.264 + AAC em MP4 compatível sem recompressão desnecessária
             </p>
           </div>
           <button
             type="button"
             role="switch"
+            aria-label="Modo Status (WhatsApp)"
             aria-checked={settings.status_mode_enabled}
             disabled={savingKey === 'status_mode_enabled'}
             onClick={() =>
@@ -353,11 +368,7 @@ export function SettingsView({
                 status_mode_enabled: !settings.status_mode_enabled,
               })
             }
-            className={`min-h-[44px] min-w-[68px] rounded-xl px-3 text-xs font-bold transition ${
-              settings.status_mode_enabled
-                ? 'bg-[#A3E635] text-zinc-950'
-                : 'border border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-400'
-            }`}
+            className={toggleClass(settings.status_mode_enabled)}
           >
             {settings.status_mode_enabled ? 'ON' : 'OFF'}
           </button>
@@ -367,11 +378,11 @@ export function SettingsView({
           <div>
             <label
               htmlFor="setting-status-segments"
-              className="text-sm font-medium text-zinc-900 dark:text-zinc-100"
+              className="text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]"
             >
               Cortar vídeos longos
             </label>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
               Divide automaticamente em partes para publicar no Status
             </p>
           </div>
@@ -383,7 +394,7 @@ export function SettingsView({
                 status_max_duration_seconds: Number(e.target.value) as StatusSegmentDuration,
               })
             }
-            className="min-h-[44px] rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 outline-none dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200"
+            className="min-h-[44px] rounded-xl border border-[#7C5CFF]/25 bg-white/80 px-3 text-xs font-medium text-[#1E1940] outline-none dark:bg-[#0D0B1E]/80 dark:text-[#E0DBFF]"
           >
             <option value={0}>Desativado</option>
             <option value={30}>30 segundos</option>
@@ -394,16 +405,17 @@ export function SettingsView({
 
         <div className="flex items-center justify-between gap-4 p-4">
           <div>
-            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+            <p className="text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
               Manter arquivo original
             </p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
               Preserva o vídeo completo além dos cortes do Modo Status
             </p>
           </div>
           <button
             type="button"
             role="switch"
+            aria-label="Manter arquivo original"
             aria-checked={settings.status_keep_original}
             disabled={savingKey === 'status_keep_original'}
             onClick={() =>
@@ -411,39 +423,32 @@ export function SettingsView({
                 status_keep_original: !settings.status_keep_original,
               })
             }
-            className={`min-h-[44px] min-w-[68px] rounded-xl px-3 text-xs font-bold transition ${
-              settings.status_keep_original
-                ? 'bg-[#A3E635] text-zinc-950'
-                : 'border border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-400'
-            }`}
+            className={toggleClass(settings.status_keep_original)}
           >
             {settings.status_keep_original ? 'ON' : 'OFF'}
           </button>
         </div>
       </section>
 
-      {/* Preferências gerais */}
-      <section className="divide-y divide-zinc-200 rounded-2xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-[#1C1C20]">
+      {/* Preferências gerais + Tema (exclusivo das Configurações) */}
+      <section className="dw-glass-card divide-y divide-[#7C5CFF]/15 rounded-3xl">
         <div className="flex items-center justify-between gap-4 p-4">
           <div>
-            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+            <p className="text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
               Download automático
             </p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
               Iniciar download ao detectar link válido no clipboard ou compartilhamento
             </p>
           </div>
           <button
             type="button"
             role="switch"
+            aria-label="Download automático"
             aria-checked={settings.auto_download}
             disabled={savingKey === 'auto_download'}
             onClick={() => void patch('auto_download', { auto_download: !settings.auto_download })}
-            className={`min-h-[44px] min-w-[68px] rounded-xl px-3 text-xs font-bold transition ${
-              settings.auto_download
-                ? 'bg-[#A3E635] text-zinc-950'
-                : 'border border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-400'
-            }`}
+            className={toggleClass(settings.auto_download)}
           >
             {settings.auto_download ? 'ON' : 'OFF'}
           </button>
@@ -453,11 +458,11 @@ export function SettingsView({
           <div>
             <label
               htmlFor="setting-quality"
-              className="text-sm font-medium text-zinc-900 dark:text-zinc-100"
+              className="text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]"
             >
               Qualidade padrão
             </label>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
               Preferência aplicada aos novos downloads
             </p>
           </div>
@@ -469,7 +474,7 @@ export function SettingsView({
                 default_quality: e.target.value as QualityOption,
               })
             }
-            className="min-h-[44px] rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 outline-none dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200"
+            className="min-h-[44px] rounded-xl border border-[#7C5CFF]/25 bg-white/80 px-3 text-xs font-medium text-[#1E1940] outline-none dark:bg-[#0D0B1E]/80 dark:text-[#E0DBFF]"
           >
             <option value="best">Melhor disponível</option>
             <option value="1080p">1080p</option>
@@ -481,16 +486,17 @@ export function SettingsView({
 
         <div className="flex items-center justify-between gap-4 p-4">
           <div>
-            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+            <p className="text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
               Atualização automática do yt-dlp
             </p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Verificar novas versões do motor local quando sem downloads ativos
+            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
+              Verificar novas versões do motor quando sem downloads ativos
             </p>
           </div>
           <button
             type="button"
             role="switch"
+            aria-label="Atualização automática do yt-dlp"
             aria-checked={settings.auto_update_engines}
             disabled={savingKey === 'auto_update_engines'}
             onClick={() =>
@@ -498,11 +504,7 @@ export function SettingsView({
                 auto_update_engines: !settings.auto_update_engines,
               })
             }
-            className={`min-h-[44px] min-w-[68px] rounded-xl px-3 text-xs font-bold transition ${
-              settings.auto_update_engines
-                ? 'bg-[#A3E635] text-zinc-950'
-                : 'border border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-400'
-            }`}
+            className={toggleClass(settings.auto_update_engines)}
           >
             {settings.auto_update_engines ? 'ON' : 'OFF'}
           </button>
@@ -512,11 +514,11 @@ export function SettingsView({
           <div>
             <label
               htmlFor="setting-update-channel"
-              className="text-sm font-medium text-zinc-900 dark:text-zinc-100"
+              className="text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]"
             >
               Canal de atualização do yt-dlp
             </label>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
               Stable (recomendado) ou Nightly (correções recentes)
             </p>
           </div>
@@ -528,7 +530,7 @@ export function SettingsView({
                 update_channel: e.target.value as UpdateChannel,
               })
             }
-            className="min-h-[44px] rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 outline-none dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200"
+            className="min-h-[44px] rounded-xl border border-[#7C5CFF]/25 bg-white/80 px-3 text-xs font-medium text-[#1E1940] outline-none dark:bg-[#0D0B1E]/80 dark:text-[#E0DBFF]"
           >
             <option value="stable">Stable</option>
             <option value="nightly">Nightly</option>
@@ -537,16 +539,17 @@ export function SettingsView({
 
         <div className="flex items-center justify-between gap-4 p-4">
           <div>
-            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+            <p className="text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
               Notificações nativas
             </p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
               Exibir progresso e conclusão em segundo plano no Android
             </p>
           </div>
           <button
             type="button"
             role="switch"
+            aria-label="Notificações nativas"
             aria-checked={settings.notifications_enabled}
             disabled={savingKey === 'notifications_enabled'}
             onClick={() =>
@@ -554,11 +557,7 @@ export function SettingsView({
                 notifications_enabled: !settings.notifications_enabled,
               })
             }
-            className={`min-h-[44px] min-w-[68px] rounded-xl px-3 text-xs font-bold transition ${
-              settings.notifications_enabled
-                ? 'bg-[#A3E635] text-zinc-950'
-                : 'border border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-400'
-            }`}
+            className={toggleClass(settings.notifications_enabled)}
           >
             {settings.notifications_enabled ? 'ON' : 'OFF'}
           </button>
@@ -566,24 +565,21 @@ export function SettingsView({
 
         <div className="flex items-center justify-between gap-4 p-4">
           <div>
-            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+            <p className="text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
               Economia de dados
             </p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
               Priorizar arquivos menores (até 720p) quando disponível
             </p>
           </div>
           <button
             type="button"
             role="switch"
+            aria-label="Economia de dados"
             aria-checked={settings.data_saver}
             disabled={savingKey === 'data_saver'}
             onClick={() => void patch('data_saver', { data_saver: !settings.data_saver })}
-            className={`min-h-[44px] min-w-[68px] rounded-xl px-3 text-xs font-bold transition ${
-              settings.data_saver
-                ? 'bg-[#A3E635] text-zinc-950'
-                : 'border border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-400'
-            }`}
+            className={toggleClass(settings.data_saver)}
           >
             {settings.data_saver ? 'ON' : 'OFF'}
           </button>
@@ -593,46 +589,43 @@ export function SettingsView({
           <div>
             <label
               htmlFor="setting-theme"
-              className="text-sm font-medium text-zinc-900 dark:text-zinc-100"
+              className="text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]"
             >
               Tema da interface
             </label>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Padrão escuro para uso mobile
+            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
+              Escuro Roxo (padrão) ou Claro
             </p>
           </div>
           <select
             id="setting-theme"
             value={settings.theme}
             onChange={(e) => void patch('theme', { theme: e.target.value as ThemeMode })}
-            className="min-h-[44px] rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-xs font-medium text-zinc-800 outline-none dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200"
+            className="min-h-[44px] rounded-xl border border-[#7C5CFF]/25 bg-white/80 px-3 text-xs font-medium text-[#1E1940] outline-none dark:bg-[#0D0B1E]/80 dark:text-[#E0DBFF]"
           >
-            <option value="dark">Escuro</option>
+            <option value="dark">Escuro Roxo</option>
             <option value="light">Claro</option>
           </select>
         </div>
       </section>
 
       {/* Contas e Sessões (Instagram, Reddit, Threads) */}
-      <section
-        id="contas-e-sessoes"
-        className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-[#1C1C20]"
-      >
+      <section id="contas-e-sessoes" className="dw-glass-card space-y-3 rounded-3xl p-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <KeyRound className="h-4 w-4 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            <KeyRound className="h-4 w-4 text-[#7C5CFF] dark:text-[#A78BFA]" aria-hidden="true" />
+            <h3 className="text-sm font-bold text-[#1E1940] dark:text-[#F5F3FF]">
               Contas e Sessões
             </h3>
           </div>
-          <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-[#101012] dark:text-zinc-400">
-            Cofre local criptografado
+          <span className="rounded-lg bg-[#7C5CFF]/15 px-2 py-0.5 text-[11px] font-medium text-[#5E43F3] dark:text-[#C4B5FD]">
+            Cofre criptografado
           </span>
         </div>
 
-        <p className="flex items-start gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="flex items-start gap-1.5 text-xs text-[#5B5482] dark:text-[#A5A1C8]">
           <ShieldCheck
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#65a30d] dark:text-[#A3E635]"
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#7C5CFF] dark:text-[#A78BFA]"
             aria-hidden="true"
           />
           <span>
@@ -658,26 +651,26 @@ export function SettingsView({
               <div
                 key={account.id}
                 id={`session-card-${account.id}`}
-                className={`rounded-xl border p-3.5 transition ${
+                className={`rounded-2xl border p-3.5 transition ${
                   isFocused
-                    ? 'border-[#A3E635] bg-[#A3E635]/5'
-                    : 'border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-[#101012]'
+                    ? 'border-[#7C5CFF] bg-[#7C5CFF]/10'
+                    : 'dw-glass-subtle'
                 }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                    <p className="text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
                       {account.label}
                     </p>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    <p className="text-[11px] text-[#5B5482] dark:text-[#A5A1C8]">
                       {account.description}
                     </p>
                   </div>
                   <span
-                    className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${
+                    className={`rounded-lg px-2 py-0.5 text-[11px] font-semibold ${
                       connected
-                        ? 'bg-[#A3E635]/15 text-[#4d7c0f] dark:text-[#A3E635]'
-                        : 'bg-zinc-200/70 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                        ? 'bg-[#7C5CFF]/20 text-[#5E43F3] dark:text-[#C4B5FD]'
+                        : 'bg-[#7C5CFF]/10 text-[#5B5482] dark:text-[#A5A1C8]'
                     }`}
                   >
                     {connected ? 'Conectado' : 'Não conectado'}
@@ -685,24 +678,27 @@ export function SettingsView({
                 </div>
 
                 {connected && (
-                  <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
-                    Método: <span className="font-medium text-zinc-700 dark:text-zinc-200">{authMethodLabel}</span>
+                  <p className="mt-2 text-[11px] text-[#5B5482] dark:text-[#A5A1C8]">
+                    Método:{' '}
+                    <span className="font-medium text-[#1E1940] dark:text-[#F5F3FF]">
+                      {authMethodLabel}
+                    </span>
                     {session?.username ? ` • /u/${session.username}` : ''}
                     {session?.updatedAt ? ` • Atualizado: ${formatDateTime(session.updatedAt)}` : ''}
                   </p>
                 )}
 
                 {account.id === 'reddit' && (
-                  <div className="mt-2.5 space-y-2 rounded-lg border border-zinc-200 bg-white p-2.5 text-[11px] text-zinc-600 dark:border-zinc-800 dark:bg-[#1C1C20] dark:text-zinc-400">
+                  <div className="mt-2.5 space-y-2 rounded-xl border border-[#7C5CFF]/20 bg-white/70 p-2.5 text-[11px] text-[#5B5482] dark:bg-[#0D0B1E]/60 dark:text-[#A5A1C8]">
                     <div className="flex flex-wrap items-center justify-between gap-1">
-                      <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                      <span className="font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
                         Reddit OAuth2 Installed App (opcional)
                       </span>
                       <a
                         href="https://developers.reddit.com"
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1 font-medium text-[#4d7c0f] underline-offset-2 hover:underline dark:text-[#A3E635]"
+                        className="inline-flex items-center gap-1 font-medium text-[#5E43F3] underline-offset-2 hover:underline dark:text-[#C4B5FD]"
                       >
                         <span>developers.reddit.com</span>
                         <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -710,7 +706,7 @@ export function SettingsView({
                     </div>
                     <p>
                       Crie um <strong>Installed App</strong> com Redirect URI{' '}
-                      <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-[10px] dark:bg-[#101012]">
+                      <code className="rounded bg-[#7C5CFF]/10 px-1 py-0.5 font-mono text-[10px]">
                         {REDDIT_OAUTH_REDIRECT_URI}
                       </code>{' '}
                       e cole o Client ID abaixo (sem client secret), ou entre via WebView padrão.
@@ -721,7 +717,7 @@ export function SettingsView({
                       placeholder="Client ID do Reddit (opcional para OAuth2 PKCE)"
                       value={redditClientId}
                       onChange={(e) => handleRedditClientIdChange(e.target.value)}
-                      className="min-h-[40px] w-full rounded-lg border border-zinc-300 bg-zinc-50 px-2.5 text-xs text-zinc-900 outline-none focus:border-[#A3E635] dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-100"
+                      className="min-h-[40px] w-full rounded-xl border border-[#7C5CFF]/25 bg-white px-2.5 text-xs text-[#1E1940] outline-none focus:border-[#7C5CFF] dark:bg-[#0D0B1E] dark:text-[#F5F3FF]"
                     />
                   </div>
                 )}
@@ -733,7 +729,7 @@ export function SettingsView({
                         type="button"
                         disabled={!isNativeAndroid}
                         onClick={() => void handleConnectPlatform('reddit', true)}
-                        className="inline-flex min-h-[42px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#A3E635] px-3.5 text-xs font-semibold text-zinc-950 transition hover:bg-[#84CC16] disabled:cursor-not-allowed disabled:opacity-45"
+                        className="dw-btn-primary inline-flex min-h-[42px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-45"
                       >
                         <LogIn className="h-3.5 w-3.5" aria-hidden="true" />
                         <span>Conectar Reddit (OAuth2 PKCE)</span>
@@ -742,7 +738,7 @@ export function SettingsView({
                         type="button"
                         disabled={!isNativeAndroid}
                         onClick={() => void handleConnectPlatform('reddit', false)}
-                        className="inline-flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-800 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-45 dark:border-zinc-700 dark:bg-[#1C1C20] dark:text-zinc-200"
+                        className="inline-flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-3 text-xs font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 disabled:cursor-not-allowed disabled:opacity-45 dark:text-[#E0DBFF]"
                       >
                         <span>WebView</span>
                       </button>
@@ -752,7 +748,7 @@ export function SettingsView({
                       type="button"
                       disabled={!isNativeAndroid}
                       onClick={() => void handleConnectPlatform(account.id, false)}
-                      className="inline-flex min-h-[42px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#A3E635] px-3.5 text-xs font-semibold text-zinc-950 transition hover:bg-[#84CC16] disabled:cursor-not-allowed disabled:opacity-45"
+                      className="dw-btn-primary inline-flex min-h-[42px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       <LogIn className="h-3.5 w-3.5" aria-hidden="true" />
                       <span>Conectar {account.label}</span>
@@ -763,7 +759,7 @@ export function SettingsView({
                     <button
                       type="button"
                       onClick={() => void handleRevokePlatformSession(account.id, account.label)}
-                      className="inline-flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-red-500/30 bg-red-500/10 px-3 text-xs font-semibold text-red-600 transition hover:bg-red-500/20 dark:text-red-300"
+                      className="inline-flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 text-xs font-semibold text-rose-600 transition hover:bg-rose-500/20 dark:text-rose-300"
                     >
                       <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                       <span>Encerrar e excluir sessão</span>
@@ -778,7 +774,7 @@ export function SettingsView({
                       onClick={() =>
                         setManualOpenFor((cur) => (cur === account.id ? null : account.id))
                       }
-                      className="text-[11px] font-medium text-zinc-500 underline-offset-2 hover:underline dark:text-zinc-400"
+                      className="text-[11px] font-medium text-[#5B5482] underline-offset-2 hover:underline dark:text-[#A5A1C8]"
                     >
                       {manualOpenFor === account.id
                         ? 'Ocultar entrada manual'
@@ -789,7 +785,7 @@ export function SettingsView({
                       <div className="mt-2 flex gap-2">
                         <input
                           type="password"
-                          aria-label={`Cookie de sessão local do ${account.label}`}
+                          aria-label={`Cookie de sessão do ${account.label}`}
                           placeholder={account.cookiePlaceholder}
                           value={manualCookies[account.id]}
                           onChange={(e) =>
@@ -798,12 +794,12 @@ export function SettingsView({
                               [account.id]: e.target.value,
                             }))
                           }
-                          className="min-h-[40px] flex-1 rounded-xl border border-zinc-300 bg-white px-3 text-xs text-zinc-900 outline-none focus:border-[#A3E635] dark:border-zinc-700 dark:bg-[#1C1C20] dark:text-zinc-100"
+                          className="min-h-[40px] flex-1 rounded-xl border border-[#7C5CFF]/25 bg-white px-3 text-xs text-[#1E1940] outline-none focus:border-[#7C5CFF] dark:bg-[#0D0B1E] dark:text-[#F5F3FF]"
                         />
                         <button
                           type="button"
                           onClick={() => void handleSaveManualCookie(account.id)}
-                          className="min-h-[40px] rounded-xl border border-zinc-300 bg-zinc-100 px-3 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#1C1C20] dark:text-zinc-200"
+                          className="min-h-[40px] rounded-xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/15 px-3 text-xs font-semibold text-[#5E43F3] transition hover:bg-[#7C5CFF]/25 dark:text-[#C4B5FD]"
                         >
                           Salvar
                         </button>
@@ -818,14 +814,14 @@ export function SettingsView({
       </section>
 
       {/* Limpeza de cache temporário */}
-      <section className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-[#1C1C20]">
+      <section className="dw-glass-card flex items-center justify-between gap-4 rounded-3xl p-4">
         <div className="flex items-center gap-2.5">
-          <HardDrive className="h-4 w-4 text-zinc-400" aria-hidden="true" />
+          <HardDrive className="h-4 w-4 text-[#7C5CFF] dark:text-[#A78BFA]" aria-hidden="true" />
           <div>
-            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+            <p className="text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
               Cache temporário
             </p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
               Remove arquivos parciais e temporários de conversão
             </p>
           </div>
@@ -834,14 +830,14 @@ export function SettingsView({
           type="button"
           disabled={cacheClearing}
           onClick={() => void handleClearTempCache()}
-          className="min-h-[44px] shrink-0 rounded-xl border border-zinc-300 bg-zinc-50 px-3.5 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+          className="min-h-[44px] shrink-0 rounded-xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-3.5 text-xs font-semibold text-[#5E43F3] transition hover:bg-[#7C5CFF]/20 dark:text-[#C4B5FD]"
         >
           {cacheClearing ? 'Limpando…' : 'Limpar cache'}
         </button>
       </section>
 
       {/* Área de Diagnóstico e Performance (colapsável) */}
-      <section className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-[#1C1C20]">
+      <section className="dw-glass-card rounded-3xl">
         <button
           type="button"
           aria-expanded={diagnosticsOpen}
@@ -849,124 +845,125 @@ export function SettingsView({
           className="flex min-h-[52px] w-full items-center justify-between gap-3 px-4 py-3 text-left"
         >
           <div className="flex items-center gap-2.5">
-            <Activity className="h-4 w-4 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
+            <Activity className="h-4 w-4 text-[#7C5CFF] dark:text-[#A78BFA]" aria-hidden="true" />
             <div>
-              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              <p className="text-sm font-bold text-[#1E1940] dark:text-[#F5F3FF]">
                 Diagnóstico e Performance
               </p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Métricas locais do último download e log sanitizado
+              <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
+                Métricas do último download e log sanitizado
               </p>
             </div>
           </div>
           {diagnosticsOpen ? (
-            <ChevronUp className="h-4 w-4 text-zinc-400" aria-hidden="true" />
+            <ChevronUp className="h-4 w-4 text-[#7D75A8]" aria-hidden="true" />
           ) : (
-            <ChevronDown className="h-4 w-4 text-zinc-400" aria-hidden="true" />
+            <ChevronDown className="h-4 w-4 text-[#7D75A8]" aria-hidden="true" />
           )}
         </button>
 
         {diagnosticsOpen && (
-          <div className="border-t border-zinc-200 px-4 pb-4 pt-3 dark:border-zinc-800">
+          <div className="border-t border-[#7C5CFF]/15 px-4 pb-4 pt-3">
             <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">Plataforma</dt>
-                <dd className="font-mono font-medium text-zinc-800 dark:text-zinc-200">
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Plataforma</dt>
+                <dd className="font-mono font-medium text-[#1E1940] dark:text-[#F5F3FF]">
                   {diagReport?.platform || '—'}
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">Tipo de mídia</dt>
-                <dd className="font-mono font-medium text-zinc-800 dark:text-zinc-200">
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Tipo de mídia</dt>
+                <dd className="font-mono font-medium text-[#1E1940] dark:text-[#F5F3FF]">
                   {diagReport?.mediaTypeIdentified || '—'}
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">Motor utilizado</dt>
-                <dd className="font-mono font-medium text-zinc-800 dark:text-zinc-200">
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Motor utilizado</dt>
+                <dd className="font-mono font-medium text-[#1E1940] dark:text-[#F5F3FF]">
                   {diagReport?.engineUsed || '—'}
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">Versão do motor</dt>
-                <dd className="font-mono font-medium text-zinc-800 dark:text-zinc-200">
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Versão do motor</dt>
+                <dd className="font-mono font-medium text-[#1E1940] dark:text-[#F5F3FF]">
                   {diagReport?.engineVersion || '—'}
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">Estratégia principal</dt>
-                <dd className="font-mono font-medium text-zinc-800 dark:text-zinc-200">
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Estratégia principal</dt>
+                <dd className="font-mono font-medium text-[#1E1940] dark:text-[#F5F3FF]">
                   {diagReport?.strategyUsed || '—'}
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">Classificação final</dt>
-                <dd className="font-mono font-medium text-zinc-800 dark:text-zinc-200">
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Classificação final</dt>
+                <dd className="font-mono font-medium text-[#1E1940] dark:text-[#F5F3FF]">
                   {diagReport?.errorCode || 'OK'}
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">Código HTTP</dt>
-                <dd className="font-mono font-medium text-zinc-800 dark:text-zinc-200">
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Código HTTP</dt>
+                <dd className="font-mono font-medium text-[#1E1940] dark:text-[#F5F3FF]">
                   {diagReport?.httpStatus !== null && diagReport?.httpStatus !== undefined
                     ? diagReport.httpStatus
                     : '—'}
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">Exit code</dt>
-                <dd className="font-mono font-medium text-zinc-800 dark:text-zinc-200">
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Exit code</dt>
+                <dd className="font-mono font-medium text-[#1E1940] dark:text-[#F5F3FF]">
                   {diagReport?.exitCode !== null && diagReport?.exitCode !== undefined
                     ? diagReport.exitCode
                     : '—'}
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">Resolução</dt>
-                <dd className="font-mono text-zinc-800 dark:text-zinc-200">
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Resolução</dt>
+                <dd className="font-mono text-[#1E1940] dark:text-[#F5F3FF]">
                   {formatMs(diagReport?.resolutionMs)}
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">Transferência</dt>
-                <dd className="font-mono text-zinc-800 dark:text-zinc-200">
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Transferência</dt>
+                <dd className="font-mono text-[#1E1940] dark:text-[#F5F3FF]">
                   {formatMs(diagReport?.transferMs)}
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">TTFB / Galeria</dt>
-                <dd className="font-mono text-zinc-800 dark:text-zinc-200">
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">TTFB / Galeria</dt>
+                <dd className="font-mono text-[#1E1940] dark:text-[#F5F3FF]">
                   {formatMs(diagReport?.ttfbMs)} / {formatMs(diagReport?.galleryPublishMs)}
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">Tempo total</dt>
-                <dd className="font-mono text-zinc-800 dark:text-zinc-200">
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Tempo total</dt>
+                <dd className="font-mono text-[#1E1940] dark:text-[#F5F3FF]">
                   {formatMs(diagReport?.totalJobMs)}
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">Requisições HTTP</dt>
-                <dd className="font-mono text-zinc-800 dark:text-zinc-200">
-                  {diagReport?.httpRequestCount !== null && diagReport?.httpRequestCount !== undefined
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Requisições HTTP</dt>
+                <dd className="font-mono text-[#1E1940] dark:text-[#F5F3FF]">
+                  {diagReport?.httpRequestCount !== null &&
+                  diagReport?.httpRequestCount !== undefined
                     ? diagReport.httpRequestCount
                     : '—'}
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500 dark:text-zinc-400">Última atualização</dt>
-                <dd className="font-medium text-zinc-800 dark:text-zinc-200">
+                <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Última atualização</dt>
+                <dd className="font-medium text-[#1E1940] dark:text-[#F5F3FF]">
                   {formatDateTime(diagReport?.lastUpdateAt)}
                 </dd>
               </div>
             </dl>
 
             {diagReport?.strategyAttempts && diagReport.strategyAttempts.length > 0 && (
-              <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-2.5 text-xs dark:border-zinc-800 dark:bg-[#101012]">
-                <p className="font-semibold text-zinc-700 dark:text-zinc-300">
+              <div className="dw-glass-subtle mt-3 rounded-2xl p-2.5 text-xs">
+                <p className="font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
                   Estratégias utilizadas
                 </p>
-                <ul className="mt-1 space-y-1 font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
+                <ul className="mt-1 space-y-1 font-mono text-[11px] text-[#5B5482] dark:text-[#A5A1C8]">
                   {diagReport.strategyAttempts.map((att, idx) => (
                     <li key={`${att.strategyName}-${idx}`}>
                       {att.strategyName}: {att.success ? 'OK' : `FALHA(${att.errorCode || '-'})`} •{' '}
@@ -978,11 +975,11 @@ export function SettingsView({
               </div>
             )}
 
-            {(diagReport?.errorCode || diagReport?.rawErrorSanitized || diagReport?.technicalReason) && (
-              <div className="mt-3 rounded-xl border border-red-500/25 bg-red-500/10 p-2.5 text-xs text-red-600 dark:text-red-300">
-                <p className="font-mono font-semibold">
-                  {diagReport.errorCode || 'ERRO'}
-                </p>
+            {(diagReport?.errorCode ||
+              diagReport?.rawErrorSanitized ||
+              diagReport?.technicalReason) && (
+              <div className="mt-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 p-2.5 text-xs text-rose-600 dark:text-rose-300">
+                <p className="font-mono font-semibold">{diagReport.errorCode || 'ERRO'}</p>
                 {diagReport.rawErrorSanitized && (
                   <p className="mt-0.5 break-words font-mono text-[11px]">
                     {sanitizeDiagnosticText(diagReport.rawErrorSanitized)}
@@ -1000,11 +997,11 @@ export function SettingsView({
             <button
               type="button"
               onClick={() => void handleCopySanitizedLog()}
-              className="mt-3 inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-50 px-4 text-xs font-medium text-zinc-800 transition hover:bg-zinc-200 dark:border-zinc-700 dark:bg-[#101012] dark:text-zinc-200 dark:hover:bg-zinc-800"
+              className="mt-3 inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-2xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-4 text-xs font-semibold text-[#5E43F3] transition hover:bg-[#7C5CFF]/20 dark:text-[#C4B5FD]"
             >
               {diagCopied ? (
                 <>
-                  <Check className="h-4 w-4 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
+                  <Check className="h-4 w-4" aria-hidden="true" />
                   <span>Log sanitizado copiado!</span>
                 </>
               ) : (
@@ -1018,11 +1015,14 @@ export function SettingsView({
         )}
       </section>
 
-      <section className="flex items-start gap-2.5 rounded-2xl border border-zinc-200 bg-white p-4 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-[#1C1C20] dark:text-zinc-400">
-        <Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-[#65a30d] dark:text-[#A3E635]" aria-hidden="true" />
+      <section className="dw-glass-card flex items-start gap-2.5 rounded-3xl p-4 text-xs text-[#5B5482] dark:text-[#A5A1C8]">
+        <Smartphone
+          className="mt-0.5 h-4 w-4 shrink-0 text-[#7C5CFF] dark:text-[#A78BFA]"
+          aria-hidden="true"
+        />
         <p className="leading-relaxed">
-          O Devwolf Downloader executa 100% localmente no Android, recebe links diretamente do menu
-          Compartilhar e salva fotos e vídeos no álbum &ldquo;Devwolf Downloader&rdquo; da Galeria.
+          O Devwolf Downloader executa diretamente no Android, recebe links do menu Compartilhar e
+          salva fotos e vídeos no álbum &ldquo;Devwolf Downloader&rdquo; da Galeria.
         </p>
       </section>
     </div>

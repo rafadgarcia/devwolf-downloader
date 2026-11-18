@@ -2,20 +2,225 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark light;
+  --dw-bg-dark: #0d0b1e;
+  --dw-bg-indigo: #14112e;
+  --dw-bg-light: #f5f3ff;
+  --dw-surface-dark: rgba(30, 25, 64, 0.78);
+  --dw-surface-light: rgba(255, 255, 255, 0.9);
+  --dw-border-dark: rgba(147, 130, 255, 0.18);
+  --dw-border-light: rgba(124, 92, 255, 0.18);
+  --dw-accent-start: #7c5cff;
+  --dw-accent-end: #5e43f3;
+  --dw-accent-hover: #8f73ff;
+  --dw-lavender: #a78bfa;
+  --dw-lavender-soft: #c4b5fd;
+  --dw-text-secondary-dark: #a5a1c8;
+  --dw-text-secondary-light: #5b5482;
+  --target-size: 24px;
+}
+
+@media (pointer: coarse) {
+  :root {
+    --target-size: 44px;
+  }
+}
+
+html.dark {
+  color-scheme: dark;
+  accent-color: #7c5cff;
+}
+
+html:not(.dark) {
+  color-scheme: light;
+  accent-color: #5e43f3;
+}
+
 @layer base {
   html {
     font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     -webkit-tap-highlight-color: transparent;
+    scroll-padding-top: calc(4.25rem + env(safe-area-inset-top, 0px));
+    scroll-padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  body {
+    overflow-wrap: break-word;
+    min-height: 100dvh;
   }
 
   html.dark body {
-    background-color: #101012;
-    color: #f4f4f5;
+    background-color: #0d0b1e;
+    background-image:
+      radial-gradient(circle at 18% 0%, rgba(124, 92, 255, 0.24) 0%, transparent 45%),
+      radial-gradient(circle at 88% 18%, rgba(94, 67, 243, 0.18) 0%, transparent 42%),
+      linear-gradient(180deg, #0d0b1e 0%, #14112e 55%, #0d0b1e 100%);
+    background-attachment: fixed;
+    color: #f5f3ff;
   }
 
   html:not(.dark) body {
-    background-color: #f4f4f5;
-    color: #18181b;
+    background-color: #f5f3ff;
+    background-image:
+      radial-gradient(circle at 15% 0%, rgba(124, 92, 255, 0.14) 0%, transparent 45%),
+      radial-gradient(circle at 90% 20%, rgba(167, 139, 250, 0.16) 0%, transparent 40%),
+      linear-gradient(180deg, #f5f3ff 0%, #ede9fe 60%, #f5f3ff 100%);
+    background-attachment: fixed;
+    color: #1e1940;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p,
+  li {
+    text-wrap: pretty;
+  }
+
+  :where(a, code) {
+    overflow-wrap: anywhere;
+  }
+
+  :where(
+      button,
+      select,
+      textarea,
+      input:not([type='checkbox'], [type='radio']),
+      [role='button']
+    ) {
+    min-block-size: var(--target-size);
+  }
+}
+
+@layer components {
+  .dw-glass-card {
+    background: var(--dw-surface-light);
+    border: 1px solid var(--dw-border-light);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 12px 32px -12px rgba(94, 67, 243, 0.14);
+  }
+
+  html.dark .dw-glass-card {
+    background: var(--dw-surface-dark);
+    border: 1px solid var(--dw-border-dark);
+    box-shadow: 0 16px 40px -14px rgba(5, 3, 18, 0.65);
+  }
+
+  .dw-glass-subtle {
+    background: rgba(245, 243, 255, 0.78);
+    border: 1px solid rgba(124, 92, 255, 0.14);
+  }
+
+  html.dark .dw-glass-subtle {
+    background: rgba(13, 11, 30, 0.65);
+    border: 1px solid rgba(147, 130, 255, 0.16);
+  }
+
+  .dw-btn-primary {
+    background: linear-gradient(135deg, var(--dw-accent-start) 0%, var(--dw-accent-end) 100%);
+    color: #ffffff;
+    box-shadow: 0 10px 26px -6px rgba(124, 92, 255, 0.52);
+  }
+
+  .dw-btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, var(--dw-accent-hover) 0%, #6d5df6 100%);
+  }
+}
+
+/* Native <dialog> modal scroll containment & backdrop styling */
+dialog:modal {
+  overscroll-behavior: contain;
+  margin: auto;
+  max-height: calc(100dvh - 2rem);
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background-color: rgba(7, 5, 18, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Popover menu positioning & progressive enhancement */
+.dw-nav-popover[popover] {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.dw-nav-popover[popover]:is(:popover-open, .\:popover-open) {
+  display: block;
+}
+
+@supports (position-area: block-end) {
+  .dw-nav-popover[popover] {
+    position-area: block-end span-inline-start;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+    inset: auto;
+    margin-block-start: 0.5rem;
+  }
+}
+
+@supports not (position-area: block-end) {
+  .dw-nav-popover[popover] {
+    position: fixed;
+    top: calc(3.75rem + env(safe-area-inset-top, 0px));
+    right: max(1rem, env(safe-area-inset-right, 0px));
+    left: auto;
+    bottom: auto;
+    margin: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [popover]:has(> [focusgroup~='menu']) {
+    opacity: 0;
+    translate: 0 -0.25rem;
+    transition: opacity 0.15s ease, translate 0.15s ease, display 0.15s ease, overlay 0.15s ease;
+    transition-behavior: allow-discrete;
+  }
+
+  [popover]:has(> [focusgroup~='menu']):is(:popover-open, .\:popover-open) {
+    opacity: 1;
+    translate: 0 0;
+    transition-duration: 0.1s;
+    @starting-style {
+      opacity: 0;
+      translate: 0 -0.25rem;
+    }
+  }
+}
+
+[focusgroup~='menu'] > button {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+[focusgroup~='menu'] .hint {
+  margin-inline-start: auto;
+}
+
+@media (forced-colors: active) {
+  .dw-glass-card,
+  .dw-glass-subtle {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  .dw-btn-primary {
+    border: 1px solid ButtonText;
+    background: Highlight;
+    color: HighlightText;
   }
 }
 

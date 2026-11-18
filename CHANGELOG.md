@@ -2,6 +2,27 @@
 
 Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
+## [3.0.0-rc.4] — Redesign Rposty, Tema Roxo Glassmorphism, Thumbnails Nativas & Barra Roxa
+
+### Adicionado
+- **Thumbnails Nativas para Hero e "Baixado recentemente" (`MediaStoreHelper.kt`, `DevwolfDownloadService.kt`, `LocalQueueStore.kt`)**:
+  - `MediaStoreHelper.generateThumbnailDataUrl` gera miniaturas JPEG compactas (`480px` máx. mantendo proporção, `quality = 75`, `data:image/jpeg;base64,...`) via `MediaMetadataRetriever` (vídeos) e `BitmapFactory` com `inSampleSize` (imagens), diretamente do arquivo antes da limpeza temporária — sem exigir permissões extras de leitura no WebView.
+  - `thumbnailDataUrl` anexado a cada item em `files[]`/`items[]` e no snapshot do job, persistido no `LocalQueueStore` para os 24 itens mais recentes e compactado no `localStorage` do frontend acima de 12 itens.
+- **Redesign Home estilo Rposty & Sistema de Design Roxo/Índigo Glassmorphism (`frontend/src/`)**:
+  - Paleta `#0D0B1E` -> `#14112E` com cards glassmórficos (`#1E1940`), acentos `#7C5CFF` / `#5E43F3` e destaques `#A78BFA` / `#C4B5FD` (`manifest.webmanifest`, `tailwind.config.js`, `styles/index.css`).
+  - Novo **Hero Thumbnail Card** no topo da Home (com preview real, play central, badge de mídia, barra inferior glass com plataforma/título/ações rápidas e progresso ao vivo durante downloads) e grade **Baixado recentemente** (`grid-cols-3 sm:grid-cols-4`, com seta `→` para o Histórico), removendo a seção "Visitados frequentemente".
+  - Botão flutuante **`+`** com modal **Adicionar link de download** (`AddLinkModal.tsx`) e modal **Como baixar?** (`HowToDownloadModal.tsx`) usando `<dialog>` nativo + `closedby="any"`.
+  - Cabeçalho limpo (`Header.tsx`) com menu **`⋮`** (`popover="auto"` + `focusgroup="menu nomemory"`), removendo a barra de navegação inferior.
+
+### Alterado
+- **Tema Nativo Android Sem Flash Branco (`colors.xml`, `styles.xml`, `MainActivity.kt`)**:
+  - Adicionado `colors.xml` e atualizados `AppTheme`, `AppTheme.NoActionBar`, `AppTheme.NoActionBarLaunch` (`Theme.SplashScreen`) e `MainActivity.applyPurpleSystemChrome` com `#0D0B1E` na splash, janela, WebView, barra de status e barra de navegação.
+- **Organização de Ajustes & Nomenclatura Limpa (`DevwolfDownloadService.kt`, `SettingsView.tsx`, `EnginesView.tsx`)**:
+  - **Modo Status (WhatsApp)** e seletor de **Tema da interface** (`Escuro Roxo` / `Claro`) movidos exclusivamente para **Configurações (Ajustes)**.
+  - Removidos rótulos redundantes `"Local"` nos motores (`DNR • Instagram`, `DNR • Threads`, `yt-dlp`, `gallery-dl`, `Status dos Motores`) e padronizados rótulos nativos de fase em pt-BR (`Resolvendo publicação...`, `Baixando mídia...`, `Processando mídia...`, `Salvo na galeria`).
+- **Build & Versionamento (`android/app/build.gradle`, `frontend/package.json`)**:
+  - Atualizado para `versionCode 30004` e `versionName "3.0.0-rc.4"` mantendo `applicationId "com.devwolf.downloader"` e assinatura compatível.
+
 ## [3.0.0-rc.3] — Pinterest Vídeo, TikTok `yt-dlp`, Threads Nativo, Contas Multiplataforma & Diagnóstico Completo
 
 ### Adicionado

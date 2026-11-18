@@ -1,14 +1,14 @@
 {
   "name": "Devwolf Downloader",
   "short_name": "Devwolf",
-  "description": "Copiou. Abriu. Baixou. Downloader local no Android.",
+  "description": "Copiou. Abriu. Baixou. Downloader no dispositivo Android.",
   "lang": "pt-BR",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#101012",
-  "theme_color": "#A3E635",
+  "background_color": "#0D0B1E",
+  "theme_color": "#6D5DF6",
   "icons": [
     {
       "src": "/icons/icon.svg",

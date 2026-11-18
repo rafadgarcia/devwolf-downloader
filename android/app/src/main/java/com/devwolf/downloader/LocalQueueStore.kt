@@ -117,8 +117,13 @@ class LocalQueueStore(context: Context) {
 
     private fun persistMapLocked(jobs: Map<String, JSONObject>) {
         val arr = JSONArray()
-        for (job in jobs.values.sortedByDescending { it.optString("updatedAt", "") }.take(100)) {
-            arr.put(job)
+        val sorted = jobs.values.sortedByDescending { it.optString("updatedAt", "") }.take(MAX_PERSISTED_JOBS)
+        sorted.forEachIndexed { index, job ->
+            if (index < MAX_JOBS_WITH_THUMBNAILS) {
+                arr.put(job)
+            } else {
+                arr.put(stripThumbnailsCopy(job))
+            }
         }
         writeAtomically(queueFile, arr.toString())
     }
@@ -130,6 +135,23 @@ class LocalQueueStore(context: Context) {
         if (!tmp.renameTo(target)) {
             target.writeText(content, Charsets.UTF_8)
             tmp.delete()
+        }
+    }
+
+    companion object {
+        const val MAX_PERSISTED_JOBS = 100
+        const val MAX_JOBS_WITH_THUMBNAILS = 24
+
+        internal fun stripThumbnailsCopy(job: JSONObject): JSONObject {
+            val copy = JSONObject(job.toString())
+            copy.remove("thumbnailDataUrl")
+            for (arrayKey in listOf("files", "items")) {
+                val items = copy.optJSONArray(arrayKey) ?: continue
+                for (i in 0 until items.length()) {
+                    items.optJSONObject(i)?.remove("thumbnailDataUrl")
+                }
+            }
+            return copy
         }
     }
 }
