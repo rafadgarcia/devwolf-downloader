@@ -38,6 +38,10 @@ class UrlExtractorTest {
             "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s",
             UrlExtractor.normalizeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=xyz999&t=42s&utm_medium=share"),
         )
+        assertEquals(
+            "https://www.reddit.com/r/brasil/s/XyZ987Share",
+            UrlExtractor.normalizeUrl("https://www.reddit.com/r/brasil/s/XyZ987Share?utm_source=share&share_id=abc&context=3&rdt=12345"),
+        )
     }
 
     @Test

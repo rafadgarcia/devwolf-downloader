@@ -26,6 +26,7 @@ class GalleryDlLocalResolver(
     private val pinterestBaseUrl: String? = null,
     private val redditBaseUrl: String? = null,
     private val twitterSyndicationBaseUrl: String = "https://cdn.syndication.twimg.com",
+    private val oldRedditBaseUrl: String? = null,
 ) : MediaResolver {
 
     override val engineKind: EngineKind = EngineKind.GALLERY_DL_LOCAL
@@ -122,60 +123,95 @@ class GalleryDlLocalResolver(
         var totalReqs = 0
         try {
             val normalized = UrlExtractor.normalizeUrl(request.url)
-            val headers = mapOf(
-                "User-Agent" to "android:com.devwolf.downloader:v3.0.0",
-                "Accept" to "application/json",
-            )
+            val userAgent = request.userAgent?.takeIf { it.isNotBlank() } ?: SafeHttpClient.DEFAULT_MOBILE_CHROME_UA
+            val htmlHeaders = LinkedHashMap<String, String>().apply {
+                put("User-Agent", userAgent)
+                put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                put("Accept-Language", "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7")
+                request.cookieHeader?.trim()?.takeIf { it.isNotEmpty() }?.let { put("Cookie", it) }
+            }
+            val jsonHeaders = LinkedHashMap<String, String>().apply {
+                put("User-Agent", userAgent)
+                put("Accept", "application/json, text/plain, */*")
+                put("Accept-Language", "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7")
+                request.cookieHeader?.trim()?.takeIf { it.isNotEmpty() }?.let { put("Cookie", it) }
+            }
             val initialTarget = if (redditBaseUrl != null) {
                 rewriteHost(normalized, redditBaseUrl)
             } else {
                 normalized
             }
 
-            val (finalUrl, hopReqs) = httpClient.resolveFinalUrl(initialTarget, headers, request.cancellationCheck)
-            totalReqs += hopReqs
+            var resolvedUrl = initialTarget
+            if (isRedditShareOrShortUrl(initialTarget)) {
+                val (hopUrl, hopReqs) = httpClient.resolveFinalUrl(initialTarget, htmlHeaders, request.cancellationCheck)
+                totalReqs += hopReqs
+                resolvedUrl = hopUrl
 
-            val jsonEndpoint = buildRedditJsonUrl(finalUrl)
+                if (isUnresolvedRedditSharePath(resolvedUrl)) {
+                    val shareResp = httpClient.getText(resolvedUrl, htmlHeaders, cancellationCheck = request.cancellationCheck)
+                    totalReqs += shareResp.httpRequests
+                    if (shareResp.statusCode !in 200..299) {
+                        val errCode = classifyRedditHttpError(shareResp.statusCode, shareResp.body, shareResp.contentType)
+                        throw ResolverException(
+                            errorCode = errCode,
+                            httpStatus = shareResp.statusCode,
+                            technicalReason = "Reddit share link /s/ HTTP ${shareResp.statusCode} ($errCode)",
+                            metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, totalReqs),
+                        )
+                    }
+                    val canonicalFromHtml = extractRedditCanonicalUrl(shareResp.body)
+                    if (canonicalFromHtml != null) {
+                        resolvedUrl = if (redditBaseUrl != null) {
+                            rewriteHost(canonicalFromHtml, redditBaseUrl)
+                        } else {
+                            canonicalFromHtml
+                        }
+                    }
+                }
+
+                if (isUnresolvedRedditSharePath(resolvedUrl)) {
+                    throw ResolverException(
+                        errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
+                        technicalReason = "Link de compartilhamento /s/ do Reddit não resolveu para /comments/",
+                        metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, totalReqs),
+                    )
+                }
+            }
+
+            val jsonEndpoint = buildRedditJsonUrl(resolvedUrl)
                 ?: throw ResolverException(
-                    errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
-                    technicalReason = "URL do Reddit não aponta para um post reconhecido",
+                    errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
+                    technicalReason = "URL do Reddit não aponta para um post /comments/ reconhecido",
                     metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, totalReqs),
                 )
 
-            val resp = httpClient.getText(jsonEndpoint, headers, cancellationCheck = request.cancellationCheck)
+            var resp = httpClient.getText(jsonEndpoint, jsonHeaders, cancellationCheck = request.cancellationCheck)
             totalReqs += resp.httpRequests
 
-            if (resp.statusCode == 404 || resp.statusCode == 410) {
-                throw ResolverException(
-                    errorCode = DevwolfErrorCode.MEDIA_UNAVAILABLE,
-                    httpStatus = resp.statusCode,
-                    metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, totalReqs),
-                )
-            }
-            if (resp.statusCode == 403) {
-                throw ResolverException(
-                    errorCode = DevwolfErrorCode.PRIVATE_MEDIA,
-                    httpStatus = 403,
-                    technicalReason = "Comunidade ou publicação privada no Reddit",
-                    metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, totalReqs),
-                )
-            }
-            if (resp.statusCode == 429) {
-                throw ResolverException(
-                    errorCode = DevwolfErrorCode.RATE_LIMITED,
-                    httpStatus = 429,
-                    metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, totalReqs),
-                )
-            }
             if (resp.statusCode !in 200..299) {
+                val firstErr = classifyRedditHttpError(resp.statusCode, resp.body, resp.contentType)
+                if (resp.statusCode == 403 && firstErr == DevwolfErrorCode.EXTRACTION_FAILED) {
+                    val oldFallbackUrl = buildOldRedditFallbackUrl(jsonEndpoint)
+                    if (oldFallbackUrl != null) {
+                        val oldResp = httpClient.getText(oldFallbackUrl, jsonHeaders, cancellationCheck = request.cancellationCheck)
+                        totalReqs += oldResp.httpRequests
+                        resp = oldResp
+                    }
+                }
+            }
+
+            if (resp.statusCode !in 200..299) {
+                val finalErr = classifyRedditHttpError(resp.statusCode, resp.body, resp.contentType)
                 throw ResolverException(
-                    errorCode = ErrorClassifier.fromHttpStatus(resp.statusCode),
+                    errorCode = finalErr,
                     httpStatus = resp.statusCode,
+                    technicalReason = "Reddit HTTP ${resp.statusCode} ($finalErr)",
                     metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, totalReqs),
                 )
             }
 
-            val postId = extractRedditPostId(finalUrl) ?: "reddit"
+            val postId = extractRedditPostId(resolvedUrl) ?: "reddit"
             val parsed = parseRedditJson(resp.body, postId)
                 ?: throw ResolverException(
                     errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
@@ -207,6 +243,18 @@ class GalleryDlLocalResolver(
                 cause = e,
             )
         }
+    }
+
+    private fun buildOldRedditFallbackUrl(jsonEndpoint: String): String? {
+        if (oldRedditBaseUrl != null) {
+            return rewriteHost(jsonEndpoint, oldRedditBaseUrl)
+        }
+        if (redditBaseUrl != null) {
+            return null
+        }
+        val host = SafeHttpClient.extractHost(jsonEndpoint)
+        if (host == "old.reddit.com") return null
+        return rewriteHost(jsonEndpoint, "https://old.reddit.com")
     }
 
     private fun resolveTwitterImages(request: ResolutionRequest, startMs: Long): ResolutionResult {
@@ -798,10 +846,97 @@ class GalleryDlLocalResolver(
             }
         }
 
+        fun classifyRedditHttpError(
+            statusCode: Int,
+            body: String,
+            contentType: String?,
+        ): DevwolfErrorCode {
+            if (statusCode == 429) return DevwolfErrorCode.RATE_LIMITED
+            if (statusCode == 404 || statusCode == 410) return DevwolfErrorCode.MEDIA_UNAVAILABLE
+            if (statusCode == 401) return DevwolfErrorCode.AUTH_REQUIRED
+
+            if (statusCode == 403) {
+                val trimmed = body.trim()
+                val lowerBody = trimmed.lowercase()
+                val isJson = contentType?.contains("json", ignoreCase = true) == true || trimmed.startsWith("{")
+                if (isJson) {
+                    try {
+                        val json = JSONObject(trimmed)
+                        val reason = json.optString("reason").trim().lowercase()
+                        val subredditType = json.optString("subreddit_type").trim().lowercase()
+                        val message = json.optString("message").trim().lowercase()
+                        val isPrivate = json.optBoolean("is_private", false)
+                        if (reason == "private" || subredditType == "private" || isPrivate) {
+                            return DevwolfErrorCode.PRIVATE_MEDIA
+                        }
+                        if (reason == "quarantined" || reason == "login_required" || message == "unauthorized") {
+                            return DevwolfErrorCode.AUTH_REQUIRED
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
+
+                if (Regex(""""reason"\s*:\s*"private"""").containsMatchIn(lowerBody) ||
+                    Regex(""""subreddit_type"\s*:\s*"private"""").containsMatchIn(lowerBody) ||
+                    Regex(""""is_private"\s*:\s*true""").containsMatchIn(lowerBody) ||
+                    lowerBody.contains("this community is private") ||
+                    lowerBody.contains("you must be invited to visit this community")
+                ) {
+                    return DevwolfErrorCode.PRIVATE_MEDIA
+                }
+
+                if (Regex(""""reason"\s*:\s*"quarantined"""").containsMatchIn(lowerBody) ||
+                    lowerBody.contains("login_required")
+                ) {
+                    return DevwolfErrorCode.AUTH_REQUIRED
+                }
+
+                // HTML WAF/Fastly/Cloudflare blocks (e.g. "whoa there, pardner!", "403 Blocked")
+                // are recoverable so EngineRouter delegates to yt-dlp.
+                return DevwolfErrorCode.EXTRACTION_FAILED
+            }
+
+            if (statusCode in 500..599) return DevwolfErrorCode.NETWORK_ERROR
+            return ErrorClassifier.fromHttpStatus(statusCode, body)
+        }
+
+        internal fun isRedditShareOrShortUrl(url: String): Boolean {
+            val uri = try { URI(url) } catch (_: Exception) { return false }
+            val host = uri.host?.lowercase()?.trimEnd('.') ?: ""
+            val path = uri.path.orEmpty()
+            if (host == "redd.it" || host.endsWith(".redd.it")) return true
+            return isUnresolvedRedditSharePath(url) || (!path.contains("/comments/") && !path.contains("/gallery/"))
+        }
+
+        internal fun isUnresolvedRedditSharePath(url: String): Boolean {
+            val path = try { URI(url).path.orEmpty() } catch (_: Exception) { return false }
+            if (path.contains("/comments/") || path.contains("/gallery/")) return false
+            return Regex("""(?:^|/)s/[A-Za-z0-9_-]+""").containsMatchIn(path)
+        }
+
+        internal fun extractRedditCanonicalUrl(html: String): String? {
+            if (html.isBlank()) return null
+            val doc = Jsoup.parse(html)
+            val candidates = listOfNotNull(
+                doc.selectFirst("link[rel=canonical]")?.attr("href")?.trim(),
+                doc.selectFirst("meta[property=og:url]")?.attr("content")?.trim(),
+            )
+            for (cand in candidates) {
+                if (cand.startsWith("http", ignoreCase = true) &&
+                    !isUnresolvedRedditSharePath(cand) &&
+                    (cand.contains("/comments/") || cand.contains("/gallery/"))
+                ) {
+                    return UrlExtractor.normalizeUrl(cand)
+                }
+            }
+            return null
+        }
+
         internal fun buildRedditJsonUrl(url: String): String? {
             val uri = try { URI(url) } catch (_: Exception) { return null }
             val path = (uri.path ?: "").trimEnd('/')
             if (path.isBlank() || path == "/") return null
+            if (isUnresolvedRedditSharePath(url)) return null
             val jsonPath = if (path.endsWith(".json")) path else "$path.json"
             val port = if (uri.port != -1) ":${uri.port}" else ""
             return "${uri.scheme}://${uri.host}$port$jsonPath?raw_json=1"
@@ -812,7 +947,7 @@ class GalleryDlLocalResolver(
         }
 
         private fun extractRedditPostId(url: String): String? {
-            return Regex("""/comments/([A-Za-z0-9]+)""").find(url)?.groupValues?.get(1)
+            return Regex("""/(?:comments|gallery)/([A-Za-z0-9]+)""").find(url)?.groupValues?.get(1)
         }
 
         private fun extractTweetId(url: String): String? {

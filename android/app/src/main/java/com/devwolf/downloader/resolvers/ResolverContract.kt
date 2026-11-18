@@ -168,6 +168,16 @@ object ErrorClassifier {
             403 -> {
                 val hint = contextHint?.lowercase().orEmpty()
                 when {
+                    hint.contains("whoa there, pardner") ||
+                        hint.contains("blocked by network security") ||
+                        hint.contains("403 blocked") ||
+                        hint.contains("cloudflare") ||
+                        hint.contains("fastly") -> DevwolfErrorCode.EXTRACTION_FAILED
+                    hint.contains("\"reason\": \"private\"") ||
+                        hint.contains("\"reason\":\"private\"") ||
+                        hint.contains("\"subreddit_type\": \"private\"") ||
+                        hint.contains("\"subreddit_type\":\"private\"") ||
+                        hint.contains("this community is private") -> DevwolfErrorCode.PRIVATE_MEDIA
                     hint.contains("captcha") || hint.contains("challenge") -> DevwolfErrorCode.CAPTCHA_REQUIRED
                     hint.contains("login") -> DevwolfErrorCode.AUTH_REQUIRED
                     else -> DevwolfErrorCode.EXTRACTION_FAILED

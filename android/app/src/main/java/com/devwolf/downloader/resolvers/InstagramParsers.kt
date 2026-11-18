@@ -132,8 +132,20 @@ object InstagramParsers {
 
     fun extractPageContext(html: String): InstagramPageContext {
         if (html.isBlank()) return InstagramPageContext()
-        val mediaId = Regex(""""(?:media_id|pk)"\s*:\s*"(\d{10,25})"""")
+        var mediaId = Regex(""""(?:media_id|pk)"\s*:\s*"(\d{10,25})"""")
             .find(html)?.groupValues?.get(1)
+        if (mediaId == null && (html.contains("al:ios:url", ignoreCase = true) || html.contains("al:android:url", ignoreCase = true))) {
+            val doc = Jsoup.parse(html)
+            for (meta in doc.select("meta[property=al:ios:url], meta[property=al:android:url]")) {
+                val content = meta.attr("content")
+                val matched = Regex("""media\?id=(\d{5,25})""", RegexOption.IGNORE_CASE)
+                    .find(content)?.groupValues?.get(1)
+                if (matched != null) {
+                    mediaId = matched
+                    break
+                }
+            }
+        }
         val csrfToken = Regex(""""csrf_token"\s*:\s*"([A-Za-z0-9_-]{8,128})"""")
             .find(html)?.groupValues?.get(1)
         val lsdToken = Regex(""""LSD"\s*,\s*\[\]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"""")
@@ -152,7 +164,7 @@ object InstagramParsers {
 
     /**
      * Classifies Instagram HTTP / HTML errors accurately without falsely attributing
-     * parser mismatches or generic HTML changes to PRIVATE_MEDIA.
+     * Polaris <script> bootloader strings or parser misses to CAPTCHA_REQUIRED or PRIVATE_MEDIA.
      */
     fun classifyFailure(
         statusCode: Int,
@@ -160,51 +172,121 @@ object InstagramParsers {
         body: String,
         hasSessionCookie: Boolean,
     ): DevwolfErrorCode {
-        val lowerBody = body.lowercase()
+        val trimmedBody = body.trim()
         val lowerUrl = finalUrl.lowercase()
+        val urlPath = try {
+            URI(finalUrl).path.orEmpty().lowercase()
+        } catch (_: Exception) {
+            lowerUrl
+        }
+
+        val isJsonPayload = trimmedBody.startsWith("{")
+        val jsonObj = if (isJsonPayload) {
+            try {
+                JSONObject(trimmedBody)
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+
+        val visibleDomText: String
+        val hasCaptchaFormOrWidget: Boolean
+        if (!isJsonPayload && trimmedBody.isNotEmpty()) {
+            val doc = Jsoup.parse(body)
+            hasCaptchaFormOrWidget = doc.select("form[action]").any { form ->
+                val action = form.attr("action").lowercase()
+                action.contains("/challenge") || action.contains("/checkpoint") || action.contains("captcha")
+            } || doc.select(
+                "iframe[src*=recaptcha], iframe[src*=hcaptcha], iframe[src*=arkose], .g-recaptcha, .h-captcha",
+            ).isNotEmpty()
+            doc.select("script, style, noscript, meta, link").remove()
+            visibleDomText = doc.text().lowercase()
+        } else {
+            hasCaptchaFormOrWidget = false
+            visibleDomText = ""
+        }
+
+        val jsonMessage = (
+            jsonObj?.optString("message")?.takeIf { it.isNotBlank() }
+                ?: jsonObj?.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }
+            ).orEmpty().trim().lowercase()
+        val lowerJsonText = if (jsonObj != null) trimmedBody.lowercase() else ""
 
         if (statusCode == 429 ||
-            lowerBody.contains("please wait a few minutes before you try again") ||
-            lowerBody.contains("\"message\":\"rate limit") ||
-            lowerBody.contains("too many requests")
+            jsonMessage.contains("rate limit") ||
+            jsonMessage.contains("please wait a few minutes") ||
+            jsonMessage.contains("too many requests") ||
+            visibleDomText.contains("please wait a few minutes before you try again") ||
+            visibleDomText.contains("too many requests")
         ) {
             return DevwolfErrorCode.RATE_LIMITED
         }
 
-        if (lowerUrl.contains("/challenge/") ||
-            lowerBody.contains("checkpoint_required") ||
-            lowerBody.contains("challenge_required") ||
-            lowerBody.contains("verify you are human") ||
-            lowerBody.contains("captcha")
-        ) {
+        val challengeUrlRedirect = urlPath.contains("/challenge/") ||
+            urlPath.endsWith("/challenge") ||
+            urlPath.contains("/checkpoint/") ||
+            urlPath.endsWith("/checkpoint")
+        val jsonChallenge = jsonObj != null && (
+            jsonMessage == "challenge_required" ||
+                jsonMessage == "checkpoint_required" ||
+                jsonObj.optJSONObject("challenge") != null ||
+                jsonObj.optString("challenge_url").isNotBlank()
+            )
+        val domChallenge = hasCaptchaFormOrWidget ||
+            visibleDomText.contains("verify you are human") ||
+            visibleDomText.contains("confirm you're human") ||
+            visibleDomText.contains("confirm you are human") ||
+            visibleDomText.contains("help us confirm it's you") ||
+            visibleDomText.contains("confirme que você é humano") ||
+            visibleDomText.contains("não sou um robô") ||
+            visibleDomText.contains("security check") ||
+            visibleDomText.contains("challenge_required") ||
+            visibleDomText.contains("checkpoint_required") ||
+            visibleDomText.contains("captcha")
+
+        if (challengeUrlRedirect || jsonChallenge || domChallenge) {
             return DevwolfErrorCode.CAPTCHA_REQUIRED
         }
 
         if (statusCode == 404 ||
             statusCode == 410 ||
-            lowerBody.contains("sorry, this page isn't available") ||
-            lowerBody.contains("the link you followed may be broken") ||
-            lowerBody.contains("post isn't available") ||
-            lowerBody.contains("this content isn't available right now") ||
-            lowerBody.contains("media not found")
+            visibleDomText.contains("sorry, this page isn't available") ||
+            visibleDomText.contains("the link you followed may be broken") ||
+            visibleDomText.contains("post isn't available") ||
+            visibleDomText.contains("this content isn't available right now") ||
+            visibleDomText.contains("esta página não está disponível") ||
+            jsonMessage.contains("media not found") ||
+            visibleDomText.contains("media not found")
         ) {
             return DevwolfErrorCode.MEDIA_UNAVAILABLE
         }
 
-        // Explicit private account / private post indicators in JSON or clear UI notice
-        val explicitPrivate = Regex(""""is_private"\s*:\s*true""").containsMatchIn(lowerBody) ||
-            lowerBody.contains("this account is private") ||
-            lowerBody.contains("esta conta é privada") ||
-            lowerBody.contains("conta privada")
-        if (explicitPrivate) {
+        // Explicit private account / private post indicators in JSON or visible DOM notice
+        val jsonIsPrivate = jsonObj != null && (
+            Regex(""""is_private"\s*:\s*true""").containsMatchIn(lowerJsonText) ||
+                jsonMessage.contains("this account is private") ||
+                jsonMessage.contains("private account")
+            )
+        val domIsPrivate = visibleDomText.contains("this account is private") ||
+            visibleDomText.contains("esta conta é privada") ||
+            visibleDomText.contains("conta privada") ||
+            visibleDomText.contains("follow this account to see their photos and videos")
+        if (jsonIsPrivate || domIsPrivate) {
             return DevwolfErrorCode.PRIVATE_MEDIA
         }
 
-        val loginWall = lowerUrl.contains("/accounts/login") ||
+        val jsonLoginRequired = jsonObj != null && (
+            jsonObj.optBoolean("require_login", false) ||
+                jsonMessage == "login_required" ||
+                jsonMessage.contains("login_required")
+            )
+        val loginWall = urlPath.contains("/accounts/login") ||
             statusCode == 401 ||
-            lowerBody.contains("\"require_login\":true") ||
-            lowerBody.contains("login_required") ||
-            lowerBody.contains("log in to see photos and videos")
+            jsonLoginRequired ||
+            visibleDomText.contains("log in to see photos and videos") ||
+            visibleDomText.contains("entre para ver fotos e vídeos")
         if (loginWall) {
             return if (hasSessionCookie) DevwolfErrorCode.AUTH_REQUIRED else DevwolfErrorCode.AUTH_REQUIRED
         }

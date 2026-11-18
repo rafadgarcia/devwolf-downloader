@@ -81,11 +81,85 @@ class InstagramNativeResolver(
         var sawNetworkError = false
         var lastTechnicalReason: String? = null
 
-        // Strategy 1: EmbedCaptionedStrategy (fast public embed for /p/, /reel/, /tv/)
-        if (parsed.kind != InstagramUrlKind.STORIES) {
-            val s1Start = System.currentTimeMillis()
-            var s1Reqs = 0
+        fun runStrategy(
+            strategyName: String,
+            isMainPage: Boolean,
+            allowAuthWallPoison: Boolean,
+            block: () -> Pair<HttpTextResponse, InstagramParsedMedia?>,
+        ): ResolutionResult? {
+            val start = System.currentTimeMillis()
+            var reqs = 0
             try {
+                val (resp, parsedMedia) = block()
+                reqs = resp.httpRequests
+                totalHttpRequests += reqs
+
+                if (parsedMedia?.isPrivate == true) {
+                    val code = DevwolfErrorCode.PRIVATE_MEDIA
+                    attempts.add(StrategyAttemptMetric(strategyName, System.currentTimeMillis() - start, reqs, false, code, "is_private=true"))
+                    throw ResolverException(code, strategyUsed = strategyName, metrics = buildMetrics())
+                }
+
+                val hasAcceptableMedia = parsedMedia != null && parsedMedia.items.isNotEmpty() &&
+                    (parsed.kind != InstagramUrlKind.REEL || parsedMedia.items.any { it.type == MediaItemType.VIDEO })
+
+                if (hasAcceptableMedia) {
+                    attempts.add(StrategyAttemptMetric(strategyName, System.currentTimeMillis() - start, reqs, true))
+                    return buildResult(parsed, parsedMedia!!, strategyName, buildMetrics())
+                }
+
+                val errCode = InstagramParsers.classifyFailure(resp.statusCode, resp.finalUrl, resp.body, hasSession)
+                val isImmediateTerminal = errCode == DevwolfErrorCode.RATE_LIMITED ||
+                    errCode == DevwolfErrorCode.CAPTCHA_REQUIRED ||
+                    errCode == DevwolfErrorCode.PRIVATE_MEDIA ||
+                    (isMainPage && errCode == DevwolfErrorCode.MEDIA_UNAVAILABLE)
+
+                if (isImmediateTerminal) {
+                    attempts.add(StrategyAttemptMetric(strategyName, System.currentTimeMillis() - start, reqs, false, errCode, "HTTP ${resp.statusCode}"))
+                    throw ResolverException(errCode, strategyUsed = strategyName, httpStatus = resp.statusCode, metrics = buildMetrics())
+                }
+
+                if (allowAuthWallPoison && errCode == DevwolfErrorCode.AUTH_REQUIRED) {
+                    sawAuthWall = true
+                }
+                if (errCode == DevwolfErrorCode.NETWORK_ERROR) {
+                    sawNetworkError = true
+                }
+                val effectiveCode = if (!allowAuthWallPoison && errCode == DevwolfErrorCode.AUTH_REQUIRED) {
+                    DevwolfErrorCode.EXTRACTION_FAILED
+                } else if (!isMainPage && errCode == DevwolfErrorCode.MEDIA_UNAVAILABLE) {
+                    DevwolfErrorCode.EXTRACTION_FAILED
+                } else {
+                    errCode
+                }
+                lastTechnicalReason = "$strategyName: HTTP ${resp.statusCode}, no acceptable media parsed ($effectiveCode)"
+                attempts.add(StrategyAttemptMetric(strategyName, System.currentTimeMillis() - start, reqs, false, effectiveCode, lastTechnicalReason))
+            } catch (e: ResolverException) {
+                if (e.errorCode == DevwolfErrorCode.CANCELLED ||
+                    e.errorCode == DevwolfErrorCode.PRIVATE_MEDIA ||
+                    e.errorCode == DevwolfErrorCode.RATE_LIMITED ||
+                    e.errorCode == DevwolfErrorCode.CAPTCHA_REQUIRED ||
+                    (isMainPage && e.errorCode == DevwolfErrorCode.MEDIA_UNAVAILABLE)
+                ) {
+                    throw e
+                }
+                attempts.add(StrategyAttemptMetric(strategyName, System.currentTimeMillis() - start, reqs, false, e.errorCode, e.technicalReason))
+                lastTechnicalReason = e.technicalReason
+            } catch (e: IOException) {
+                sawNetworkError = true
+                lastTechnicalReason = "$strategyName IO: ${e.message}"
+                attempts.add(StrategyAttemptMetric(strategyName, System.currentTimeMillis() - start, reqs, false, DevwolfErrorCode.NETWORK_ERROR, lastTechnicalReason))
+            }
+            return null
+        }
+
+        fun tryEmbedCaptioned(): ResolutionResult? {
+            if (parsed.kind == InstagramUrlKind.STORIES) return null
+            return runStrategy(
+                strategyName = "EmbedCaptionedStrategy",
+                isMainPage = false,
+                allowAuthWallPoison = false,
+            ) {
                 val embedUrl = "$baseUrl/p/$shortcode/embed/captioned/?cr=1&v=14&wp=1080"
                 val embedHeaders = mapOf(
                     "User-Agent" to SafeHttpClient.DEFAULT_DESKTOP_CHROME_UA,
@@ -94,127 +168,39 @@ class InstagramNativeResolver(
                     "Referer" to "$baseUrl/",
                 )
                 val resp = httpClient.getText(embedUrl, embedHeaders, cancellationCheck = request.cancellationCheck)
-                s1Reqs = resp.httpRequests
-                totalHttpRequests += s1Reqs
-
-                val parsedMedia = InstagramParsers.parseEmbedCaptionedHtml(resp.body, shortcode)
-                if (parsedMedia?.isPrivate == true) {
-                    val code = DevwolfErrorCode.PRIVATE_MEDIA
-                    attempts.add(StrategyAttemptMetric("EmbedCaptionedStrategy", System.currentTimeMillis() - s1Start, s1Reqs, false, code, "is_private=true"))
-                    throw ResolverException(code, strategyUsed = "EmbedCaptionedStrategy", metrics = buildMetrics())
-                }
-
-                val hasAcceptableMedia = parsedMedia != null && parsedMedia.items.isNotEmpty() &&
-                    (parsed.kind != InstagramUrlKind.REEL || parsedMedia.items.any { it.type == MediaItemType.VIDEO })
-
-                if (hasAcceptableMedia) {
-                    attempts.add(StrategyAttemptMetric("EmbedCaptionedStrategy", System.currentTimeMillis() - s1Start, s1Reqs, true))
-                    return buildResult(parsed, parsedMedia!!, "EmbedCaptionedStrategy", buildMetrics())
-                }
-
-                val errCode = InstagramParsers.classifyFailure(resp.statusCode, resp.finalUrl, resp.body, hasSession)
-                if (errCode == DevwolfErrorCode.RATE_LIMITED ||
-                    errCode == DevwolfErrorCode.CAPTCHA_REQUIRED ||
-                    errCode == DevwolfErrorCode.MEDIA_UNAVAILABLE ||
-                    errCode == DevwolfErrorCode.PRIVATE_MEDIA
-                ) {
-                    attempts.add(StrategyAttemptMetric("EmbedCaptionedStrategy", System.currentTimeMillis() - s1Start, s1Reqs, false, errCode, "HTTP ${resp.statusCode}"))
-                    throw ResolverException(errCode, strategyUsed = "EmbedCaptionedStrategy", httpStatus = resp.statusCode, metrics = buildMetrics())
-                }
-
-                if (errCode == DevwolfErrorCode.AUTH_REQUIRED) sawAuthWall = true
-                if (errCode == DevwolfErrorCode.NETWORK_ERROR) sawNetworkError = true
-                lastTechnicalReason = "EmbedCaptionedStrategy: HTTP ${resp.statusCode}, no acceptable media parsed"
-                attempts.add(StrategyAttemptMetric("EmbedCaptionedStrategy", System.currentTimeMillis() - s1Start, s1Reqs, false, errCode, lastTechnicalReason))
-            } catch (e: ResolverException) {
-                if (e.errorCode == DevwolfErrorCode.CANCELLED ||
-                    e.errorCode == DevwolfErrorCode.PRIVATE_MEDIA ||
-                    e.errorCode == DevwolfErrorCode.RATE_LIMITED ||
-                    e.errorCode == DevwolfErrorCode.CAPTCHA_REQUIRED ||
-                    e.errorCode == DevwolfErrorCode.MEDIA_UNAVAILABLE
-                ) {
-                    throw e
-                }
-                attempts.add(StrategyAttemptMetric("EmbedCaptionedStrategy", System.currentTimeMillis() - s1Start, s1Reqs, false, e.errorCode, e.technicalReason))
-                lastTechnicalReason = e.technicalReason
-            } catch (e: IOException) {
-                sawNetworkError = true
-                lastTechnicalReason = "EmbedCaptionedStrategy IO: ${e.message}"
-                attempts.add(StrategyAttemptMetric("EmbedCaptionedStrategy", System.currentTimeMillis() - s1Start, s1Reqs, false, DevwolfErrorCode.NETWORK_ERROR, lastTechnicalReason))
+                resp to InstagramParsers.parseEmbedCaptionedHtml(resp.body, shortcode)
             }
         }
 
-        // Strategy 2: WebPageJsonStrategy (canonical page JSON blocks + ld+json)
-        run {
-            val s2Start = System.currentTimeMillis()
-            var s2Reqs = 0
-            try {
+        fun tryWebPageJson(): ResolutionResult? {
+            return runStrategy(
+                strategyName = "WebPageJsonStrategy",
+                isMainPage = true,
+                allowAuthWallPoison = true,
+            ) {
                 val pageUrl = rewriteBaseUrl(parsed.canonicalUrl)
                 val resp = httpClient.getText(pageUrl, baseHeaders, cancellationCheck = request.cancellationCheck)
-                s2Reqs = resp.httpRequests
-                totalHttpRequests += s2Reqs
-
                 lastPageContext = InstagramParsers.extractPageContext(resp.body)
-
                 val parsedMedia = InstagramParsers.parseWebPageHtml(
                     html = resp.body,
                     shortcode = shortcode,
                     allowOgImageFallback = parsed.kind != InstagramUrlKind.REEL,
                 )
-                if (parsedMedia?.isPrivate == true) {
-                    val code = DevwolfErrorCode.PRIVATE_MEDIA
-                    attempts.add(StrategyAttemptMetric("WebPageJsonStrategy", System.currentTimeMillis() - s2Start, s2Reqs, false, code, "is_private=true"))
-                    throw ResolverException(code, strategyUsed = "WebPageJsonStrategy", metrics = buildMetrics())
-                }
-
-                val hasAcceptableMedia = parsedMedia != null && parsedMedia.items.isNotEmpty() &&
-                    (parsed.kind != InstagramUrlKind.REEL || parsedMedia.items.any { it.type == MediaItemType.VIDEO })
-
-                if (hasAcceptableMedia) {
-                    attempts.add(StrategyAttemptMetric("WebPageJsonStrategy", System.currentTimeMillis() - s2Start, s2Reqs, true))
-                    return buildResult(parsed, parsedMedia!!, "WebPageJsonStrategy", buildMetrics())
-                }
-
-                val errCode = InstagramParsers.classifyFailure(resp.statusCode, resp.finalUrl, resp.body, hasSession)
-                if (errCode == DevwolfErrorCode.RATE_LIMITED ||
-                    errCode == DevwolfErrorCode.CAPTCHA_REQUIRED ||
-                    errCode == DevwolfErrorCode.MEDIA_UNAVAILABLE ||
-                    errCode == DevwolfErrorCode.PRIVATE_MEDIA
-                ) {
-                    attempts.add(StrategyAttemptMetric("WebPageJsonStrategy", System.currentTimeMillis() - s2Start, s2Reqs, false, errCode, "HTTP ${resp.statusCode}"))
-                    throw ResolverException(errCode, strategyUsed = "WebPageJsonStrategy", httpStatus = resp.statusCode, metrics = buildMetrics())
-                }
-
-                if (errCode == DevwolfErrorCode.AUTH_REQUIRED) sawAuthWall = true
-                if (errCode == DevwolfErrorCode.NETWORK_ERROR) sawNetworkError = true
-                lastTechnicalReason = "WebPageJsonStrategy: HTTP ${resp.statusCode}, JSON blocks not found"
-                attempts.add(StrategyAttemptMetric("WebPageJsonStrategy", System.currentTimeMillis() - s2Start, s2Reqs, false, errCode, lastTechnicalReason))
-            } catch (e: ResolverException) {
-                if (e.errorCode == DevwolfErrorCode.CANCELLED ||
-                    e.errorCode == DevwolfErrorCode.PRIVATE_MEDIA ||
-                    e.errorCode == DevwolfErrorCode.RATE_LIMITED ||
-                    e.errorCode == DevwolfErrorCode.CAPTCHA_REQUIRED ||
-                    e.errorCode == DevwolfErrorCode.MEDIA_UNAVAILABLE
-                ) {
-                    throw e
-                }
-                attempts.add(StrategyAttemptMetric("WebPageJsonStrategy", System.currentTimeMillis() - s2Start, s2Reqs, false, e.errorCode, e.technicalReason))
-                lastTechnicalReason = e.technicalReason
-            } catch (e: IOException) {
-                sawNetworkError = true
-                lastTechnicalReason = "WebPageJsonStrategy IO: ${e.message}"
-                attempts.add(StrategyAttemptMetric("WebPageJsonStrategy", System.currentTimeMillis() - s2Start, s2Reqs, false, DevwolfErrorCode.NETWORK_ERROR, lastTechnicalReason))
+                resp to parsedMedia
             }
         }
 
-        // Strategy 3: AuthorizedWebApiStrategy (when session cookies or dynamic page tokens are available)
-        val csrf = SecureVault.extractCookieValue(request.cookieHeader, "csrftoken") ?: lastPageContext.csrfToken
-        val canAttemptApi = hasSession || !csrf.isNullOrBlank() || !lastPageContext.mediaId.isNullOrBlank()
-        if (canAttemptApi) {
-            val s3Start = System.currentTimeMillis()
-            var s3Reqs = 0
-            try {
-                val apiUrl = if (hasSession && !lastPageContext.mediaId.isNullOrBlank()) {
+        fun tryAuthorizedWebApi(): ResolutionResult? {
+            val csrf = SecureVault.extractCookieValue(request.cookieHeader, "csrftoken") ?: lastPageContext.csrfToken
+            val canAttemptApi = hasSession || !csrf.isNullOrBlank() || !lastPageContext.mediaId.isNullOrBlank()
+            if (!canAttemptApi) return null
+
+            return runStrategy(
+                strategyName = "AuthorizedWebApiStrategy",
+                isMainPage = false,
+                allowAuthWallPoison = false,
+            ) {
+                val apiUrl = if (!lastPageContext.mediaId.isNullOrBlank()) {
                     "$baseUrl/api/v1/media/${lastPageContext.mediaId}/info/"
                 } else {
                     val seg = when (parsed.kind) {
@@ -234,42 +220,20 @@ class InstagramNativeResolver(
                 }
 
                 val resp = httpClient.getText(apiUrl, apiHeaders, cancellationCheck = request.cancellationCheck)
-                s3Reqs = resp.httpRequests
-                totalHttpRequests += s3Reqs
-
-                val parsedMedia = InstagramParsers.parseApiMediaJson(resp.body, shortcode)
-                if (parsedMedia?.isPrivate == true) {
-                    val code = DevwolfErrorCode.PRIVATE_MEDIA
-                    attempts.add(StrategyAttemptMetric("AuthorizedWebApiStrategy", System.currentTimeMillis() - s3Start, s3Reqs, false, code, "is_private=true"))
-                    throw ResolverException(code, strategyUsed = "AuthorizedWebApiStrategy", metrics = buildMetrics())
-                }
-
-                if (parsedMedia != null && parsedMedia.items.isNotEmpty()) {
-                    attempts.add(StrategyAttemptMetric("AuthorizedWebApiStrategy", System.currentTimeMillis() - s3Start, s3Reqs, true))
-                    return buildResult(parsed, parsedMedia, "AuthorizedWebApiStrategy", buildMetrics())
-                }
-
-                val errCode = InstagramParsers.classifyFailure(resp.statusCode, resp.finalUrl, resp.body, hasSession)
-                if (errCode == DevwolfErrorCode.AUTH_REQUIRED) sawAuthWall = true
-                if (errCode == DevwolfErrorCode.NETWORK_ERROR) sawNetworkError = true
-                lastTechnicalReason = "AuthorizedWebApiStrategy: HTTP ${resp.statusCode}"
-                attempts.add(StrategyAttemptMetric("AuthorizedWebApiStrategy", System.currentTimeMillis() - s3Start, s3Reqs, false, errCode, lastTechnicalReason))
-            } catch (e: ResolverException) {
-                if (e.errorCode == DevwolfErrorCode.CANCELLED ||
-                    e.errorCode == DevwolfErrorCode.PRIVATE_MEDIA ||
-                    e.errorCode == DevwolfErrorCode.RATE_LIMITED ||
-                    e.errorCode == DevwolfErrorCode.CAPTCHA_REQUIRED ||
-                    e.errorCode == DevwolfErrorCode.MEDIA_UNAVAILABLE
-                ) {
-                    throw e
-                }
-                attempts.add(StrategyAttemptMetric("AuthorizedWebApiStrategy", System.currentTimeMillis() - s3Start, s3Reqs, false, e.errorCode, e.technicalReason))
-                lastTechnicalReason = e.technicalReason
-            } catch (e: IOException) {
-                sawNetworkError = true
-                lastTechnicalReason = "AuthorizedWebApiStrategy IO: ${e.message}"
-                attempts.add(StrategyAttemptMetric("AuthorizedWebApiStrategy", System.currentTimeMillis() - s3Start, s3Reqs, false, DevwolfErrorCode.NETWORK_ERROR, lastTechnicalReason))
+                resp to InstagramParsers.parseApiMediaJson(resp.body, shortcode)
             }
+        }
+
+        if (hasSession) {
+            // Session-first execution: leverage authenticated WebView session before public embed fallback
+            tryWebPageJson()?.let { return it }
+            tryAuthorizedWebApi()?.let { return it }
+            tryEmbedCaptioned()?.let { return it }
+        } else {
+            // Anonymous execution: public embed first, then web page JSON, then API if page yielded tokens
+            tryEmbedCaptioned()?.let { return it }
+            tryWebPageJson()?.let { return it }
+            tryAuthorizedWebApi()?.let { return it }
         }
 
         val finalErrorCode = when {

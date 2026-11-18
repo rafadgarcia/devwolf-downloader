@@ -2,6 +2,24 @@
 
 Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
+## [3.0.0-rc.2] — Correções de Diagnóstico RC1 (Instagram & Reddit)
+
+### Corrigido
+- **Instagram — Eliminação de falsos positivos de `CAPTCHA_REQUIRED` (`InstagramParsers.kt`)**:
+  - `InstagramParsers.classifyFailure` agora remove `<script>`, `<style>`, `<noscript>`, `<meta>` e `<link>` antes de inspecionar o texto visível do DOM, evitando que strings de bootloader JS do Polaris (`"arkose_captcha"`, `"google_recaptcha"`, `"/challenge/"`) disparem `CAPTCHA_REQUIRED` terminal em páginas HTML normais.
+  - Detecção de desafio anti-robô restrita a redirecionamentos de path (`/challenge/`, `/checkpoint/`), payloads JSON estruturados (`challenge_required`, `checkpoint_required`, `challenge_url`, objeto `challenge`) ou formulários/widgets anti-robô visíveis no DOM.
+  - `InstagramParsers.extractPageContext` passa a extrair `mediaId` também das meta tags `<meta property="al:ios:url">` e `<meta property="al:android:url">` (`media?id=...`).
+- **Instagram — Ordem *Session-First* e Alinhamento de `User-Agent` (`InstagramNativeResolver.kt`, `DevwolfDownloadService.kt`)**:
+  - Quando há sessão autenticada (`hasSession == true`), o DNR executa `WebPageJsonStrategy` -> `AuthorizedWebApiStrategy` -> `EmbedCaptionedStrategy` (mantendo `EmbedCaptionedStrategy` primeiro apenas em modo anônimo) e evita que estratégias secundárias/anônimas envenenem `sawAuthWall` ou abortem por HTTP 404 fora da página principal.
+  - No fallback `yt-dlp` (`DevwolfDownloadService.buildYoutubeDlRequest`), `--user-agent` agora recebe o mesmo `User-Agent` da sessão WebView armazenada no `SecureVault` (`resolveYtdlpUserAgent`), alinhando-o ao `sessionid` gravado em `scoped.cookies.txt`.
+- **Reddit — Diferenciação de HTTP 403 WAF/Fastly e Links `/r/<sub>/s/<id>` (`GalleryDlLocalResolver.kt`, `ResolverContract.kt`, `UrlExtractor.kt`)**:
+  - `GalleryDlLocalResolver.classifyRedditHttpError` (e `ErrorClassifier.fromHttpStatus`) passa a classificar bloqueios WAF/Fastly (`"whoa there, pardner!"`, `"blocked by network security"`, `"403 blocked"`, HTML 403 genérico) como `EXTRACTION_FAILED` recuperável, acionando fallback para `old.reddit.com` e em seguida para `yt-dlp`, mantendo `PRIVATE_MEDIA` apenas para respostas explícitas de comunidade/post privado (`"reason": "private"`, `"subreddit_type": "private"`, `"this community is private"`).
+  - Suporte completo a links móveis `/r/<sub>/s/<share_id>`: remoção de novos parâmetros de rastreamento (`context`, `rdt`, `ref_source`) em `UrlExtractor`, extração de `<link rel="canonical">` / `og:url` quando `/s/<id>` devolve HTML 200 sem 3xx, proibição de anexar `.json` a `/s/<id>` não resolvido (`buildRedditJsonUrl` retorna `null`) e encaminhamento via `EXTRACTION_FAILED` para `yt-dlp` quando bloqueado.
+- **Instrumentação & Diagnóstico (`PerformanceTracker.kt`, `DevwolfDownloadService.kt`)**:
+  - `PerformanceTracker` e `DevwolfDownloadService` agora registram todas as tentativas por estratégia (`strategyAttempts`) e `httpStatus` (sanitizando tokens/cookies/query strings) no relatório de diagnóstico (`sanitizedLog` e `metrics`).
+- **Build & Versionamento (`android/app/build.gradle`)**:
+  - Atualizado para `versionCode 30002` e `versionName "3.0.0-rc.2"` mantendo `applicationId "com.devwolf.downloader"` e assinatura compatível para atualização direta via `adb install -r`.
+
 ## [3.0.0] — Fase 3: Android 100% Local, DNR Instagram, Carrosséis Individuais & Otimização
 
 ### Adicionado

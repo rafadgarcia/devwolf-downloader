@@ -62,19 +62,25 @@ Todos os motores (DNR, `yt-dlp` e `GalleryDlLocalResolver`) convergem para os 11
 
 ## 3. Estratégias Isoladas do Instagram (DNR)
 
-Cada solicitação ao Instagram executa estratégias sequenciais e independentes, registrando tempo (`durationMs`) e quantidade de requisições HTTP (`httpRequests`) em `StrategyAttemptMetric`:
+Cada solicitação ao Instagram executa estratégias sequenciais e independentes, registrando tempo (`durationMs`), quantidade de requisições HTTP (`httpRequests`) e resultado por estratégia em `StrategyAttemptMetric` (exposto no diagnóstico sanitizado do `PerformanceTracker`):
+
+- **Ordem adaptativa por sessão (`v3.0.0-rc.2`)**:
+  - **Com sessão autenticada (`hasSession == true`)**: executa `WebPageJsonStrategy` -> `AuthorizedWebApiStrategy` -> `EmbedCaptionedStrategy`, enviando `Cookie` e `User-Agent` da sessão WebView capturada no `SecureVault`.
+  - **Modo anônimo (`hasSession == false`)**: executa `EmbedCaptionedStrategy` -> `WebPageJsonStrategy` -> `AuthorizedWebApiStrategy`.
+- **Classificação sem falsos positivos em `<script>`**: `InstagramParsers.classifyFailure` remove `<script>`, `<style>`, `<noscript>`, `<meta>` e `<link>` antes de inspecionar texto visível do DOM, só retornando `CAPTCHA_REQUIRED` em redirecionamentos `/challenge/` / `/checkpoint/`, payloads JSON estruturados de desafio ou widgets/formulários anti-robô visíveis no DOM. Falhas genéricas retornam `EXTRACTION_FAILED` para permitir o fallback para `yt-dlp` (que recebe o mesmo `User-Agent` da sessão do WebView via `--user-agent`).
 
 1. **`EmbedCaptionedStrategy`**:
    - Consulta `https://www.instagram.com/p/{shortcode}/embed/captioned/?cr=1&v=14&wp=1080` com headers de navegador padrão.
    - Interpreta blocos `gql_data` / `shortcode_media`, `contextJSON` (inclusive serialização escapada) e fallback DOM (`EmbeddedMediaVideo`, `EmbeddedMediaImage`).
 2. **`WebPageJsonStrategy`**:
    - Consulta a URL canônica (`/reel/{code}/`, `/p/{code}/`, `/tv/{code}/` ou `/stories/{user}/`).
+   - Extrai contexto da página (`extractPageContext`), incluindo `media_id` em JSON embutido ou meta tags `<meta property="al:ios:url">` / `al:android:url`, além de `csrftoken`, `lsd` e `X-IG-App-ID`.
    - Interpreta blocos JSON modernos (`xdt_api__v1__media__shortcode__web_info`, `xig_polaris_media`, `xdt_api__v1__clips__clips_on_logged_out_connection_v2`, `fetch__XDTMediaDict`), legados (`window._sharedData`, `window.__additionalDataLoaded`), `application/ld+json` e tags OpenGraph.
    - Seleciona o candidato de maior resolução (`width * height`) em `video_versions`, `image_versions2.candidates` e `display_resources`.
    - Para links `/reel/`, impede que apenas uma capa `og:image` seja tratada como sucesso se não houver vídeo.
 3. **`AuthorizedWebApiStrategy`**:
    - Executada apenas quando há sessão configurada no `SecureVault` ou tokens dinâmicos (`csrftoken`, `media_id`, `X-IG-App-ID`) extraídos da página anterior.
-   - Consulta `api/v1/media/{media_id}/info/` (com sessão) ou `?__a=1&__d=dis` enviando `Cookie` e `X-CSRFToken` estritamente ao domínio `*.instagram.com`.
+   - Consulta `api/v1/media/{media_id}/info/` (com `media_id` extraído do JSON ou de `al:ios:url`/`al:android:url`) ou `?__a=1&__d=dis` enviando `Cookie`, `User-Agent` da sessão e `X-CSRFToken` estritamente ao domínio `*.instagram.com`.
 
 ### Carrosséis Individuais (Sem `.zip`)
 Posts com múltiplas mídias (`edge_sidecar_to_children` ou `carousel_media`) produzem uma `List<ResolvedMediaItem>` ordenada (`index = 1..N`), preservando tipo (`VIDEO` ou `IMAGE`), dimensões e nome de arquivo sequencial (`_01`, `_02`, ...). Cada item é baixado individualmente pelo `HttpMediaDownloader` e registrado no álbum apropriado do `MediaStore` (`Pictures/Devwolf Downloader` ou `Movies/Devwolf Downloader`).
@@ -106,7 +112,7 @@ Contudo, empacotar o `gallery-dl` Python como segundo zipapp dentro desse runtim
 ### Solução Adotada: Resolvedores Estruturados Nativos em Kotlin
 O `GalleryDlLocalResolver.kt` implementa nativamente em Kotlin sobre o pool compartilhado `OkHttpClient`:
 - **Pinterest (`pinterest.com`, `br.pinterest.com`, `pin.it`)**: Resolve redirecionamentos com proteção SSRF, lê `__PWS_DATA__`, `application/ld+json` e OpenGraph para extrair imagens originais (`images.orig`), vídeos (`video_list`) e *Story/Idea Pins* multipágina em ordem `1..N`.
-- **Reddit (`reddit.com`, `redd.it`)**: Resolve shortlinks, consulta `{url}.json?raw_json=1`, extrai galerias (`is_gallery` + `gallery_data.items` + `media_metadata`) na ordem exata, imagens diretas (`i.redd.it`) e GIFs silenciosos; para vídeos `v.redd.it` com áudio separado em DASH, delega automaticamente para o `yt-dlp` + `FFmpeg` para mesclagem perfeita de vídeo + áudio.
+- **Reddit (`reddit.com`, `redd.it`)**: Resolve shortlinks e links de compartilhamento móvel `/r/<sub>/s/<id>` (via redirect HTTP 3xx ou `<link rel="canonical">` / `og:url` no HTML, nunca anexando `.json` a `/s/<id>` não resolvido), consulta `{url}.json?raw_json=1` (com fallback para `old.reddit.com` e `yt-dlp` quando houver HTTP 403 WAF/Fastly, preservando `PRIVATE_MEDIA` apenas para respostas explícitas de comunidade/post privado), extrai galerias (`is_gallery` + `gallery_data.items` + `media_metadata`) na ordem exata, imagens diretas (`i.redd.it`) e GIFs silenciosos; para vídeos `v.redd.it` com áudio separado em DASH, delega automaticamente para o `yt-dlp` + `FFmpeg` para mesclagem perfeita de vídeo + áudio.
 - **Twitter/X Imagens (`x.com`, `twitter.com`)**: Fallback nativo via `cdn.syndication.twimg.com` quando o `yt-dlp` encontra um tweet contendo apenas fotos/carrossel de imagens.
 
 Essa abordagem entrega **0 KB de aumento no APK**, resolução sub-segundo e 100% de autonomia local no dispositivo.

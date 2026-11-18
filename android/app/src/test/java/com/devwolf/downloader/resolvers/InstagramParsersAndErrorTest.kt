@@ -263,6 +263,26 @@ class InstagramParsersAndErrorTest {
                 hasSessionCookie = false,
             ),
         )
+
+        // 7. hCaptcha iframe / visible challenge -> CAPTCHA_REQUIRED, while <script>-only strings -> EXTRACTION_FAILED
+        assertEquals(
+            DevwolfErrorCode.CAPTCHA_REQUIRED,
+            InstagramParsers.classifyFailure(
+                statusCode = 200,
+                finalUrl = "https://www.instagram.com/p/Cap123/",
+                body = """<html><body><iframe src="https://newassets.hcaptcha.com/captcha/v1/..."></iframe></body></html>""",
+                hasSessionCookie = true,
+            ),
+        )
+        assertEquals(
+            DevwolfErrorCode.EXTRACTION_FAILED,
+            InstagramParsers.classifyFailure(
+                statusCode = 200,
+                finalUrl = "https://www.instagram.com/p/Shell123/",
+                body = """<html><body><script>window.__cfg={"captcha":"arkose","is_private":true,"route":"/challenge/"};</script></body></html>""",
+                hasSessionCookie = true,
+            ),
+        )
     }
 
     @Test

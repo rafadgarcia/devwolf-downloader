@@ -1,5 +1,7 @@
 package com.devwolf.downloader
 
+import com.devwolf.downloader.resolvers.StrategyAttemptMetric
+import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 import java.util.concurrent.CopyOnWriteArrayList
@@ -29,6 +31,8 @@ object PerformanceTracker {
         val httpRequestCount: Int = 0,
         val errorCode: String? = null,
         val technicalReason: String? = null,
+        val httpStatus: Int? = null,
+        val strategyAttempts: List<StrategyAttemptMetric> = emptyList(),
         val recordedAt: String = Instant.now().toString(),
     ) {
         fun toMetricsJson(): JSONObject = JSONObject().apply {
@@ -42,6 +46,12 @@ object PerformanceTracker {
             put("httpRequestCount", httpRequestCount)
             put("appOpenMs", getAppOpenMs())
             put("clipboardDetectMs", getClipboardDetectMs())
+            if (httpStatus != null) {
+                put("httpStatus", httpStatus)
+            }
+            if (strategyAttempts.isNotEmpty()) {
+                put("strategyAttempts", strategyAttemptsToJson(strategyAttempts))
+            }
         }
     }
 
@@ -77,6 +87,9 @@ object PerformanceTracker {
     fun recordJob(record: JobPerformanceRecord) {
         val sanitized = record.copy(
             technicalReason = sanitizeText(record.technicalReason),
+            strategyAttempts = record.strategyAttempts.map { attempt ->
+                attempt.copy(note = sanitizeText(attempt.note))
+            },
         )
         latestRecord.set(sanitized)
         recentRecords.add(0, sanitized)
@@ -129,6 +142,8 @@ object PerformanceTracker {
             put("strategyUsed", rec?.strategyUsed ?: JSONObject.NULL)
             put("errorCode", rec?.errorCode ?: JSONObject.NULL)
             put("technicalReason", rec?.technicalReason ?: JSONObject.NULL)
+            put("httpStatus", rec?.httpStatus ?: JSONObject.NULL)
+            put("strategyAttempts", strategyAttemptsToJson(rec?.strategyAttempts.orEmpty()))
             put("sanitizedLog", sanitizedLog)
         }
     }
@@ -156,10 +171,38 @@ object PerformanceTracker {
                 "processamento=${rec.processingMs}, galeria=${rec.galleryPublishMs}, total=${rec.totalJobMs}",
         )
         sb.appendLine("Requisições HTTP: ${rec.httpRequestCount}")
-        if (!rec.errorCode.isNullOrBlank() || !rec.technicalReason.isNullOrBlank()) {
-            sb.appendLine("Erro: code=${rec.errorCode ?: "-"} | motivo=${sanitizeText(rec.technicalReason) ?: "-"}")
+        if (rec.strategyAttempts.isNotEmpty()) {
+            sb.appendLine("Tentativas por estratégia:")
+            for (attempt in rec.strategyAttempts) {
+                val outcome = if (attempt.success) "OK" else "FALHA(${attempt.errorCode?.name ?: "-"})"
+                val notePart = sanitizeText(attempt.note)?.let { " — $it" } ?: ""
+                sb.appendLine(
+                    "  - ${attempt.strategyName}: $outcome | ${attempt.durationMs} ms | ${attempt.httpRequests} req$notePart",
+                )
+            }
+        }
+        if (!rec.errorCode.isNullOrBlank() || !rec.technicalReason.isNullOrBlank() || rec.httpStatus != null) {
+            val httpPart = rec.httpStatus?.let { " | http=$it" } ?: ""
+            sb.appendLine("Erro: code=${rec.errorCode ?: "-"}$httpPart | motivo=${sanitizeText(rec.technicalReason) ?: "-"}")
         }
         return sb.toString().trim()
+    }
+
+    private fun strategyAttemptsToJson(attempts: List<StrategyAttemptMetric>): JSONArray {
+        val arr = JSONArray()
+        for (attempt in attempts) {
+            arr.put(
+                JSONObject().apply {
+                    put("strategyName", attempt.strategyName)
+                    put("durationMs", attempt.durationMs)
+                    put("httpRequests", attempt.httpRequests)
+                    put("success", attempt.success)
+                    put("errorCode", attempt.errorCode?.name ?: JSONObject.NULL)
+                    put("note", sanitizeText(attempt.note) ?: JSONObject.NULL)
+                },
+            )
+        }
+        return arr
     }
 
     /**

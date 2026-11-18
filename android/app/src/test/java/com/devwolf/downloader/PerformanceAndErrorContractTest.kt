@@ -2,6 +2,8 @@ package com.devwolf.downloader
 
 import com.devwolf.downloader.resolvers.DevwolfErrorCode
 import com.devwolf.downloader.resolvers.ErrorClassifier
+import com.devwolf.downloader.resolvers.SafeHttpClient
+import com.devwolf.downloader.resolvers.StrategyAttemptMetric
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -151,5 +153,78 @@ class PerformanceAndErrorContractTest {
         assertEquals(1920, meta.height)
 
         assertNull(DevwolfDownloadService.parseYtdlpMetadataLine("[download] 10% of 5.0MiB"))
+    }
+
+    @Test
+    fun alignsYtdlpUserAgentWithStoredInstagramSessionAndFallsBackSafely() {
+        val webViewUa = "Mozilla/5.0 (Linux; Android 15; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/131.0.0.0 Mobile Safari/537.36"
+        assertEquals(
+            webViewUa,
+            DevwolfDownloadService.resolveYtdlpUserAgent("instagram", webViewUa),
+        )
+        assertEquals(
+            SafeHttpClient.DEFAULT_MOBILE_CHROME_UA,
+            DevwolfDownloadService.resolveYtdlpUserAgent("instagram", "   "),
+        )
+        assertEquals(
+            SafeHttpClient.DEFAULT_MOBILE_CHROME_UA,
+            DevwolfDownloadService.resolveYtdlpUserAgent("instagram", "BadUA\r\nX-Injected: 1"),
+        )
+        assertEquals(
+            SafeHttpClient.DEFAULT_MOBILE_CHROME_UA,
+            DevwolfDownloadService.resolveYtdlpUserAgent("reddit", webViewUa),
+        )
+    }
+
+    @Test
+    fun recordsStrategyAttemptsAndHttpStatusInSanitizedDiagnosticsLog() {
+        PerformanceTracker.recordJob(
+            PerformanceTracker.JobPerformanceRecord(
+                jobId = "job-fail-diag",
+                platform = "reddit",
+                engineUsed = "yt-dlp",
+                engineVersion = "2026.11.14",
+                strategyUsed = "yt-dlp-single-pass",
+                status = "failed",
+                resolutionMs = 310L,
+                httpRequestCount = 2,
+                errorCode = "EXTRACTION_FAILED",
+                technicalReason = "HTTP 403 Blocked; Cookie: sessionid=supersecret",
+                httpStatus = 403,
+                strategyAttempts = listOf(
+                    StrategyAttemptMetric(
+                        strategyName = "RedditJsonStrategy",
+                        durationMs = 140L,
+                        httpRequests = 2,
+                        success = false,
+                        errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
+                        note = "HTTP 403 Fastly WAF?token=leak123",
+                    ),
+                    StrategyAttemptMetric(
+                        strategyName = "yt-dlp-single-pass",
+                        durationMs = 170L,
+                        httpRequests = 0,
+                        success = false,
+                        errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
+                        note = "HTTP Error 403: Blocked",
+                    ),
+                ),
+            ),
+        )
+
+        val report = PerformanceTracker.buildDiagnosticsReport("2026.11.14", "2026-11-17T22:00:00Z")
+        assertEquals(403, report.getInt("httpStatus"))
+        val attemptsJson = report.getJSONArray("strategyAttempts")
+        assertEquals(2, attemptsJson.length())
+        assertEquals("RedditJsonStrategy", attemptsJson.getJSONObject(0).getString("strategyName"))
+        assertFalse(attemptsJson.getJSONObject(0).getString("note").contains("leak123"))
+
+        val log = report.getString("sanitizedLog")
+        assertTrue(log.contains("Tentativas por estratégia:"))
+        assertTrue(log.contains("RedditJsonStrategy: FALHA(EXTRACTION_FAILED)"))
+        assertTrue(log.contains("yt-dlp-single-pass: FALHA(EXTRACTION_FAILED)"))
+        assertTrue(log.contains("http=403"))
+        assertFalse(log.contains("supersecret"))
+        assertFalse(log.contains("leak123"))
     }
 }

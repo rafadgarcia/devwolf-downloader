@@ -1,8 +1,8 @@
 {
   "frontend/package.json": {
-    "mtime": 1794958037.232948,
-    "seen": 1794958914.0716362,
-    "ast_hash": "99b434643222e732c526afafd0dc7cb8",
+    "mtime": 1794963938.80374,
+    "seen": 1794964487.2951539,
+    "ast_hash": "46a7fa90d6cd10ba4fb4037cafb61e9d",
     "semantic_hash": ""
   },
   "frontend/postcss.config.js": {
@@ -192,9 +192,9 @@
     "semantic_hash": ""
   },
   "TASKS.md": {
-    "mtime": 1794958878.7711017,
-    "seen": 1794958914.0717988,
-    "ast_hash": "5381da951490388f073ac457a9036a28",
+    "mtime": 1794964271.3996031,
+    "seen": 1794964487.2952054,
+    "ast_hash": "1aac4171a5c1b728791e6d7c74cfe817",
     "semantic_hash": ""
   },
   "docs/deployment.md": {
@@ -246,9 +246,9 @@
     "semantic_hash": ""
   },
   "android/app/build.gradle": {
-    "mtime": 1794957831.2349775,
-    "seen": 1794958914.0714452,
-    "ast_hash": "4edc5321acfba98b34215ca9a7c0741d",
+    "mtime": 1794963937.0599551,
+    "seen": 1794964487.2950883,
+    "ast_hash": "9ba2cc423c1a3d5f7836ebabd8ae3336",
     "semantic_hash": ""
   },
   "android/app/capacitor.build.gradle": {
@@ -264,9 +264,9 @@
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/DevwolfDownloadService.kt": {
-    "mtime": 1794958165.7241776,
-    "seen": 1794958914.0714664,
-    "ast_hash": "d73c1f42c8731c5f980102582ab33316",
+    "mtime": 1794963920.5608327,
+    "seen": 1794964487.2950969,
+    "ast_hash": "76d651fade71bce4490913a5b064d8a5",
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/DevwolfNativePlugin.kt": {
@@ -318,9 +318,9 @@
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/UrlExtractor.kt": {
-    "mtime": 1794957836.1206474,
-    "seen": 1794958914.0715072,
-    "ast_hash": "e23d408cbebd1265091822b37d322606",
+    "mtime": 1794964034.1328866,
+    "seen": 1794964487.2951117,
+    "ast_hash": "035f5cd6c0190c092c637db254b5e032",
     "semantic_hash": ""
   },
   "android/app/src/test/java/com/devwolf/downloader/StatusModeProcessorTest.kt": {
@@ -330,9 +330,9 @@
     "semantic_hash": ""
   },
   "android/app/src/test/java/com/devwolf/downloader/UrlExtractorTest.kt": {
-    "mtime": 1794958094.573508,
-    "seen": 1794958914.0715551,
-    "ast_hash": "137db7a188d5a983c0b4000673721be2",
+    "mtime": 1794964128.9402,
+    "seen": 1794964487.2951238,
+    "ast_hash": "cd7d136ec3ab17f2a780cf44399637d2",
     "semantic_hash": ""
   },
   "android/app/src/test/java/com/getcapacitor/myapp/ExampleUnitTest.java": {
@@ -414,9 +414,9 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1794958882.3461864,
-    "seen": 1794958914.0717828,
-    "ast_hash": "fc4b3a776eb61ee2ae128dff8672253d",
+    "mtime": 1794964309.1852963,
+    "seen": 1794964487.2952008,
+    "ast_hash": "0256517f22bfaf289ccbeb360c42d06a",
     "semantic_hash": ""
   },
   "android/app/src/main/res/drawable-land-hdpi/splash.png": {
@@ -582,9 +582,9 @@
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/PerformanceTracker.kt": {
-    "mtime": 1794958483.7769642,
-    "seen": 1794958914.0714962,
-    "ast_hash": "890d767037ebe04dde3aaec52edd4a62",
+    "mtime": 1794963889.0699012,
+    "seen": 1794964487.295108,
+    "ast_hash": "15c5360c88b98ab38a1eae563ccade3e",
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/resolvers/EngineRouter.kt": {
@@ -594,9 +594,9 @@
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/resolvers/GalleryDlLocalResolver.kt": {
-    "mtime": 1794958028.736514,
-    "seen": 1794958914.0715172,
-    "ast_hash": "657db0f5a15783e94a36a10950c93c3a",
+    "mtime": 1794964076.3275795,
+    "seen": 1794964487.2951143,
+    "ast_hash": "c0b8449836d53a4a6d49982967fd2811",
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/resolvers/HttpMediaDownloader.kt": {
@@ -606,21 +606,21 @@
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/resolvers/InstagramNativeResolver.kt": {
-    "mtime": 1794958353.4493735,
-    "seen": 1794958914.0715263,
-    "ast_hash": "e03efdafae48d5f63856736de3b5f1b6",
+    "mtime": 1794964024.2243369,
+    "seen": 1794964487.2951167,
+    "ast_hash": "caf5bd64b7a274dc1b1d29e685b5f839",
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/resolvers/InstagramParsers.kt": {
-    "mtime": 1794957945.6370914,
-    "seen": 1794958914.0715306,
-    "ast_hash": "d5537c97e1fd1d240cc100d8e92853ec",
+    "mtime": 1794963990.3955853,
+    "seen": 1794964487.2951176,
+    "ast_hash": "b9d8fcce56f933e9ebb6916be24ef21a",
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/resolvers/ResolverContract.kt": {
-    "mtime": 1794957806.9347768,
-    "seen": 1794958914.0715399,
-    "ast_hash": "483c505e892ad25eb03a61dc6342827b",
+    "mtime": 1794964035.91099,
+    "seen": 1794964487.2951186,
+    "ast_hash": "798e3d4350b9b1bc77d2b1bbf11cf9d8",
     "semantic_hash": ""
   },
   "android/app/src/main/java/com/devwolf/downloader/resolvers/SafeHttpClient.kt": {
@@ -630,9 +630,9 @@
     "semantic_hash": ""
   },
   "android/app/src/test/java/com/devwolf/downloader/PerformanceAndErrorContractTest.kt": {
-    "mtime": 1794958206.2272773,
-    "seen": 1794958914.071547,
-    "ast_hash": "4199cca8f31c58027445b11e13e0f320",
+    "mtime": 1794963931.441164,
+    "seen": 1794964487.2951214,
+    "ast_hash": "311770974c0c847bf32a2fdc0dbda87c",
     "semantic_hash": ""
   },
   "android/app/src/test/java/com/devwolf/downloader/resolvers/DnrAndLocalResolversIntegrationTest.kt": {
@@ -642,9 +642,9 @@
     "semantic_hash": ""
   },
   "android/app/src/test/java/com/devwolf/downloader/resolvers/InstagramParsersAndErrorTest.kt": {
-    "mtime": 1794958113.7315814,
-    "seen": 1794958914.0715616,
-    "ast_hash": "f28d3e4fc4dc2550bfa79e254e18861c",
+    "mtime": 1794964130.664478,
+    "seen": 1794964487.2951262,
+    "ast_hash": "912462656c277779098639e59ac4f521",
     "semantic_hash": ""
   },
   "docs/rev-eng/evidence/classes.json": {
@@ -732,9 +732,9 @@
     "semantic_hash": ""
   },
   "docs/DNR-ARCHITECTURE.md": {
-    "mtime": 1794958178.736905,
-    "seen": 1794958914.0718021,
-    "ast_hash": "7d058cd757e2e248bf1dae1c19a9e544",
+    "mtime": 1794964270.0652359,
+    "seen": 1794964487.2952065,
+    "ast_hash": "d2ee2587922932f1b20a44a2375eed1e",
     "semantic_hash": ""
   },
   "docs/rev-eng/EVIDENCIAS.md": {
@@ -759,6 +759,24 @@
     "mtime": 1794956800.540542,
     "seen": 1794958914.0718243,
     "ast_hash": "0101dbff6cb6212a469397b1f01f3b25",
+    "semantic_hash": ""
+  },
+  "android/app/src/test/java/com/devwolf/downloader/resolvers/Rc1DiagnosticAuditTest.kt": {
+    "mtime": 1794964119.6954718,
+    "seen": 1794964487.2951279,
+    "ast_hash": "5936f13c7a92b9c79bf4162f7e1f020c",
+    "semantic_hash": ""
+  },
+  "docs/diagnostics/rc1/README.md": {
+    "mtime": 1794964333.2784016,
+    "seen": 1794964487.295209,
+    "ast_hash": "95be6ed4f347471d25d7c2ab4f7bfc43",
+    "semantic_hash": ""
+  },
+  "docs/diagnostics/rc1/reddit-audit.md": {
+    "mtime": 1794964334.7321486,
+    "seen": 1794964487.29521,
+    "ast_hash": "bb9d1d081b0670e9ce0e4c7f6c4b56aa",
     "semantic_hash": ""
   }
 }

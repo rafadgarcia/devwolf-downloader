@@ -23,6 +23,7 @@ import com.devwolf.downloader.resolvers.ResolutionResult
 import com.devwolf.downloader.resolvers.ResolvedMediaItem
 import com.devwolf.downloader.resolvers.ResolverException
 import com.devwolf.downloader.resolvers.SafeHttpClient
+import com.devwolf.downloader.resolvers.StrategyAttemptMetric
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.CoroutineScope
@@ -115,6 +116,20 @@ class DevwolfDownloadService : Service() {
 
         internal fun isJobCancelled(jobId: String): Boolean {
             return cancelledJobIds.contains(jobId) || Thread.currentThread().isInterrupted
+        }
+
+        internal fun resolveYtdlpUserAgent(
+            platform: String,
+            instagramUserAgent: String?,
+        ): String {
+            if (platform.equals("instagram", ignoreCase = true)) {
+                val cleanUa = instagramUserAgent?.trim()
+                    ?.takeIf { it.isNotEmpty() && !it.contains('\n') && !it.contains('\r') }
+                if (cleanUa != null) {
+                    return cleanUa
+                }
+            }
+            return SafeHttpClient.DEFAULT_MOBILE_CHROME_UA
         }
 
         internal fun parseYtdlpProgressLine(line: String): ProgressParseResult? {
@@ -290,6 +305,9 @@ class DevwolfDownloadService : Service() {
         var activeStrategy: String? = null
         var resolvedTitle: String? = null
         var currentPlatform = initialPlatform
+        val strategyAttempts = mutableListOf<StrategyAttemptMetric>()
+        var lastHttpStatus: Int? = null
+        var errorCapturedFromLoop = false
 
         var currentSnapshot = buildSnapshot(
             jobId = jobId,
@@ -356,6 +374,7 @@ class DevwolfDownloadService : Service() {
                             val resolution: ResolutionResult = EngineRouter.shared.resolveNative(req, engineKind)
                             resolutionMs += resolution.metrics.resolutionMs
                             httpRequestCount += resolution.metrics.httpRequestCount
+                            strategyAttempts.addAll(resolution.metrics.strategyAttempts)
                             activeEngineName = resolution.engineUsed
                             activeEngineVersion = resolution.engineVersion
                             activeStrategy = resolution.strategyUsed
@@ -538,16 +557,49 @@ class DevwolfDownloadService : Service() {
                                 workDir = workDir,
                             )
                             processingMs += (System.currentTimeMillis() - procStart)
+                            strategyAttempts.add(
+                                StrategyAttemptMetric(
+                                    strategyName = "yt-dlp-single-pass",
+                                    durationMs = ytdlpElapsed,
+                                    httpRequests = 0,
+                                    success = true,
+                                ),
+                            )
                             break
                         }
                     }
                 } catch (e: Throwable) {
                     val mapped = mapThrowableToResolverException(e, activeStrategy)
                     lastFailure = mapped
+                    resolutionMs += mapped.metrics.resolutionMs
+                    httpRequestCount += mapped.metrics.httpRequestCount
+                    if (mapped.httpStatus != null) {
+                        lastHttpStatus = mapped.httpStatus
+                    }
+                    if (mapped.metrics.strategyAttempts.isNotEmpty()) {
+                        strategyAttempts.addAll(mapped.metrics.strategyAttempts)
+                    } else {
+                        val fallbackStrategy = mapped.strategyUsed ?: activeStrategy ?: engineKind.wireName
+                        val noteParts = listOfNotNull(
+                            mapped.httpStatus?.let { "HTTP $it" },
+                            mapped.technicalReason?.takeIf { it.isNotBlank() },
+                        ).joinToString(" | ").ifBlank { null }
+                        strategyAttempts.add(
+                            StrategyAttemptMetric(
+                                strategyName = fallbackStrategy,
+                                durationMs = mapped.metrics.resolutionMs,
+                                httpRequests = mapped.metrics.httpRequestCount,
+                                success = false,
+                                errorCode = mapped.errorCode,
+                                note = noteParts,
+                            ),
+                        )
+                    }
                     val nextEngine = enginesToTry.getOrNull(attemptIdx + 1)
                     if (nextEngine != null && EngineRouter.shared.shouldFallback(engineKind, nextEngine, mapped.errorCode)) {
                         continue
                     }
+                    errorCapturedFromLoop = true
                     throw mapped
                 }
             }
@@ -652,6 +704,7 @@ class DevwolfDownloadService : Service() {
                 galleryPublishMs = galleryPublishMs,
                 totalJobMs = totalJobMs,
                 httpRequestCount = httpRequestCount,
+                strategyAttempts = strategyAttempts.toList(),
             )
             PerformanceTracker.recordJob(perfRecord)
 
@@ -682,6 +735,14 @@ class DevwolfDownloadService : Service() {
                 markCancelled(jobId, rawUrl, currentPlatform)
             } else {
                 val resolvedErr = mapThrowableToResolverException(e, activeStrategy)
+                if (!errorCapturedFromLoop) {
+                    resolutionMs += resolvedErr.metrics.resolutionMs
+                    httpRequestCount += resolvedErr.metrics.httpRequestCount
+                    if (resolvedErr.metrics.strategyAttempts.isNotEmpty()) {
+                        strategyAttempts.addAll(resolvedErr.metrics.strategyAttempts)
+                    }
+                }
+                val finalHttpStatus = resolvedErr.httpStatus ?: lastHttpStatus
                 val totalJobMs = (System.currentTimeMillis() - jobStartMs).coerceAtLeast(1L)
                 val perfRecord = PerformanceTracker.JobPerformanceRecord(
                     jobId = jobId,
@@ -691,15 +752,17 @@ class DevwolfDownloadService : Service() {
                     strategyUsed = resolvedErr.strategyUsed ?: activeStrategy,
                     status = "failed",
                     engineInitMs = engineInitMs,
-                    resolutionMs = resolutionMs + resolvedErr.metrics.resolutionMs,
+                    resolutionMs = resolutionMs,
                     ttfbMs = ttfbMs,
                     transferMs = transferMs,
                     processingMs = processingMs,
                     galleryPublishMs = galleryPublishMs,
                     totalJobMs = totalJobMs,
-                    httpRequestCount = httpRequestCount + resolvedErr.metrics.httpRequestCount,
+                    httpRequestCount = httpRequestCount,
                     errorCode = resolvedErr.errorCode.name,
                     technicalReason = resolvedErr.technicalReason ?: e.message,
+                    httpStatus = finalHttpStatus,
+                    strategyAttempts = strategyAttempts.toList(),
                 )
                 PerformanceTracker.recordJob(perfRecord)
 
@@ -975,6 +1038,13 @@ class DevwolfDownloadService : Service() {
         workDir: File,
     ): YoutubeDLRequest {
         return YoutubeDLRequest(url).apply {
+            val igSession = if (platform.equals("instagram", ignoreCase = true)) {
+                secureVault.getInstagramSession()
+            } else {
+                null
+            }
+            val effectiveUserAgent = resolveYtdlpUserAgent(platform, igSession?.userAgent)
+
             addOption("-o", "${workDir.absolutePath}/%(title).60B_%(id)s.%(ext)s")
             addOption("--no-playlist")
             addOption("--no-mtime")
@@ -985,7 +1055,7 @@ class DevwolfDownloadService : Service() {
             addOption("--newline")
             addOption("--progress")
             addOption("--restrict-filenames")
-            addOption("--user-agent", SafeHttpClient.DEFAULT_MOBILE_CHROME_UA)
+            addOption("--user-agent", effectiveUserAgent)
 
             if (format == "audio" || quality == "audio") {
                 addOption("-x")
@@ -1003,7 +1073,8 @@ class DevwolfDownloadService : Service() {
             }
 
             // Host-scoped Netscape cookie file so cookies are never leaked on CLI args or third-party redirects
-            val cookie = secureVault.getCookieForPlatform(platform)
+            val cookie = igSession?.cookieHeader?.takeIf { it.isNotBlank() }
+                ?: secureVault.getCookieForPlatform(platform)
             if (!cookie.isNullOrBlank()) {
                 val cookieFile = writeScopedCookiesFile(workDir, platform, cookie)
                 if (cookieFile != null) {

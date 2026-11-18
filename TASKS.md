@@ -53,3 +53,10 @@ Checklist de acompanhamento do projeto.
 - [x] Corrigir `LocalEngineManager` para ler versão real do binário `yt-dlp`, suportar auto-check inicial/24h, canais `Stable`/`Nightly`, validação pós-update e rollback
 - [x] Publicar itens de carrossel individualmente no `MediaStore` (rejeitando `.zip`) e exibir progresso/ações por item na UI
 - [x] Remover login/fallback/configurações de VPS do frontend, adicionar `PerformanceTracker` + área de Diagnóstico/Performance sanitizada e otimizar APK com R8 + ABI splits mantendo assinatura compatível com `v2.0.0`
+
+## Etapa 8 — v3.0.0-rc.2: Correções Instagram (DNR/CAPTCHA) & Reddit (403/Share Links)
+- [x] Eliminar falsos positivos de `CAPTCHA_REQUIRED` em `InstagramParsers.classifyFailure` ignorando `<script>`/`<style>`/`<noscript>`/`<meta>`/`<link>` da shell Polaris e restringindo detecção a redirects `/challenge/` / `/checkpoint/`, JSON estruturado e DOM visível
+- [x] Extrair `media_id` de `<meta property="al:ios:url">` e `al:android:url` em `InstagramParsers.extractPageContext` e priorizar execução *session-first* (`WebPageJsonStrategy` -> `AuthorizedWebApiStrategy` -> `EmbedCaptionedStrategy`) no `InstagramNativeResolver`
+- [x] Alinhar `--user-agent` do fallback `yt-dlp` em `DevwolfDownloadService` com o `User-Agent` salvo da sessão WebView do Instagram e registrar `strategyAttempts` e `httpStatus` no `PerformanceTracker`
+- [x] Diferenciar bloqueio WAF/Fastly HTTP 403 (`EXTRACTION_FAILED` recuperável + fallback `old.reddit.com` + `yt-dlp`) de conteúdo realmente privado (`PRIVATE_MEDIA`) no `GalleryDlLocalResolver` e `ErrorClassifier`, além de resolver links `/r/<sub>/s/<id>` sem anexar `.json` em paths não resolvidos
+- [x] Bump para `v3.0.0-rc.2` (`versionCode 30002`), suítes de testes (`vitest` + `testDebugUnitTest`), build de APKs assinados, atualização do `graphify-out/` e prerelease no GitHub
