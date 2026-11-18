@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
-import { Check, ClipboardPaste, Download, HelpCircle, X } from 'lucide-react';
+import { Check, ClipboardPaste, Download, X } from 'lucide-react';
 import type { FormatOption, QualityOption } from '../types/api';
 import { useModalDialog } from '../utils/dialogHelpers';
 import { parseAndValidateUrl } from '../utils/url';
@@ -18,7 +18,6 @@ interface AddLinkModalProps {
   submitting: boolean;
   onExplicitPaste: () => Promise<void>;
   onSubmitDownload: (rawUrl: string) => Promise<void>;
-  onOpenHowTo: () => void;
   onClose: () => void;
 }
 
@@ -36,7 +35,6 @@ export function AddLinkModal({
   submitting,
   onExplicitPaste,
   onSubmitDownload,
-  onOpenHowTo,
   onClose,
 }: AddLinkModalProps) {
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -81,22 +79,9 @@ export function AddLinkModal({
     >
       <form onSubmit={(e) => void handleSubmit(e)} className="p-5">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onOpenHowTo();
-              }}
-              aria-label="Como baixar"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#7C5CFF] to-[#5E43F3] text-white shadow-md shadow-[#5E43F3]/35 transition hover:opacity-90"
-            >
-              <HelpCircle className="h-4 w-4" aria-hidden="true" />
-            </button>
-            <h2 id="add-link-title" className="text-base font-bold tracking-tight">
-              Adicionar link de download
-            </h2>
-          </div>
+          <h2 id="add-link-title" className="text-base font-bold tracking-tight">
+            Adicionar link de download
+          </h2>
 
           <button
             type="button"
@@ -123,7 +108,7 @@ export function AddLinkModal({
               onUrlInputChange(e.target.value);
             }}
             onKeyDown={handleKeyDown}
-            className="w-full resize-none rounded-2xl border border-[#7C5CFF]/25 bg-white/80 py-3.5 pl-4 pr-12 text-sm text-[#1E1940] placeholder-[#7D75A8] outline-none transition focus:border-[#7C5CFF] dark:border-[#9382FF]/25 dark:bg-[#0D0B1E]/75 dark:text-[#F5F3FF] dark:placeholder-[#7A74A6] dark:focus:border-[#A78BFA]"
+            className="w-full resize-none rounded-2xl border border-[#7C5CFF]/25 bg-white/80 py-3.5 pl-4 pr-14 text-sm text-[#1E1940] placeholder-[#7D75A8] outline-none transition focus:border-[#7C5CFF] dark:border-[#9382FF]/25 dark:bg-[#0D0B1E]/75 dark:text-[#F5F3FF] dark:placeholder-[#7A74A6] dark:focus:border-[#A78BFA]"
           />
           {urlInput && (
             <button
@@ -133,7 +118,7 @@ export function AddLinkModal({
                 onUrlInputChange('');
               }}
               aria-label="Limpar link"
-              className="absolute right-2.5 top-2.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#7C5CFF] to-[#5E43F3] text-white shadow transition hover:opacity-90"
+              className="absolute right-3 top-1/2 inline-flex h-9 w-9 min-h-[36px] min-w-[36px] [min-block-size:36px] -translate-y-1/2 aspect-square shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#7C5CFF] to-[#5E43F3] text-white shadow transition after:absolute after:-inset-1 after:content-[''] hover:opacity-90"
             >
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
@@ -141,10 +126,10 @@ export function AddLinkModal({
         </div>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex min-h-[26px] items-center gap-2">
+          <div className="flex min-h-[40px] items-center gap-2">
             {parsedPreview && (
-              <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#7C5CFF]/35 bg-[#7C5CFF]/15 px-2.5 py-1 text-xs font-semibold text-[#5E43F3] dark:text-[#C4B5FD]">
-                <Check className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="inline-flex min-h-[40px] [min-block-size:40px] items-center gap-1.5 rounded-xl border border-[#7C5CFF]/35 bg-[#7C5CFF]/15 px-3 text-xs font-semibold text-[#5E43F3] dark:text-[#C4B5FD]">
+                <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 <span>{parsedPreview.routeLabel} detectado</span>
               </span>
             )}
@@ -165,7 +150,7 @@ export function AddLinkModal({
               aria-label="Formato"
               value={selectedFormat}
               onChange={(e) => onFormatChange(e.target.value as FormatOption)}
-              className="min-h-[40px] rounded-xl border border-[#7C5CFF]/25 bg-white/80 px-2.5 text-xs font-medium text-[#1E1940] outline-none dark:border-[#9382FF]/25 dark:bg-[#0D0B1E]/80 dark:text-[#E0DBFF]"
+              className="min-h-[40px] [min-block-size:40px] rounded-xl border border-[#7C5CFF]/25 bg-white/80 px-2.5 text-xs font-medium text-[#1E1940] outline-none dark:border-[#9382FF]/25 dark:bg-[#0D0B1E]/80 dark:text-[#E0DBFF]"
             >
               <option value="auto">Auto</option>
               <option value="video">Vídeo</option>
@@ -177,7 +162,7 @@ export function AddLinkModal({
               aria-label="Qualidade"
               value={selectedQuality}
               onChange={(e) => onQualityChange(e.target.value as QualityOption)}
-              className="min-h-[40px] rounded-xl border border-[#7C5CFF]/25 bg-white/80 px-2.5 text-xs font-medium text-[#1E1940] outline-none dark:border-[#9382FF]/25 dark:bg-[#0D0B1E]/80 dark:text-[#E0DBFF]"
+              className="min-h-[40px] [min-block-size:40px] rounded-xl border border-[#7C5CFF]/25 bg-white/80 px-2.5 text-xs font-medium text-[#1E1940] outline-none dark:border-[#9382FF]/25 dark:bg-[#0D0B1E]/80 dark:text-[#E0DBFF]"
             >
               <option value="best">Melhor</option>
               <option value="1080p">1080p</option>

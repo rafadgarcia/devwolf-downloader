@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Copy,
-  Edit3,
   ExternalLink,
   Film,
   Image as ImageIcon,
@@ -12,7 +11,7 @@ import {
   Share2,
   Trash2,
 } from 'lucide-react';
-import { filterLocalHistory, removeLocalJob } from '../services/localQueue';
+import { cleanNullableString, filterLocalHistory, removeLocalJob } from '../services/localQueue';
 import { nativeBridge } from '../services/nativeBridge';
 import type { CarouselItemState, HistoryItem, JobFile, JobResponse, PlatformId } from '../types/api';
 import { getUserFacingErrorMessage } from '../utils/errorContract';
@@ -29,7 +28,6 @@ import { MediaThumbnail } from './MediaThumbnail';
 interface HistoryViewProps {
   localJobs: JobResponse[];
   onRepeatDownload: (url: string) => Promise<void>;
-  onEditUrl: (url: string) => void;
   onLocalJobDeleted?: (jobId: string) => void;
 }
 
@@ -80,7 +78,6 @@ function toCarouselItem(
 export function HistoryView({
   localJobs,
   onRepeatDownload,
-  onEditUrl,
   onLocalJobDeleted,
 }: HistoryViewProps) {
   const [items, setItems] = useState<HistoryItem[]>([]);
@@ -252,9 +249,12 @@ export function HistoryView({
             const isMulti = carouselItems.length > 1;
             const hasVideo = readyCarousel.some((c) => c.type === 'video');
             const engineBadge = formatDisplayEngine(item.selected_engine, 'local', item.platform);
+            const cleanTitle = cleanNullableString(item.title);
+            const cleanErrorMessage = cleanNullableString(item.error_message);
             const thumb =
-              item.thumbnail_data_url ||
-              carouselItems.find((c) => Boolean(c.thumbnailDataUrl))?.thumbnailDataUrl ||
+              cleanNullableString(item.thumbnail_data_url) ||
+              carouselItems.find((c) => Boolean(cleanNullableString(c.thumbnailDataUrl)))
+                ?.thumbnailDataUrl ||
               null;
 
             return (
@@ -290,7 +290,7 @@ export function HistoryView({
                     </div>
 
                     <p className="mt-1.5 line-clamp-2 text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
-                      {item.title || item.normalized_url || item.original_url}
+                      {cleanTitle || item.normalized_url || item.original_url}
                     </p>
 
                     <div className="mt-1 flex items-center justify-between gap-2">
@@ -306,15 +306,15 @@ export function HistoryView({
                             : 'text-[#5B5482] dark:text-[#A5A1C8]'
                         }`}
                       >
-                        {item.phase_label || getPhaseLabel(item.status)}
+                        {cleanNullableString(item.phase_label) || getPhaseLabel(item.status)}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {item.status === 'failed' && (item.error_code || item.error_message) && (
+                {item.status === 'failed' && (item.error_code || cleanErrorMessage) && (
                   <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">
-                    {getUserFacingErrorMessage(item.error_code, item.error_message, item.platform)}
+                    {getUserFacingErrorMessage(item.error_code, cleanErrorMessage, item.platform)}
                   </p>
                 )}
 
@@ -468,10 +468,11 @@ export function HistoryView({
                   <button
                     type="button"
                     onClick={() => void onRepeatDownload(item.normalized_url || item.original_url)}
-                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-3 text-xs font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 dark:text-[#E0DBFF]"
+                    aria-label="Repetir download"
+                    title="Repetir download"
+                    className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-3 text-xs font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 dark:text-[#E0DBFF]"
                   >
-                    <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>Repetir</span>
+                    <RefreshCw className="h-4 w-4" aria-hidden="true" />
                   </button>
 
                   <button
@@ -481,15 +482,6 @@ export function HistoryView({
                   >
                     <Copy className="h-3.5 w-3.5" aria-hidden="true" />
                     <span>{copiedId === item.id ? 'Copiado!' : 'Copiar URL'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => onEditUrl(item.normalized_url || item.original_url)}
-                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-[#7C5CFF]/25 bg-[#7C5CFF]/10 px-3 text-xs font-medium text-[#4C3F91] transition hover:bg-[#7C5CFF]/20 dark:text-[#E0DBFF]"
-                  >
-                    <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>Editar URL</span>
                   </button>
 
                   <button

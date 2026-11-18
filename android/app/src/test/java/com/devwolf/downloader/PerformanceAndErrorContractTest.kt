@@ -1,7 +1,9 @@
 package com.devwolf.downloader
 
+import com.devwolf.downloader.DevwolfDownloadService.Companion.optCleanString
 import com.devwolf.downloader.resolvers.DevwolfErrorCode
 import com.devwolf.downloader.resolvers.ErrorClassifier
+import com.devwolf.downloader.resolvers.InstagramParsers
 import com.devwolf.downloader.resolvers.MediaItemType
 import com.devwolf.downloader.resolvers.ResolvedMediaItem
 import com.devwolf.downloader.resolvers.StrategyAttemptMetric
@@ -13,6 +15,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -180,7 +183,7 @@ class PerformanceAndErrorContractTest {
     }
 
     @Test
-    fun readsPersistedYtdlpVersionDirectlyFromZipappBinary() {
+    fun readsPersistedYtdlpVersionDirectlyFromZipappBinaryIncludingShebangPreamble() {
         val tempFile = File.createTempFile("yt-dlp-test-", ".bin")
         try {
             ZipOutputStream(tempFile.outputStream()).use { zos ->
@@ -189,9 +192,57 @@ class PerformanceAndErrorContractTest {
                 zos.closeEntry()
             }
             assertEquals("2026.11.17", LocalEngineManager.readBinaryVersionFromZipapp(tempFile))
+
+            val baos = ByteArrayOutputStream()
+            baos.write("#!/usr/bin/env python3\n".toByteArray(Charsets.UTF_8))
+            ZipOutputStream(baos).use { zos ->
+                zos.putNextEntry(ZipEntry("yt_dlp/version.py"))
+                zos.write("__version__ = '2026.11.18'\n".toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+            }
+            tempFile.writeBytes(baos.toByteArray())
+            assertEquals("2026.11.18", LocalEngineManager.readBinaryVersionFromZipapp(tempFile))
         } finally {
             tempFile.delete()
         }
+    }
+
+    @Test
+    fun routesInitialEngineLabelByPlatformAndSanitizesJsonObjectNullStrings() {
+        assertEquals("yt-dlp", DevwolfDownloadService.initialEngineForPlatform("youtube"))
+        assertEquals("yt-dlp", DevwolfDownloadService.initialEngineForPlatform("tiktok"))
+        assertEquals("yt-dlp", DevwolfDownloadService.initialEngineForPlatform("facebook"))
+        assertEquals("yt-dlp", DevwolfDownloadService.initialEngineForPlatform("twitter"))
+        assertEquals("dnr", DevwolfDownloadService.initialEngineForPlatform("instagram"))
+        assertEquals("dnr", DevwolfDownloadService.initialEngineForPlatform("threads"))
+        assertEquals("gallery-dl", DevwolfDownloadService.initialEngineForPlatform("pinterest"))
+        assertEquals("gallery-dl", DevwolfDownloadService.initialEngineForPlatform("reddit"))
+
+        val jsonWithNull = JSONObject().apply {
+            put("title", JSONObject.NULL)
+            put("literalNull", "null")
+            put("blank", "   ")
+            put("valid", "  Reel HD  ")
+        }
+        assertNull(jsonWithNull.optCleanString("title"))
+        assertNull(jsonWithNull.optCleanString("literalNull"))
+        assertNull(jsonWithNull.optCleanString("blank"))
+        assertNull(jsonWithNull.optCleanString("missing"))
+        assertEquals("Reel HD", jsonWithNull.optCleanString("valid"))
+
+        val igNullCaption = JSONObject(
+            """
+            {
+              "code": "ABC123",
+              "caption": { "text": null },
+              "user": { "username": "devwolf" },
+              "video_versions": [{ "width": 1080, "height": 1920, "url": "https://cdn.example.com/v.mp4" }]
+            }
+            """.trimIndent(),
+        )
+        val parsed = InstagramParsers.parseXdtMediaDict(igNullCaption, "ABC123")
+        assertNotNull(parsed)
+        assertNull(parsed!!.title)
     }
 
     @Test

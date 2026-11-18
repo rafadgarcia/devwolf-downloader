@@ -2,6 +2,31 @@
 
 Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
+## [3.0.0-rc.5] — Correção R8 `yt-dlp`, FFmpeg/Downloads, Navegação Botão Voltar, Polimento UI & OAuth no Navegador
+
+### Corrigido
+- **Crash R8/Release ao atualizar `yt-dlp` e leitura de zipapp (`proguard-rules.pro`, `LocalEngineManager.kt`, `DevwolfNativePlugin.kt`)**:
+  - Adicionadas regras R8 (`-keep`) para `com.fasterxml.jackson.**`, `@com.fasterxml.jackson.annotation.**`, `org.apache.commons.**`, `org.tukaani.xz.**`, `kotlin.Metadata`, `kotlin.**` e `org.chromium.**` evitando a remoção de classes/anotações usadas por `YoutubeDLUpdater` no APK `release` (`minifyEnabled true`).
+  - `LocalEngineManager.readBinaryVersionFromZipapp` substituído por `ZipInputStream` com salto de preâmbulo shebang (`#!/usr/bin/env python3`) até a assinatura `PK\u0003\u0004`, evitando falhas de `ZipFile` no ART.
+  - Sincronização de `updateEngine`, `rollbackEngine` e `maybeAutoUpdateInBackground` via `updateLock` + atraso inicial de 15s no startup (`DevwolfNativePlugin.load()`), além de validação resiliente via `YoutubeDL.getInstance().version(appCtx)` sem falsos rollbacks em `ALREADY_UP_TO_DATE`.
+- **Downloads travando em `"Resolvendo publicação..."`, título `"null"` e inicialização de FFmpeg (`DevwolfDownloadService.kt`, `InstagramParsers.kt`, `ThreadsNativeResolver.kt`, `localQueue.ts`, `HistoryView.tsx`)**:
+  - Motor inicial determinado por plataforma via `initialEngineForPlatform` (`yt-dlp` para YouTube/TikTok/Facebook/Twitter, `dnr` para Instagram/Threads, `gallery-dl` para Pinterest/Reddit) antes do primeiro snapshot, eliminando exibição falsa de `dnr` no YouTube.
+  - Chamada de `LocalEngineManager.ensureInitialized(applicationContext)` (inicializando `YoutubeDL` e `FFmpeg`) antes de `executeSinglePassYtdlp`, garantindo extração das bibliotecas do `ffmpeg` para mesclagem `bestvideo+bestaudio` e `--merge-output-format mp4`.
+  - Emissão imediata de progresso quando `DEVWOLF_META:` / `[Merger]` / callbacks do `yt-dlp` chegam e template seguro `-o media_%(id)s_%(autonumber)s.%(ext)s`.
+  - Substituídos `optString` inseguros por `optCleanString` / `optNonNullString` (Kotlin) e `cleanNullableString` (frontend) impedindo que `JSONObject.NULL` vire título literal `"null"`.
+
+### Adicionado & Alterado
+- **Botão Voltar do Android (`MainActivity.kt`, `App.tsx`)**:
+  - `OnBackPressedCallback` consulta `window.__devwolfHandleBack()` / `devwolf:hardwareBack`: fecha modais abertos, retorna abas secundárias (`history`, `engines`, `settings`) para **Início** (`home`) e só fecha/minimiza o app quando já estiver em **Início**.
+- **Navegador do Dispositivo para Reddit OAuth2 & Sessões (`InstagramSessionActivity.kt`, `AndroidManifest.xml`, `SettingsView.tsx`)**:
+  - Suporte a callback `devwolf://oauth-callback` (`launchMode="singleTop"`) e botão **Navegador** em `InstagramSessionActivity`: permite autorizar Reddit OAuth2 PKCE no navegador padrão onde o usuário já está logado e explica a separação de cookies Chrome vs WebView persistente no Instagram/Threads.
+- **Polimento da Interface (`Header.tsx`, `AddLinkModal.tsx`, `HistoryView.tsx`, `EnginesView.tsx`, `hybridOrchestrator.ts`)**:
+  - Removido `+` duplicado do cabeçalho (mantido apenas `⋮` e FAB `+` na Home); removido `?` do modal **Adicionar link**; botão `✕` em círculo perfeito centralizado à direita; badge `<plataforma> detectado` alinhado em `40px` com os selects `Auto`/`Melhor`.
+  - Em **Baixados**: botão **Repetir** somente com ícone e remoção de **Editar URL**.
+  - Em **Motores**: removido aviso de rodapé e promovido `yt-dlp + FFmpeg` como primeiro card / motor universal para YouTube, TikTok, Facebook e X/Twitter.
+- **Build & Versionamento (`android/app/build.gradle`, `frontend/package.json`)**:
+  - Atualizado para `versionCode 30005` e `versionName "3.0.0-rc.5"`.
+
 ## [3.0.0-rc.4] — Redesign Rposty, Tema Roxo Glassmorphism, Thumbnails Nativas & Barra Roxa
 
 ### Adicionado

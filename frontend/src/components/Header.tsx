@@ -7,7 +7,6 @@ import {
   Home,
   KeyRound,
   MoreVertical,
-  Plus,
   Settings,
   Zap,
 } from 'lucide-react';
@@ -18,7 +17,6 @@ interface HeaderProps {
   activeTab: NavTab;
   onNavigate: (tab: NavTab) => void;
   onOpenAccounts: () => void;
-  onOpenAddLink: () => void;
   onOpenHowTo: () => void;
 }
 
@@ -33,7 +31,6 @@ export function Header({
   activeTab,
   onNavigate,
   onOpenAccounts,
-  onOpenAddLink,
   onOpenHowTo,
 }: HeaderProps) {
   const triggerId = useId();
@@ -167,16 +164,6 @@ export function Header({
         )}
 
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={onOpenAddLink}
-            aria-label="Adicionar link de download"
-            title="Adicionar link"
-            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-[#5E43F3] transition hover:bg-[#7C5CFF]/12 dark:text-[#C4B5FD] dark:hover:bg-[#7C5CFF]/15"
-          >
-            <Plus className="h-5 w-5" aria-hidden="true" />
-          </button>
-
           <button
             ref={triggerRef}
             id={triggerId}

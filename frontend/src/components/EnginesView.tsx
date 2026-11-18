@@ -3,7 +3,6 @@ import {
   ArrowUpCircle,
   Cpu,
   Image as ImageIcon,
-  Info,
   RefreshCw,
   RotateCcw,
   ShieldCheck,
@@ -100,69 +99,7 @@ export function EnginesView({
         </button>
       </div>
 
-      {/* 1. DNR — Devwolf Native Resolver (Instagram & Threads) */}
-      <section className="dw-glass-card rounded-3xl p-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Cpu className="h-4 w-4 text-[#7C5CFF] dark:text-[#A78BFA]" aria-hidden="true" />
-            <h3 className="text-sm font-bold text-[#1E1940] dark:text-[#F5F3FF]">
-              DNR • Instagram &amp; Threads
-            </h3>
-          </div>
-          <span
-            className={`inline-flex items-center rounded-lg border px-2.5 py-0.5 text-xs font-semibold ${
-              isNativeAndroid && (engineStatus?.dnrAvailable ?? engineStatus?.available)
-                ? 'border-[#7C5CFF]/35 bg-[#7C5CFF]/15 text-[#5E43F3] dark:text-[#C4B5FD]'
-                : 'border-[#7C5CFF]/20 bg-[#7C5CFF]/5 text-[#5B5482] dark:text-[#A5A1C8]'
-            }`}
-          >
-            {isNativeAndroid ? 'Ativo' : 'Somente APK'}
-          </span>
-        </div>
-
-        <p className="mt-1.5 text-xs text-[#5B5482] dark:text-[#A5A1C8]">
-          Resolvedor Kotlin nativo dedicado para Reels, vídeos, fotos individuais e carrosséis
-          mistos do Instagram e Threads, sem depender de servidor externo.
-        </p>
-
-        <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
-          <div className="col-span-2">
-            <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Estratégias ativas</dt>
-            <dd className="mt-1 flex flex-wrap gap-1.5">
-              {dnrStrategies.map((strategy) => (
-                <span
-                  key={strategy}
-                  className="dw-glass-subtle rounded-lg px-2 py-0.5 font-mono text-[11px] text-[#4C3F91] dark:text-[#E0DBFF]"
-                >
-                  {strategy}
-                </span>
-              ))}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Tempo médio de resolução</dt>
-            <dd className="font-mono font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
-              {formatMs(engineStatus?.dnrAvgResolutionMs)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Sessão opcional Instagram</dt>
-            <dd className="inline-flex items-center gap-1 font-medium text-[#1E1940] dark:text-[#F5F3FF]">
-              <ShieldCheck
-                className={`h-3.5 w-3.5 ${
-                  instagramConfigured
-                    ? 'text-[#7C5CFF] dark:text-[#A78BFA]'
-                    : 'text-[#7D75A8]'
-                }`}
-                aria-hidden="true"
-              />
-              <span>{instagramConfigured ? 'Configurada' : 'Anônimo (público)'}</span>
-            </dd>
-          </div>
-        </dl>
-      </section>
-
-      {/* 2. yt-dlp + FFmpeg */}
+      {/* 1. yt-dlp + FFmpeg (Motor Universal: YouTube, TikTok, Facebook, X/Twitter) */}
       <section className="dw-glass-card rounded-3xl p-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -181,6 +118,11 @@ export function EnginesView({
             {isNativeAndroid && engineStatus?.available ? 'Ativo' : 'Somente APK'}
           </span>
         </div>
+
+        <p className="mt-1.5 text-xs text-[#5B5482] dark:text-[#A5A1C8]">
+          Motor principal para YouTube, TikTok, Facebook e X/Twitter, além de fallback para
+          Instagram, Threads, Pinterest e Reddit.
+        </p>
 
         {isNativeAndroid && engineStatus ? (
           <>
@@ -293,6 +235,68 @@ export function EnginesView({
         )}
       </section>
 
+      {/* 2. DNR — Devwolf Native Resolver (exclusivo Instagram & Threads) */}
+      <section className="dw-glass-card rounded-3xl p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Cpu className="h-4 w-4 text-[#7C5CFF] dark:text-[#A78BFA]" aria-hidden="true" />
+            <h3 className="text-sm font-bold text-[#1E1940] dark:text-[#F5F3FF]">
+              DNR • Instagram &amp; Threads
+            </h3>
+          </div>
+          <span
+            className={`inline-flex items-center rounded-lg border px-2.5 py-0.5 text-xs font-semibold ${
+              isNativeAndroid && (engineStatus?.dnrAvailable ?? engineStatus?.available)
+                ? 'border-[#7C5CFF]/35 bg-[#7C5CFF]/15 text-[#5E43F3] dark:text-[#C4B5FD]'
+                : 'border-[#7C5CFF]/20 bg-[#7C5CFF]/5 text-[#5B5482] dark:text-[#A5A1C8]'
+            }`}
+          >
+            {isNativeAndroid ? 'Ativo' : 'Somente APK'}
+          </span>
+        </div>
+
+        <p className="mt-1.5 text-xs text-[#5B5482] dark:text-[#A5A1C8]">
+          Resolvedor Kotlin nativo dedicado para Reels, vídeos, fotos individuais e carrosséis
+          mistos do Instagram e Threads.
+        </p>
+
+        <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+          <div className="col-span-2">
+            <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Estratégias ativas</dt>
+            <dd className="mt-1 flex flex-wrap gap-1.5">
+              {dnrStrategies.map((strategy) => (
+                <span
+                  key={strategy}
+                  className="dw-glass-subtle rounded-lg px-2 py-0.5 font-mono text-[11px] text-[#4C3F91] dark:text-[#E0DBFF]"
+                >
+                  {strategy}
+                </span>
+              ))}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Tempo médio de resolução</dt>
+            <dd className="font-mono font-semibold text-[#1E1940] dark:text-[#F5F3FF]">
+              {formatMs(engineStatus?.dnrAvgResolutionMs)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[#5B5482] dark:text-[#A5A1C8]">Sessão opcional Instagram</dt>
+            <dd className="inline-flex items-center gap-1 font-medium text-[#1E1940] dark:text-[#F5F3FF]">
+              <ShieldCheck
+                className={`h-3.5 w-3.5 ${
+                  instagramConfigured
+                    ? 'text-[#7C5CFF] dark:text-[#A78BFA]'
+                    : 'text-[#7D75A8]'
+                }`}
+                aria-hidden="true"
+              />
+              <span>{instagramConfigured ? 'Configurada' : 'Anônimo (público)'}</span>
+            </dd>
+          </div>
+        </dl>
+      </section>
+
       {/* 3. gallery-dl / Resolvedores de Imagem */}
       <section className="dw-glass-card rounded-3xl p-4">
         <div className="flex items-center justify-between gap-2">
@@ -353,17 +357,6 @@ export function EnginesView({
           ))}
         </ul>
       </section>
-
-      <div className="dw-glass-card flex items-start gap-2.5 rounded-3xl p-3.5 text-xs text-[#5B5482] dark:text-[#A5A1C8]">
-        <Info
-          className="mt-0.5 h-4 w-4 shrink-0 text-[#7C5CFF] dark:text-[#A78BFA]"
-          aria-hidden="true"
-        />
-        <span>
-          Todos os motores executam diretamente no dispositivo Android, sem dependência de servidor
-          remoto ou VPS.
-        </span>
-      </div>
     </div>
   );
 }

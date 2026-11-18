@@ -57,8 +57,12 @@ describe('hybridOrchestrator (Exclusively Local Android Routing)', () => {
     expect(igPlan.fallbackEngines).toEqual(['yt-dlp', 'gallery-dl']);
   });
 
-  it('expõe tabela centralizada de roteamento para todas as 8 plataformas', () => {
+  it('expõe tabela centralizada de roteamento para todas as 8 plataformas com yt-dlp como motor universal inicial', () => {
     expect(PLATFORM_ROUTING_TABLE).toHaveLength(8);
+    expect(PLATFORM_ROUTING_TABLE[0].platform).toBe('youtube');
+    expect(PLATFORM_ROUTING_TABLE[0].primaryEngine).toBe('yt-dlp');
+    expect(getPlatformEngineRoute('youtube').primaryEngine).toBe('yt-dlp');
+    expect(getPlatformEngineRoute('tiktok').primaryEngine).toBe('yt-dlp');
     expect(getPlatformEngineRoute('instagram').routeDescription).toBe(
       'DNR (fallback yt-dlp/gallery-dl)'
     );

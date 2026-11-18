@@ -365,14 +365,19 @@ class ThreadsNativeResolver(
             return !giphy.isNullOrBlank() && giphy.endsWith(".mp4", ignoreCase = true)
         }
 
+        private fun JSONObject.optNonNullString(key: String): String? {
+            if (isNull(key)) return null
+            return optString(key, "").trim().takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+        }
+
         private fun parseThreadsPostObject(post: JSONObject, fallbackShortcode: String): ThreadsParsedMedia? {
-            val code = post.optString("code").takeIf { it.isNotBlank() }
-                ?: post.optString("shortcode").takeIf { it.isNotBlank() }
+            val code = post.optNonNullString("code")
+                ?: post.optNonNullString("shortcode")
                 ?: fallbackShortcode
             val user = post.optJSONObject("user") ?: post.optJSONObject("owner")
-            val author = user?.optString("username")?.takeIf { it.isNotBlank() }
+            val author = user?.optNonNullString("username")
             val isPrivate = user?.optBoolean("is_private", false) == true
-            val caption = post.optJSONObject("caption")?.optString("text")?.takeIf { it.isNotBlank() }
+            val caption = post.optJSONObject("caption")?.optNonNullString("text")
 
             val items = mutableListOf<ResolvedMediaItem>()
             val carousel = post.optJSONArray("carousel_media")

@@ -41,20 +41,22 @@ const ACCOUNT_PLATFORMS: Array<{
   {
     id: 'instagram',
     label: 'Instagram',
-    description: 'WebView oficial do Instagram para Reels, Stories ou publicações que exigem login.',
+    description:
+      'A tela de login preserva sua sessão permanentemente após entrar e inclui atalho para abrir ou copiar do navegador do dispositivo.',
     cookiePlaceholder: 'sessionid=...; csrftoken=...',
   },
   {
     id: 'reddit',
     label: 'Reddit',
     description:
-      'Suporta OAuth2 PKCE oficial (Installed App via developers.reddit.com) ou sessão WebView.',
+      'Suporta OAuth2 PKCE (pode abrir no navegador do dispositivo onde o Reddit já está logado) ou sessão via WebView.',
     cookiePlaceholder: 'reddit_session=...; token_v2=...',
   },
   {
     id: 'threads',
     label: 'Threads',
-    description: 'WebView oficial do Threads para publicações e mídias que exigem sessão.',
+    description:
+      'A tela de login preserva sua sessão permanentemente após entrar e inclui atalho para abrir ou copiar do navegador do dispositivo.',
     cookiePlaceholder: 'sessionid=...; csrftoken=...',
   },
 ];
@@ -709,7 +711,8 @@ export function SettingsView({
                       <code className="rounded bg-[#7C5CFF]/10 px-1 py-0.5 font-mono text-[10px]">
                         {REDDIT_OAUTH_REDIRECT_URI}
                       </code>{' '}
-                      e cole o Client ID abaixo (sem client secret), ou entre via WebView padrão.
+                      e cole o Client ID abaixo para autorizar via OAuth (com opção de abrir no
+                      navegador do dispositivo onde o Reddit já está conectado), ou entre via WebView.
                     </p>
                     <input
                       type="text"

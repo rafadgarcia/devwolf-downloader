@@ -8,6 +8,7 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
+import androidx.activity.OnBackPressedCallback
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -22,8 +23,51 @@ class MainActivity : BridgeActivity() {
         registerPlugin(DevwolfNativePlugin::class.java)
         super.onCreate(savedInstanceState)
         applyPurpleSystemChrome()
+        registerHardwareBackHandler()
         requestNotificationPermissionIfNeeded()
         handleIncomingIntent(intent)
+    }
+
+    private fun registerHardwareBackHandler() {
+        val backCallback = object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val wv = bridge?.webView
+                if (wv == null) {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                    return
+                }
+                val js = """
+                    (function() {
+                      try {
+                        if (typeof window.__devwolfHandleBack === 'function') {
+                          return window.__devwolfHandleBack() ? '1' : '0';
+                        }
+                        var ev = new CustomEvent('devwolf:hardwareBack', { cancelable: true });
+                        var notCancelled = window.dispatchEvent(ev);
+                        return notCancelled ? '0' : '1';
+                      } catch (e) {
+                        return '0';
+                      }
+                    })();
+                """.trimIndent()
+                wv.evaluateJavascript(js) { result ->
+                    val handled = result == "\"1\"" || result == "1" || result == "true"
+                    if (handled) return@evaluateJavascript
+                    runOnUiThread {
+                        if (wv.canGoBack()) {
+                            wv.goBack()
+                        } else {
+                            isEnabled = false
+                            onBackPressedDispatcher.onBackPressed()
+                            isEnabled = true
+                        }
+                    }
+                }
+            }
+        }
+        onBackPressedDispatcher.addCallback(this, backCallback)
     }
 
     @Suppress("DEPRECATION")

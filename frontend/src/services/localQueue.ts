@@ -21,6 +21,62 @@ const LOCAL_QUEUE_STORAGE_KEY = 'devwolf_local_jobs_v3';
 const LEGACY_LOCAL_QUEUE_STORAGE_KEY = 'devwolf_local_jobs_v2';
 const MAX_LOCAL_HISTORY_ITEMS = 80;
 
+export function cleanNullableString(value?: string | null): string | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'null' || trimmed.toLowerCase() === 'undefined') {
+    return null;
+  }
+  return value;
+}
+
+export function getDefaultEngineForPlatform(platform?: string | null): string {
+  const normalized = (platform ?? '').trim().toLowerCase();
+  if (normalized === 'instagram' || normalized === 'threads') return 'dnr';
+  if (normalized === 'pinterest' || normalized === 'reddit') return 'gallery-dl';
+  return 'yt-dlp';
+}
+
+function normalizeEngineForPlatform(engine?: string | null, platform?: string | null): string {
+  const cleaned = cleanNullableString(engine);
+  const normalizedPlatform = (platform ?? '').trim().toLowerCase();
+  if (!cleaned) {
+    return getDefaultEngineForPlatform(normalizedPlatform);
+  }
+  if (
+    cleaned.toLowerCase() === 'dnr' &&
+    normalizedPlatform &&
+    normalizedPlatform !== 'instagram' &&
+    normalizedPlatform !== 'threads'
+  ) {
+    return getDefaultEngineForPlatform(normalizedPlatform);
+  }
+  return cleaned;
+}
+
+function sanitizeStoredJob(job: JobResponse): JobResponse {
+  const platform = cleanNullableString(job.platform) ?? 'instagram';
+  const engine = normalizeEngineForPlatform(
+    job.current_engine ?? job.selected_engine,
+    platform
+  );
+  return {
+    ...job,
+    platform,
+    title: cleanNullableString(job.title),
+    phase_label: cleanNullableString(job.phase_label) ?? getPhaseLabel(job.status),
+    current_engine: engine,
+    selected_engine: normalizeEngineForPlatform(job.selected_engine ?? engine, platform),
+    display_engine: formatDisplayEngine(engine, 'local', platform),
+    engine_version: cleanNullableString(job.engine_version),
+    strategy_used: cleanNullableString(job.strategy_used),
+    error_code: cleanNullableString(job.error_code),
+    error_message: cleanNullableString(job.error_message),
+    technical_reason: cleanNullableString(job.technical_reason),
+    thumbnail_data_url: cleanNullableString(job.thumbnail_data_url),
+  };
+}
+
 function readStoredJobs(): JobResponse[] {
   try {
     const raw =
@@ -28,7 +84,7 @@ function readStoredJobs(): JobResponse[] {
       window.localStorage.getItem(LEGACY_LOCAL_QUEUE_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as JobResponse[]) : [];
+    return Array.isArray(parsed) ? (parsed as JobResponse[]).map(sanitizeStoredJob) : [];
   } catch {
     return [];
   }
@@ -125,7 +181,7 @@ export function mapLocalFilesToCarouselItems(
         id: f.id || `item-${index}`,
         index,
         type,
-        fileName: f.fileName,
+        fileName: cleanNullableString(f.fileName) ?? `media_${index}`,
         mimeType,
         width: f.width ?? null,
         height: f.height ?? null,
@@ -133,10 +189,10 @@ export function mapLocalFilesToCarouselItems(
         bytesDownloaded,
         percent,
         status,
-        mediaUri: f.mediaUri ?? null,
-        displayPath: f.displayPath ?? null,
-        filePath: f.filePath ?? null,
-        thumbnailDataUrl: f.thumbnailDataUrl ?? null,
+        mediaUri: cleanNullableString(f.mediaUri),
+        displayPath: cleanNullableString(f.displayPath),
+        filePath: cleanNullableString(f.filePath),
+        thumbnailDataUrl: cleanNullableString(f.thumbnailDataUrl),
         durationSeconds: f.durationSeconds ?? null,
         isSegment: Boolean(f.isSegment),
         segmentIndex: f.segmentIndex ?? null,
@@ -187,7 +243,10 @@ export function createInitialLocalJob(params: {
   primaryEngine?: string;
 }): JobResponse {
   const now = new Date().toISOString();
-  const initialEngine = params.primaryEngine ?? (params.platform === 'instagram' ? 'dnr' : 'yt-dlp');
+  const initialEngine = normalizeEngineForPlatform(
+    params.primaryEngine ?? getDefaultEngineForPlatform(params.platform),
+    params.platform
+  );
   return {
     id: params.jobId,
     original_url: params.url,
@@ -228,12 +287,16 @@ export function applyLocalProgressToJob(
   const rawList = event.items ?? event.files;
   const items = rawList ? mapLocalFilesToCarouselItems(rawList, status) : existing?.items ?? [];
   const files = rawList ? mapLocalFilesToJobFiles(rawList, status) : existing?.files ?? [];
-  const engine = event.engine || existing?.current_engine || existing?.selected_engine || 'yt-dlp';
-  const platform = event.platform ?? existing?.platform ?? 'instagram';
-  const errorCode = event.errorCode ?? existing?.error_code ?? null;
+  const platform = cleanNullableString(event.platform) ?? existing?.platform ?? 'instagram';
+  const engine = normalizeEngineForPlatform(
+    event.engine ?? existing?.current_engine ?? existing?.selected_engine,
+    platform
+  );
+  const errorCode = cleanNullableString(event.errorCode) ?? cleanNullableString(existing?.error_code);
+  const rawEventError = cleanNullableString(event.error) ?? cleanNullableString(existing?.error_message);
   const errorMessage =
-    status === 'failed' || errorCode || event.error
-      ? getUserFacingErrorMessage(errorCode, event.error ?? existing?.error_message, platform)
+    status === 'failed' || errorCode || rawEventError
+      ? getUserFacingErrorMessage(errorCode, rawEventError, platform)
       : null;
 
   return {
@@ -241,17 +304,19 @@ export function applyLocalProgressToJob(
     original_url: existing?.original_url ?? '',
     normalized_url: existing?.normalized_url ?? '',
     platform,
-    title: event.title ?? existing?.title ?? null,
+    title: cleanNullableString(event.title) ?? cleanNullableString(existing?.title),
     format: existing?.format ?? 'auto',
     quality: existing?.quality ?? 'best',
     status,
-    phase_label: event.phaseLabel || getPhaseLabel(status),
+    phase_label: cleanNullableString(event.phaseLabel) || getPhaseLabel(status),
     current_engine: engine,
     selected_engine: engine,
     execution_origin: 'local',
     display_engine: formatDisplayEngine(engine, 'local', platform),
-    engine_version: event.engineVersion ?? existing?.engine_version ?? null,
-    strategy_used: event.strategyUsed ?? existing?.strategy_used ?? null,
+    engine_version:
+      cleanNullableString(event.engineVersion) ?? cleanNullableString(existing?.engine_version),
+    strategy_used:
+      cleanNullableString(event.strategyUsed) ?? cleanNullableString(existing?.strategy_used),
     bytes_downloaded: event.bytesDownloaded ?? existing?.bytes_downloaded ?? 0,
     total_bytes: event.totalBytes ?? existing?.total_bytes ?? null,
     percent: event.percent ?? existing?.percent ?? null,
@@ -263,14 +328,15 @@ export function applyLocalProgressToJob(
     keep_original: existing?.keep_original ?? false,
     from_share_intent: existing?.from_share_intent ?? false,
     error_code: errorCode,
-    error_message: errorMessage,
-    technical_reason: event.technicalReason ?? existing?.technical_reason ?? null,
+    error_message: cleanNullableString(errorMessage),
+    technical_reason:
+      cleanNullableString(event.technicalReason) ??
+      cleanNullableString(existing?.technical_reason),
     metrics: event.metrics ?? existing?.metrics ?? null,
     thumbnail_data_url:
-      event.thumbnailDataUrl ??
+      cleanNullableString(event.thumbnailDataUrl) ??
       items.find((i) => Boolean(i.thumbnailDataUrl))?.thumbnailDataUrl ??
-      existing?.thumbnail_data_url ??
-      null,
+      cleanNullableString(existing?.thumbnail_data_url),
     files,
     items,
     created_at: existing?.created_at ?? now,
@@ -287,12 +353,13 @@ export function snapshotToJobResponse(snapshot: LocalDownloadSnapshot): JobRespo
   const rawList = snapshot.items ?? snapshot.files;
   const items = mapLocalFilesToCarouselItems(rawList, snapshot.status);
   const files = mapLocalFilesToJobFiles(rawList, snapshot.status);
-  const platform = snapshot.platform ?? 'instagram';
-  const engine = snapshot.engine || (platform === 'instagram' || platform === 'threads' ? 'dnr' : 'yt-dlp');
-  const errorCode = snapshot.errorCode ?? null;
+  const platform = cleanNullableString(snapshot.platform) ?? 'instagram';
+  const engine = normalizeEngineForPlatform(snapshot.engine, platform);
+  const errorCode = cleanNullableString(snapshot.errorCode);
+  const rawError = cleanNullableString(snapshot.error);
   const errorMessage =
-    snapshot.status === 'failed' || errorCode || snapshot.error
-      ? getUserFacingErrorMessage(errorCode, snapshot.error, platform)
+    snapshot.status === 'failed' || errorCode || rawError
+      ? getUserFacingErrorMessage(errorCode, rawError, platform)
       : null;
 
   return {
@@ -300,17 +367,17 @@ export function snapshotToJobResponse(snapshot: LocalDownloadSnapshot): JobRespo
     original_url: snapshot.url,
     normalized_url: snapshot.url,
     platform,
-    title: snapshot.title ?? null,
+    title: cleanNullableString(snapshot.title),
     format: snapshot.format,
     quality: snapshot.quality,
     status: snapshot.status,
-    phase_label: snapshot.phaseLabel || getPhaseLabel(snapshot.status),
+    phase_label: cleanNullableString(snapshot.phaseLabel) || getPhaseLabel(snapshot.status),
     current_engine: engine,
     selected_engine: engine,
     execution_origin: 'local',
     display_engine: formatDisplayEngine(engine, 'local', platform),
-    engine_version: snapshot.engineVersion ?? null,
-    strategy_used: snapshot.strategyUsed ?? null,
+    engine_version: cleanNullableString(snapshot.engineVersion),
+    strategy_used: cleanNullableString(snapshot.strategyUsed),
     bytes_downloaded: snapshot.bytesDownloaded ?? 0,
     total_bytes: snapshot.totalBytes ?? null,
     percent: snapshot.percent ?? null,
@@ -321,11 +388,11 @@ export function snapshotToJobResponse(snapshot: LocalDownloadSnapshot): JobRespo
     segment_duration: snapshot.segmentDurationSeconds ?? null,
     keep_original: snapshot.keepOriginal ?? false,
     error_code: errorCode,
-    error_message: errorMessage,
-    technical_reason: snapshot.technicalReason ?? null,
+    error_message: cleanNullableString(errorMessage),
+    technical_reason: cleanNullableString(snapshot.technicalReason),
     metrics: snapshot.metrics ?? null,
     thumbnail_data_url:
-      snapshot.thumbnailDataUrl ??
+      cleanNullableString(snapshot.thumbnailDataUrl) ??
       items.find((i) => Boolean(i.thumbnailDataUrl))?.thumbnailDataUrl ??
       null,
     files,
@@ -377,29 +444,29 @@ export function syncLocalSnapshots(snapshots: LocalDownloadSnapshot[]): JobRespo
 
 export function localJobToHistoryItem(job: JobResponse): HistoryItem {
   const primaryFile = job.files?.[0] ?? null;
+  const engine = normalizeEngineForPlatform(job.selected_engine, job.platform);
   return {
     id: job.id,
     original_url: job.original_url,
     normalized_url: job.normalized_url,
     platform: job.platform,
-    title: job.title,
+    title: cleanNullableString(job.title),
     format: job.format,
     quality: job.quality,
     status: job.status,
-    phase_label: job.phase_label || getPhaseLabel(job.status),
-    selected_engine: job.selected_engine ?? 'yt-dlp',
+    phase_label: cleanNullableString(job.phase_label) || getPhaseLabel(job.status),
+    selected_engine: engine,
     execution_origin: 'local',
-    display_engine: job.display_engine ?? formatDisplayEngine(job.selected_engine, 'local', job.platform),
+    display_engine: formatDisplayEngine(engine, 'local', job.platform),
     status_mode: job.status_mode,
-    error_code: job.error_code ?? null,
-    error_message: job.error_message,
+    error_code: cleanNullableString(job.error_code),
+    error_message: cleanNullableString(job.error_message),
     created_at: job.created_at,
     completed_at: job.completed_at,
     thumbnail_data_url:
-      job.thumbnail_data_url ??
-      job.items?.find((i) => Boolean(i.thumbnailDataUrl))?.thumbnailDataUrl ??
-      primaryFile?.thumbnail_data_url ??
-      null,
+      cleanNullableString(job.thumbnail_data_url) ??
+      cleanNullableString(job.items?.find((i) => Boolean(cleanNullableString(i.thumbnailDataUrl)))?.thumbnailDataUrl) ??
+      cleanNullableString(primaryFile?.thumbnail_data_url),
     file: primaryFile,
     files: job.files,
     items: job.items,

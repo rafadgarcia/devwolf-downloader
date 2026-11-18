@@ -9,13 +9,14 @@ import com.yausername.youtubedl_android.YoutubeDL
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 
 /**
  * Manages lazy initialization, real binary version discovery, daily/manual updates
@@ -33,8 +34,10 @@ object LocalEngineManager {
     private val ffmpegInitialized = AtomicBoolean(false)
     private val ytdlpLock = Any()
     private val ffmpegLock = Any()
+    private val updateLock = Any()
     private val activeDownloads = AtomicInteger(0)
     private val autoUpdateInFlight = AtomicBoolean(false)
+    private val manualUpdateInFlight = AtomicBoolean(false)
 
     fun isYtdlpInitialized(): Boolean = ytdlpInitialized.get()
 
@@ -110,11 +113,15 @@ object LocalEngineManager {
         return try {
             val appCtx = context.applicationContext
             ensureYtdlpInitialized(appCtx)
+            val prefVersion = try {
+                YoutubeDL.getInstance().version(appCtx)
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+            } catch (_: Throwable) {
+                null
+            }
             val binaryVersion = readBinaryVersionFromZipapp(findYtdlpBinary(appCtx))
-            val prefVersion = YoutubeDL.getInstance().version(appCtx)
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
-            val realVersion = binaryVersion ?: prefVersion
+            val realVersion = prefVersion ?: binaryVersion
             if (realVersion != null) {
                 cacheYtdlpVersion(appCtx, realVersion)
             }
@@ -133,13 +140,10 @@ object LocalEngineManager {
         if (ytdlpInitialized.get()) {
             return getInstalledYtdlpVersion(appCtx)
         }
-        val diskVersion = readBinaryVersionFromZipapp(findYtdlpBinary(appCtx))
-        if (!diskVersion.isNullOrBlank()) {
-            cacheYtdlpVersion(appCtx, diskVersion)
-            return diskVersion
-        }
         val prefVersion = try {
-            YoutubeDL.getInstance().version(appCtx)?.trim()?.takeIf { it.isNotBlank() }
+            YoutubeDL.getInstance().version(appCtx)
+                ?.trim()
+                ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
         } catch (_: Throwable) {
             null
         }
@@ -147,19 +151,70 @@ object LocalEngineManager {
             cacheYtdlpVersion(appCtx, prefVersion)
             return prefVersion
         }
+        val diskVersion = readBinaryVersionFromZipapp(findYtdlpBinary(appCtx))
+        if (!diskVersion.isNullOrBlank()) {
+            cacheYtdlpVersion(appCtx, diskVersion)
+            return diskVersion
+        }
         return getCachedYtdlpVersion(appCtx)
     }
 
+    /**
+     * Reads `__version__` from `yt_dlp/version.py` inside a yt-dlp python zipapp binary.
+     * Skips any leading `#!/usr/bin/env python3` shebang preamble up to `PK\u0003\u0004` so
+     * [ZipInputStream] never fails on Android ART where [ZipFile] can throw on shebang headers.
+     */
     internal fun readBinaryVersionFromZipapp(binaryFile: File?): String? {
         if (binaryFile == null || !binaryFile.exists() || !binaryFile.isFile || binaryFile.length() == 0L) {
             return null
         }
         return try {
-            ZipFile(binaryFile).use { zip ->
-                val entry = zip.getEntry("yt_dlp/version.py") ?: return@use null
-                val content = zip.getInputStream(entry).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                val match = Regex("""__version__\s*=\s*['"]([^'"]+)['"]""").find(content)
-                match?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+            FileInputStream(binaryFile).buffered().use { rawStream ->
+                rawStream.mark(512)
+                val header = ByteArray(512)
+                val readLen = rawStream.read(header)
+                if (readLen < 4) return null
+
+                var pkOffset = -1
+                for (i in 0..(readLen - 4)) {
+                    if (header[i] == 0x50.toByte() &&
+                        header[i + 1] == 0x4B.toByte() &&
+                        header[i + 2] == 0x03.toByte() &&
+                        header[i + 3] == 0x04.toByte()
+                    ) {
+                        pkOffset = i
+                        break
+                    }
+                }
+                if (pkOffset < 0) return null
+
+                rawStream.reset()
+                if (pkOffset > 0) {
+                    var remaining = pkOffset.toLong()
+                    while (remaining > 0L) {
+                        val skipped = rawStream.skip(remaining)
+                        if (skipped <= 0L) {
+                            if (rawStream.read() < 0) return null
+                            remaining--
+                        } else {
+                            remaining -= skipped
+                        }
+                    }
+                }
+
+                ZipInputStream(rawStream).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        if (entry.name == "yt_dlp/version.py") {
+                            val content = zis.bufferedReader(Charsets.UTF_8).readText()
+                            val match = Regex("""__version__\s*=\s*['"]([^'"]+)['"]""").find(content)
+                            return match?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+                        }
+                        zis.closeEntry()
+                        entry = zis.nextEntry
+                    }
+                    null
+                }
             }
         } catch (_: Throwable) {
             null
@@ -183,14 +238,14 @@ object LocalEngineManager {
     }
 
     /**
-     * Non-blocking automatic check/update triggered on first app startup and once every 24h.
-     * Respects active downloads and falls back safely on network or validation failure.
+     * Non-blocking automatic check/update triggered after startup settle delay and once every 24h.
+     * Synchronized via [updateLock] and skips when downloads or manual updates are active.
      */
     fun maybeAutoUpdateInBackground(context: Context) {
         if (!autoUpdateInFlight.compareAndSet(false, true)) return
         try {
             val appCtx = context.applicationContext
-            if (activeDownloads.get() > 0) return
+            if (activeDownloads.get() > 0 || manualUpdateInFlight.get()) return
 
             val vault = SecureVault(appCtx)
             val lastCheck = vault.lastCheckAt
@@ -206,14 +261,17 @@ object LocalEngineManager {
             if (!shouldCheck) return
 
             val channel = getPreferredChannel(appCtx)
-            val installed = getInstalledYtdlpVersion(appCtx)
             val latest = fetchLatestYtdlpTag(channel)
             vault.lastCheckAt = Instant.now().toString()
             if (latest != null) {
                 vault.latestKnownYtdlpVersion = latest
-                val outdated = installed.isNullOrBlank() || compareVersions(installed, latest) < 0
-                if (outdated && activeDownloads.get() == 0) {
-                    updateEngine(appCtx, channel)
+                synchronized(updateLock) {
+                    if (activeDownloads.get() > 0 || manualUpdateInFlight.get()) return
+                    val installed = getInstalledYtdlpVersion(appCtx)
+                    val outdated = installed.isNullOrBlank() || compareVersions(installed, latest) < 0
+                    if (outdated && activeDownloads.get() == 0 && !manualUpdateInFlight.get()) {
+                        updateEngine(appCtx, channel)
+                    }
                 }
             }
         } catch (_: Throwable) {
@@ -289,71 +347,105 @@ object LocalEngineManager {
             }
         }
 
-        ensureYtdlpInitialized(appCtx)
-        val currentVersion = getInstalledYtdlpVersion(appCtx)
-        val backupSuccess = backupYtdlpBinary(appCtx)
-        val channel = if (activeChannel == "nightly") {
-            YoutubeDL.UpdateChannel.NIGHTLY
-        } else {
-            YoutubeDL.UpdateChannel.STABLE
-        }
-
+        manualUpdateInFlight.set(true)
         return try {
-            val status = YoutubeDL.getInstance().updateYoutubeDL(appCtx, channel)
-            val updatedBinary = findYtdlpBinary(appCtx)
-            val newVersion = getInstalledYtdlpVersion(appCtx)
-            if (newVersion.isNullOrBlank() || updatedBinary == null || updatedBinary.length() < 100_000L) {
-                if (backupSuccess) restoreBackupYtdlpBinary(appCtx)
-                vault.lastEngineError = "Validação do binário yt-dlp falhou após atualização; rollback aplicado."
-                return JSONObject().apply {
-                    put("updated", false)
-                    put("version", getInstalledYtdlpVersion(appCtx) ?: JSONObject.NULL)
-                    put("wrapperVersion", WRAPPER_VERSION)
-                    put("updateChannel", activeChannel)
-                    put("previousVersion", currentVersion ?: JSONObject.NULL)
-                    put("message", vault.lastEngineError)
+            synchronized(updateLock) {
+                if (activeDownloads.get() > 0) {
+                    return@synchronized JSONObject().apply {
+                        put("updated", false)
+                        put("version", getInstalledYtdlpVersion(appCtx) ?: JSONObject.NULL)
+                        put("wrapperVersion", WRAPPER_VERSION)
+                        put("updateChannel", activeChannel)
+                        put("previousVersion", vault.previousYtdlpVersion ?: JSONObject.NULL)
+                        put("canUpdate", false)
+                        put("message", "Atualização bloqueada enquanto há downloads ativos.")
+                    }
+                }
+
+                ensureYtdlpInitialized(appCtx)
+                val currentVersion = getInstalledYtdlpVersion(appCtx)
+                val backupSuccess = backupYtdlpBinary(appCtx)
+                val channel = if (activeChannel == "nightly") {
+                    YoutubeDL.UpdateChannel.NIGHTLY
+                } else {
+                    YoutubeDL.UpdateChannel.STABLE
+                }
+
+                try {
+                    val status = YoutubeDL.getInstance().updateYoutubeDL(appCtx, channel)
+                    val officialVersion = try {
+                        YoutubeDL.getInstance().version(appCtx)
+                            ?.trim()
+                            ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                    } catch (_: Throwable) {
+                        null
+                    }
+                    val updatedBinary = findYtdlpBinary(appCtx)
+                    val zipVersion = readBinaryVersionFromZipapp(updatedBinary)
+                    val newVersion = officialVersion ?: zipVersion ?: getInstalledYtdlpVersion(appCtx)
+
+                    val isAlreadyUpToDate = status == YoutubeDL.UpdateStatus.ALREADY_UP_TO_DATE
+                    val binaryTooSmall = updatedBinary != null && updatedBinary.length() < 100_000L
+                    val missingBothBinaryAndVersion = newVersion.isNullOrBlank() ||
+                        (!isAlreadyUpToDate && officialVersion.isNullOrBlank() && updatedBinary == null)
+
+                    if (missingBothBinaryAndVersion || binaryTooSmall) {
+                        if (backupSuccess) restoreBackupYtdlpBinary(appCtx)
+                        vault.lastEngineError = "Validação do binário yt-dlp falhou após atualização; rollback aplicado."
+                        return@synchronized JSONObject().apply {
+                            put("updated", false)
+                            put("version", getInstalledYtdlpVersion(appCtx) ?: JSONObject.NULL)
+                            put("wrapperVersion", WRAPPER_VERSION)
+                            put("updateChannel", activeChannel)
+                            put("previousVersion", currentVersion ?: JSONObject.NULL)
+                            put("message", vault.lastEngineError)
+                        }
+                    }
+
+                    val resolvedVersion = newVersion!!
+                    if (!currentVersion.isNullOrBlank() && currentVersion != resolvedVersion) {
+                        vault.previousYtdlpVersion = currentVersion
+                    }
+                    cacheYtdlpVersion(appCtx, resolvedVersion)
+                    val nowIso = Instant.now().toString()
+                    vault.lastCheckAt = nowIso
+                    vault.lastUpdateAt = nowIso
+                    vault.lastEngineError = null
+                    vault.latestKnownYtdlpVersion = resolvedVersion
+
+                    val updated = status == YoutubeDL.UpdateStatus.DONE || (currentVersion != resolvedVersion)
+                    val message = if (updated) {
+                        "yt-dlp ($activeChannel) atualizado para $resolvedVersion"
+                    } else {
+                        "yt-dlp ($activeChannel) já está na versão mais recente ($resolvedVersion)"
+                    }
+                    JSONObject().apply {
+                        put("updated", updated)
+                        put("version", resolvedVersion)
+                        put("wrapperVersion", WRAPPER_VERSION)
+                        put("updateChannel", activeChannel)
+                        put("previousVersion", vault.previousYtdlpVersion ?: JSONObject.NULL)
+                        put("lastUpdateAt", nowIso)
+                        put("message", message)
+                    }
+                } catch (e: Throwable) {
+                    if (backupSuccess) {
+                        restoreBackupYtdlpBinary(appCtx)
+                    }
+                    val msg = "Falha ao atualizar yt-dlp ($activeChannel): ${e.message ?: "erro desconhecido"}"
+                    vault.lastEngineError = msg
+                    JSONObject().apply {
+                        put("updated", false)
+                        put("version", getInstalledYtdlpVersion(appCtx) ?: JSONObject.NULL)
+                        put("wrapperVersion", WRAPPER_VERSION)
+                        put("updateChannel", activeChannel)
+                        put("previousVersion", currentVersion ?: JSONObject.NULL)
+                        put("message", msg)
+                    }
                 }
             }
-
-            if (!currentVersion.isNullOrBlank() && currentVersion != newVersion) {
-                vault.previousYtdlpVersion = currentVersion
-            }
-            cacheYtdlpVersion(appCtx, newVersion)
-            val nowIso = Instant.now().toString()
-            vault.lastCheckAt = nowIso
-            vault.lastUpdateAt = nowIso
-            vault.lastEngineError = null
-            vault.latestKnownYtdlpVersion = newVersion
-
-            val updated = status == YoutubeDL.UpdateStatus.DONE || (currentVersion != newVersion)
-            val message = if (updated) {
-                "yt-dlp ($activeChannel) atualizado para $newVersion"
-            } else {
-                "yt-dlp ($activeChannel) já está na versão mais recente ($newVersion)"
-            }
-            JSONObject().apply {
-                put("updated", updated)
-                put("version", newVersion)
-                put("wrapperVersion", WRAPPER_VERSION)
-                put("updateChannel", activeChannel)
-                put("previousVersion", vault.previousYtdlpVersion ?: JSONObject.NULL)
-                put("lastUpdateAt", nowIso)
-                put("message", message)
-            }
-        } catch (e: Throwable) {
-            if (backupSuccess) {
-                restoreBackupYtdlpBinary(appCtx)
-            }
-            val msg = "Falha ao atualizar yt-dlp ($activeChannel): ${e.message ?: "erro desconhecido"}"
-            vault.lastEngineError = msg
-            JSONObject().apply {
-                put("updated", false)
-                put("version", getInstalledYtdlpVersion(appCtx) ?: JSONObject.NULL)
-                put("wrapperVersion", WRAPPER_VERSION)
-                put("updateChannel", activeChannel)
-                put("previousVersion", currentVersion ?: JSONObject.NULL)
-                put("message", msg)
-            }
+        } finally {
+            manualUpdateInFlight.set(false)
         }
     }
 
@@ -368,20 +460,28 @@ object LocalEngineManager {
                 put("message", "Rollback bloqueado enquanto há downloads ativos.")
             }
         }
-        ensureYtdlpInitialized(appCtx)
-        val restored = restoreBackupYtdlpBinary(appCtx)
-        val versionAfter = getInstalledYtdlpVersion(appCtx)
-        val msg = if (restored && !versionAfter.isNullOrBlank()) {
-            cacheYtdlpVersion(appCtx, versionAfter)
-            vault.lastEngineError = null
-            "Rollback concluído para a versão $versionAfter"
-        } else {
-            "Nenhum backup funcional anterior do yt-dlp disponível para rollback."
-        }
-        return JSONObject().apply {
-            put("rolledBack", restored && !versionAfter.isNullOrBlank())
-            put("version", versionAfter ?: JSONObject.NULL)
-            put("message", msg)
+        manualUpdateInFlight.set(true)
+        return try {
+            synchronized(updateLock) {
+                ensureYtdlpInitialized(appCtx)
+                val restored = restoreBackupYtdlpBinary(appCtx)
+                val versionAfter = readBinaryVersionFromZipapp(findYtdlpBinary(appCtx))
+                    ?: getInstalledYtdlpVersion(appCtx)
+                val msg = if (restored && !versionAfter.isNullOrBlank()) {
+                    cacheYtdlpVersion(appCtx, versionAfter)
+                    vault.lastEngineError = null
+                    "Rollback concluído para a versão $versionAfter"
+                } else {
+                    "Nenhum backup funcional anterior do yt-dlp disponível para rollback."
+                }
+                JSONObject().apply {
+                    put("rolledBack", restored && !versionAfter.isNullOrBlank())
+                    put("version", versionAfter ?: JSONObject.NULL)
+                    put("message", msg)
+                }
+            }
+        } finally {
+            manualUpdateInFlight.set(false)
         }
     }
 
@@ -400,6 +500,7 @@ object LocalEngineManager {
     private fun findYtdlpBinary(context: Context): File? {
         val candidates = listOf(
             File(context.noBackupFilesDir, "youtubedl-android/yt-dlp/yt-dlp"),
+            File(context.noBackupFilesDir, "youtubedl-android/packages/python/usr/local/bin/yt-dlp"),
             File(context.filesDir, "youtubedl-android/yt-dlp/yt-dlp"),
             File(context.noBackupFilesDir, "youtubedl-android/packages/yt-dlp"),
         )
@@ -452,7 +553,12 @@ object LocalEngineManager {
             conn.useDisconnect {
                 if (conn.responseCode in 200..299) {
                     val body = conn.inputStream.bufferedReader().readText()
-                    JSONObject(body).optString("tag_name").takeIf { it.isNotBlank() }
+                    val json = JSONObject(body)
+                    if (json.isNull("tag_name")) {
+                        null
+                    } else {
+                        json.optString("tag_name").trim().takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                    }
                 } else {
                     null
                 }

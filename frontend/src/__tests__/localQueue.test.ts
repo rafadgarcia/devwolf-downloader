@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   applyLocalProgressToJob,
+  cleanNullableString,
   createInitialLocalJob,
   filterLocalHistory,
   getLocalJobs,
   mapLocalFilesToCarouselItems,
+  snapshotToJobResponse,
   syncLocalSnapshots,
   upsertLocalJob,
 } from '../services/localQueue';
@@ -298,5 +300,75 @@ describe('localQueue, individual carousel items & local history', () => {
     const byQuery = filterLocalHistory([ig, pin], { q: 'minimalista' });
     expect(byQuery).toHaveLength(1);
     expect(byQuery[0].id).toBe('local-pin');
+  });
+
+  it('sanitiza strings literais "null" vindas do Android JSONObject.optString e garante yt-dlp para YouTube/TikTok', () => {
+    expect(cleanNullableString('null')).toBeNull();
+    expect(cleanNullableString(' undefined ')).toBeNull();
+    expect(cleanNullableString('  ')).toBeNull();
+    expect(cleanNullableString('Vídeo Real')).toBe('Vídeo Real');
+
+    const ytJob = createInitialLocalJob({
+      jobId: 'local-yt-1',
+      url: 'https://youtu.be/dQw4w9WgXcQ',
+      normalizedUrl: 'https://youtu.be/dQw4w9WgXcQ',
+      platform: 'youtube',
+      format: 'auto',
+      quality: 'best',
+      statusMode: false,
+    });
+    expect(ytJob.current_engine).toBe('yt-dlp');
+    expect(ytJob.display_engine).toBe('yt-dlp');
+
+    const synced = snapshotToJobResponse({
+      jobId: 'local-ig-null',
+      url: 'https://www.instagram.com/reel/Df3B/',
+      format: 'auto',
+      quality: 'best',
+      statusMode: false,
+      status: 'failed',
+      phaseLabel: 'Falhou',
+      engine: 'null',
+      engineVersion: 'null',
+      strategyUsed: 'null',
+      bytesDownloaded: 0,
+      totalBytes: null,
+      percent: null,
+      isIndeterminate: true,
+      speedBytesPerSec: null,
+      etaSeconds: null,
+      title: 'null',
+      platform: 'instagram',
+      error: 'null',
+      errorCode: 'EXTRACTION_FAILED',
+    });
+
+    expect(synced.title).toBeNull();
+    expect(synced.engine_version).toBeNull();
+    expect(synced.strategy_used).toBeNull();
+    expect(synced.selected_engine).toBe('dnr');
+    expect(synced.error_message).toBe('Não foi possível extrair a mídia desta página.');
+
+    const ytFromSnap = snapshotToJobResponse({
+      jobId: 'local-yt-snap',
+      url: 'https://youtu.be/abc123',
+      format: 'auto',
+      quality: 'best',
+      statusMode: false,
+      status: 'resolving',
+      phaseLabel: 'Resolvendo publicação…',
+      engine: 'dnr',
+      bytesDownloaded: 0,
+      totalBytes: null,
+      percent: null,
+      isIndeterminate: true,
+      speedBytesPerSec: null,
+      etaSeconds: null,
+      title: 'null',
+      platform: 'youtube',
+    });
+    expect(ytFromSnap.selected_engine).toBe('yt-dlp');
+    expect(ytFromSnap.display_engine).toBe('yt-dlp');
+    expect(ytFromSnap.title).toBeNull();
   });
 });

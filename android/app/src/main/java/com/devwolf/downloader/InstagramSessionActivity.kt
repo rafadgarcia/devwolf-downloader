@@ -47,6 +47,7 @@ class InstagramSessionActivity : AppCompatActivity() {
     private var redditClientId: String? = null
     private var pkceVerifier: String? = null
     private var oauthState: String? = null
+    private var oauthRedirectUriInUse: String = REDDIT_OAUTH_REDIRECT_URI
     private var sessionSaved = false
     private var oauthExchangeInFlight = false
     private val ioExecutor = Executors.newSingleThreadExecutor()
@@ -99,6 +100,16 @@ class InstagramSessionActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
+        val browserBtn = Button(this).apply {
+            text = "Navegador"
+            setTextColor(Color.parseColor("#C4B5FD"))
+            setBackgroundColor(Color.TRANSPARENT)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setOnClickListener {
+                openInDeviceBrowser(isRedditOAuth)
+            }
+        }
+
         val cancelBtn = Button(this).apply {
             text = "Cancelar"
             setTextColor(Color.parseColor("#D4D4D8"))
@@ -137,14 +148,15 @@ class InstagramSessionActivity : AppCompatActivity() {
         }
 
         topRow.addView(titleView)
+        topRow.addView(browserBtn)
         topRow.addView(cancelBtn)
         topRow.addView(doneBtn)
 
         statusLabel = TextView(this).apply {
             text = if (isRedditOAuth) {
-                "Autorize o acesso oficial de leitura (OAuth2 PKCE). O token fica criptografado só no aparelho."
+                "Autorize o acesso OAuth2 PKCE aqui ou toque em \"Navegador\" (requer redirect devwolf://oauth-callback no app do Reddit)."
             } else {
-                "Mídias públicas não exigem login. Credenciais ficam criptografadas só no aparelho."
+                "Mídias públicas não exigem login. Após entrar aqui uma vez, a sessão WebView permanece salva com criptografia."
             }
             setTextColor(Color.parseColor("#A1A1AA"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
@@ -247,6 +259,17 @@ class InstagramSessionActivity : AppCompatActivity() {
         webView.loadUrl(initialUrl)
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val callbackData = intent.data?.toString()
+        if (!callbackData.isNullOrBlank() &&
+            callbackData.startsWith(REDDIT_BROWSER_OAUTH_REDIRECT_URI, ignoreCase = true)
+        ) {
+            handleRedditOAuthCallback(callbackData)
+        }
+    }
+
     override fun onDestroy() {
         ioExecutor.shutdownNow()
         if (::webView.isInitialized) {
@@ -256,11 +279,38 @@ class InstagramSessionActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun buildRedditOAuthAuthorizeUrl(clientId: String): String {
+    private fun openInDeviceBrowser(isRedditOAuth: Boolean) {
+        val targetUrl = if (isRedditOAuth && !redditClientId.isNullOrBlank()) {
+            buildRedditOAuthAuthorizeUrl(redditClientId!!, REDDIT_BROWSER_OAUTH_REDIRECT_URI)
+        } else {
+            val current = if (::webView.isInitialized) webView.url else null
+            current?.takeIf { UrlExtractor.isSafePublicHttpUrl(it) } ?: when (platform) {
+                PLATFORM_REDDIT -> REDDIT_LOGIN_URL
+                PLATFORM_THREADS -> THREADS_LOGIN_URL
+                else -> INSTAGRAM_LOGIN_URL
+            }
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)))
+            statusLabel.text = if (isRedditOAuth) {
+                "Aberto no navegador do dispositivo. Aprove o acesso para retornar automaticamente (requer URI devwolf://oauth-callback)."
+            } else {
+                "Aberto no navegador. Por segurança do Android, apps não leem cookies do Chrome; faça login aqui uma vez para manter a sessão salva."
+            }
+        } catch (_: Throwable) {
+            statusLabel.text = "Nenhum navegador externo encontrado no dispositivo."
+        }
+    }
+
+    private fun buildRedditOAuthAuthorizeUrl(
+        clientId: String,
+        redirectUri: String = REDDIT_OAUTH_REDIRECT_URI,
+    ): String {
         val verifier = generateRandomUrlSafe(64)
         val state = generateRandomUrlSafe(24)
         pkceVerifier = verifier
         oauthState = state
+        oauthRedirectUriInUse = redirectUri
 
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(verifier.toByteArray(StandardCharsets.US_ASCII))
@@ -270,7 +320,7 @@ class InstagramSessionActivity : AppCompatActivity() {
             "?client_id=${urlEncode(clientId)}" +
             "&response_type=code" +
             "&state=${urlEncode(state)}" +
-            "&redirect_uri=${urlEncode(REDDIT_OAUTH_REDIRECT_URI)}" +
+            "&redirect_uri=${urlEncode(redirectUri)}" +
             "&duration=permanent" +
             "&scope=read%20identity" +
             "&code_challenge=${urlEncode(challenge)}" +
@@ -310,7 +360,7 @@ class InstagramSessionActivity : AppCompatActivity() {
             try {
                 val formBody = "grant_type=authorization_code" +
                     "&code=${urlEncode(code)}" +
-                    "&redirect_uri=${urlEncode(REDDIT_OAUTH_REDIRECT_URI)}" +
+                    "&redirect_uri=${urlEncode(oauthRedirectUriInUse)}" +
                     "&code_verifier=${urlEncode(verifier)}"
                 val basicAuth = Base64.encodeToString(
                     "$clientId:".toByteArray(StandardCharsets.UTF_8),
@@ -534,7 +584,8 @@ class InstagramSessionActivity : AppCompatActivity() {
         const val REDDIT_OAUTH_BASE_URL = "https://oauth.reddit.com"
         const val REDDIT_LOGIN_URL = "https://www.reddit.com/login/"
         const val REDDIT_OAUTH_REDIRECT_URI = "https://localhost/devwolf-oauth-callback"
-        private const val REDDIT_OAUTH_USER_AGENT = "android:com.devwolf.downloader:v3.0.0-rc.3 (by /u/devwolf-app)"
+        const val REDDIT_BROWSER_OAUTH_REDIRECT_URI = "devwolf://oauth-callback"
+        private const val REDDIT_OAUTH_USER_AGENT = "android:com.devwolf.downloader:v3.0.0-rc.5 (by /u/devwolf-app)"
 
         const val EXTRA_PLATFORM = "extra_platform"
         const val EXTRA_REDDIT_CLIENT_ID = "extra_reddit_client_id"

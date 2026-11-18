@@ -43,6 +43,13 @@ import {
 } from './utils/url';
 
 const ONBOARDING_KEY = 'devwolf_onboarding_done_v2';
+const VALID_TABS: NavTab[] = ['home', 'history', 'engines', 'settings'];
+
+declare global {
+  interface Window {
+    __devwolfHandleBack?: () => boolean;
+  }
+}
 
 function generateIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -85,7 +92,99 @@ export function App() {
   const [howToOpen, setHowToOpen] = useState(false);
 
   const autoStartLockRef = useRef(false);
+  const activeTabRef = useRef<NavTab>(activeTab);
+  activeTabRef.current = activeTab;
+  const backStateRef = useRef({
+    activeTab,
+    addLinkOpen,
+    howToOpen,
+    hasMultiCandidates: multiCandidates.length > 0,
+  });
+  backStateRef.current = {
+    activeTab,
+    addLinkOpen,
+    howToOpen,
+    hasMultiCandidates: multiCandidates.length > 0,
+  };
+
   const { job: activeJob, setActiveJob, engineSwitchNotice } = useJobProgress(null);
+
+  const navigateToTab = useCallback((tab: NavTab) => {
+    if (activeTabRef.current === tab) return;
+    setActiveTab(tab);
+    if (typeof window !== 'undefined' && window.history) {
+      if (tab === 'home') {
+        window.history.replaceState({ tab: 'home' }, '');
+      } else {
+        window.history.pushState({ tab }, '');
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!window.history.state?.tab) {
+      window.history.replaceState({ tab: 'home' }, '');
+    }
+
+    const handleBack = (): boolean => {
+      const state = backStateRef.current;
+      if (state.addLinkOpen) {
+        setAddLinkOpen(false);
+        return true;
+      }
+      if (state.howToOpen) {
+        setHowToOpen(false);
+        return true;
+      }
+      if (state.hasMultiCandidates) {
+        setMultiCandidates([]);
+        return true;
+      }
+      const openDialog = document.querySelector('dialog[open]') as HTMLDialogElement | null;
+      if (openDialog) {
+        if (typeof openDialog.close === 'function') {
+          openDialog.close();
+        } else {
+          openDialog.removeAttribute('open');
+        }
+        return true;
+      }
+      if (state.activeTab !== 'home') {
+        setScrollToAccounts(false);
+        setActiveTab('home');
+        window.history.replaceState({ tab: 'home' }, '');
+        return true;
+      }
+      return false;
+    };
+
+    window.__devwolfHandleBack = handleBack;
+
+    const onHardwareBack = (event: Event) => {
+      const consumed = handleBack();
+      if (consumed && event.cancelable) {
+        event.preventDefault();
+      }
+    };
+
+    const onPopState = (event: PopStateEvent) => {
+      const state = event.state as { tab?: NavTab } | null;
+      const targetTab: NavTab =
+        state?.tab && VALID_TABS.includes(state.tab) ? state.tab : 'home';
+      setActiveTab(targetTab);
+    };
+
+    window.addEventListener('devwolf:hardwareBack', onHardwareBack);
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      if (window.__devwolfHandleBack === handleBack) {
+        delete window.__devwolfHandleBack;
+      }
+      window.removeEventListener('devwolf:hardwareBack', onHardwareBack);
+      window.removeEventListener('popstate', onPopState);
+    };
+  }, []);
 
   useEffect(() => {
     if (activeJob) {
@@ -305,7 +404,7 @@ export function App() {
     if (candidates.length === 1) {
       const chosen = candidates[0];
       setUrlInput(chosen.normalizedUrl);
-      setActiveTab('home');
+      navigateToTab('home');
       if (shouldAutoStart && !autoStartLockRef.current) {
         autoStartLockRef.current = true;
         void startJob(chosen.normalizedUrl, {
@@ -322,16 +421,16 @@ export function App() {
         setAddLinkOpen(true);
       }
     } else if (candidates.length > 1) {
-      setActiveTab('home');
+      navigateToTab('home');
       setMultiCandidates(candidates);
     } else if (shareError) {
-      setActiveTab('home');
+      navigateToTab('home');
       setStatusNotice(shareError);
     } else if (combined.trim()) {
-      setActiveTab('home');
+      navigateToTab('home');
       setStatusNotice('Nenhum link suportado encontrado no item compartilhado.');
     }
-  }, [pendingShare, settings.auto_download, startJob]);
+  }, [navigateToTab, pendingShare, settings.auto_download, startJob]);
 
   const handleDetectedSingleUrl = useCallback(
     (parsed: ParsedPlatformUrl, fromExplicitPaste = false) => {
@@ -436,19 +535,12 @@ export function App() {
 
   const handleRepeatFromHistory = async (url: string) => {
     setUrlInput(url);
-    setActiveTab('home');
+    navigateToTab('home');
     try {
       await startJob(url, { forceManual: true });
     } catch (err) {
       setStatusNotice(err instanceof Error ? err.message : 'Erro ao repetir download.');
     }
-  };
-
-  const handleEditFromHistory = (url: string) => {
-    setUrlInput(url);
-    setStatusNotice(null);
-    setActiveTab('home');
-    setAddLinkOpen(true);
   };
 
   const handleReturnToSourceApp = async () => {
@@ -471,14 +563,13 @@ export function App() {
         activeTab={activeTab}
         onNavigate={(tab) => {
           setScrollToAccounts(false);
-          setActiveTab(tab);
+          navigateToTab(tab);
         }}
         onOpenAccounts={() => {
           setFocusAccountPlatform(null);
           setScrollToAccounts(true);
-          setActiveTab('settings');
+          navigateToTab('settings');
         }}
-        onOpenAddLink={() => void handleOpenAddLinkModal()}
         onOpenHowTo={() => setHowToOpen(true)}
       />
 
@@ -494,16 +585,16 @@ export function App() {
             statusNotice={statusNotice}
             onOnboardingChoice={(enable) => void handleOnboardingChoice(enable)}
             onOpenAddLink={() => void handleOpenAddLinkModal()}
-            onOpenHistory={() => setActiveTab('history')}
+            onOpenHistory={() => navigateToTab('history')}
             onOpenHowTo={() => setHowToOpen(true)}
             onOpenSettings={() => {
               setScrollToAccounts(false);
-              setActiveTab('settings');
+              navigateToTab('settings');
             }}
             onOpenAccountSettings={(platform) => {
               setFocusAccountPlatform(platform);
               setScrollToAccounts(true);
-              setActiveTab('settings');
+              navigateToTab('settings');
             }}
             onCancelJob={handleCancelJob}
             onRetryJob={(url) => startJob(url, { forceManual: true })}
@@ -515,7 +606,6 @@ export function App() {
           <HistoryView
             localJobs={localJobs}
             onRepeatDownload={handleRepeatFromHistory}
-            onEditUrl={handleEditFromHistory}
             onLocalJobDeleted={() => setLocalJobs(getLocalJobs())}
           />
         )}
@@ -560,7 +650,6 @@ export function App() {
         submitting={submitting}
         onExplicitPaste={handleExplicitPaste}
         onSubmitDownload={handleManualDownload}
-        onOpenHowTo={() => setHowToOpen(true)}
         onClose={() => setAddLinkOpen(false)}
       />
 

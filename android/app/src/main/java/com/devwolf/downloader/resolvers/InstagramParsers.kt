@@ -558,20 +558,24 @@ object InstagramParsers {
         return null
     }
 
+    private fun JSONObject.optNonNullString(key: String): String? {
+        if (isNull(key)) return null
+        return optString(key, "").trim().takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+    }
+
     internal fun parseGraphqlMediaNode(media: JSONObject, fallbackShortcode: String): InstagramParsedMedia? {
-        val code = media.optString("shortcode").takeIf { it.isNotBlank() } ?: fallbackShortcode
-        val mediaId = media.optString("id").takeIf { it.isNotBlank() }
+        val code = media.optNonNullString("shortcode") ?: fallbackShortcode
+        val mediaId = media.optNonNullString("id")
         val owner = media.optJSONObject("owner") ?: media.optJSONObject("user")
-        val author = owner?.optString("username")?.takeIf { it.isNotBlank() }
+        val author = owner?.optNonNullString("username")
         val isPrivate = owner?.optBoolean("is_private", false) == true
 
         val caption = media.optJSONObject("edge_media_to_caption")
             ?.optJSONArray("edges")
             ?.optJSONObject(0)
             ?.optJSONObject("node")
-            ?.optString("text")
-            ?.takeIf { it.isNotBlank() }
-            ?: media.optJSONObject("caption")?.optString("text")?.takeIf { it.isNotBlank() }
+            ?.optNonNullString("text")
+            ?: media.optJSONObject("caption")?.optNonNullString("text")
 
         val items = mutableListOf<ResolvedMediaItem>()
         val sidecarEdges = media.optJSONObject("edge_sidecar_to_children")?.optJSONArray("edges")
@@ -639,15 +643,15 @@ object InstagramParsers {
     }
 
     internal fun parseXdtMediaDict(media: JSONObject, fallbackShortcode: String): InstagramParsedMedia? {
-        val code = media.optString("code").takeIf { it.isNotBlank() }
-            ?: media.optString("shortcode").takeIf { it.isNotBlank() }
+        val code = media.optNonNullString("code")
+            ?: media.optNonNullString("shortcode")
             ?: fallbackShortcode
-        val mediaId = media.optString("pk").takeIf { it.isNotBlank() }
-            ?: media.optString("id").takeIf { it.isNotBlank() }
+        val mediaId = media.optNonNullString("pk")
+            ?: media.optNonNullString("id")
         val user = media.optJSONObject("user") ?: media.optJSONObject("owner")
-        val author = user?.optString("username")?.takeIf { it.isNotBlank() }
+        val author = user?.optNonNullString("username")
         val isPrivate = user?.optBoolean("is_private", false) == true
-        val caption = media.optJSONObject("caption")?.optString("text")?.takeIf { it.isNotBlank() }
+        val caption = media.optJSONObject("caption")?.optNonNullString("text")
 
         val items = mutableListOf<ResolvedMediaItem>()
         val carousel = media.optJSONArray("carousel_media")

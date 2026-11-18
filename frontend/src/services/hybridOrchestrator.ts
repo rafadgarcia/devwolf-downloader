@@ -19,22 +19,6 @@ export interface PlatformEngineRoute {
 
 export const PLATFORM_ROUTING_TABLE: PlatformEngineRoute[] = [
   {
-    platform: 'instagram',
-    label: 'Instagram',
-    primaryEngine: 'dnr',
-    fallbackEngines: ['yt-dlp', 'gallery-dl'],
-    routeDescription: 'DNR (fallback yt-dlp/gallery-dl)',
-    localSupported: true,
-  },
-  {
-    platform: 'threads',
-    label: 'Threads',
-    primaryEngine: 'dnr',
-    fallbackEngines: ['yt-dlp'],
-    routeDescription: 'DNR (fallback yt-dlp)',
-    localSupported: true,
-  },
-  {
     platform: 'youtube',
     label: 'YouTube',
     primaryEngine: 'yt-dlp',
@@ -64,6 +48,22 @@ export const PLATFORM_ROUTING_TABLE: PlatformEngineRoute[] = [
     primaryEngine: 'yt-dlp',
     fallbackEngines: ['gallery-dl'],
     routeDescription: 'yt-dlp',
+    localSupported: true,
+  },
+  {
+    platform: 'instagram',
+    label: 'Instagram',
+    primaryEngine: 'dnr',
+    fallbackEngines: ['yt-dlp', 'gallery-dl'],
+    routeDescription: 'DNR (fallback yt-dlp/gallery-dl)',
+    localSupported: true,
+  },
+  {
+    platform: 'threads',
+    label: 'Threads',
+    primaryEngine: 'dnr',
+    fallbackEngines: ['yt-dlp'],
+    routeDescription: 'DNR (fallback yt-dlp)',
     localSupported: true,
   },
   {

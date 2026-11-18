@@ -17,6 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -54,8 +55,9 @@ class DevwolfNativePlugin : Plugin() {
         instance = this
         PerformanceTracker.markAppOpenCompleted()
 
-        // Non-blocking first-init / 24h yt-dlp update check
+        // Non-blocking first-init / 24h yt-dlp update check delayed by 15s so startup/first download never race
         pluginScope.launch {
+            delay(15_000L)
             LocalEngineManager.maybeAutoUpdateInBackground(appCtx)
         }
     }

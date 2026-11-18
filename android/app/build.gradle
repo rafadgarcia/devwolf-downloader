@@ -9,8 +9,8 @@ android {
         applicationId "com.devwolf.downloader"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 30004
-        versionName "3.0.0-rc.4"
+        versionCode 30005
+        versionName "3.0.0-rc.5"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         aaptOptions {

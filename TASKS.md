@@ -75,3 +75,11 @@ Checklist de acompanhamento do projeto.
 - [x] Remoção de rótulos redundantes `"Local"` na UI e nos rótulos de fase nativos em pt-BR (`DevwolfDownloadService.kt`)
 - [x] Tema nativo `#0D0B1E` em `colors.xml`, `styles.xml` (`AppTheme.NoActionBarLaunch`) e `MainActivity.kt` (status bar, navigation bar e WebView sem flash branco)
 - [x] Bump para `v3.0.0-rc.4` (`versionCode 30004`), `npx cap sync android`, suítes de testes (`vitest` + `testDebugUnitTest`), build de APKs assinados, `graphify update .` e prerelease no GitHub
+
+## Etapa 11 — v3.0.0-rc.5: Estabilização R8/yt-dlp, FFmpeg, Botão Voltar, Polimento UI & Navegador OAuth
+- [x] Regras ProGuard/R8 para Jackson (`com.fasterxml.jackson.**`), Apache Commons (`org.apache.commons.**`), XZ (`org.tukaani.xz.**`), Kotlin Metadata e Chromium em `proguard-rules.pro`
+- [x] Correção de leitura de zipapp com shebang via `ZipInputStream`, `updateLock` e atraso de 15s no auto-update (`LocalEngineManager.kt`, `DevwolfNativePlugin.kt`)
+- [x] Correção do motor inicial por plataforma, inicialização conjunta `YoutubeDL` + `FFmpeg` em `executeSinglePassYtdlp`, sanitização de `JSONObject.NULL` (`optCleanString`) e atualização imediata de progresso (`DevwolfDownloadService.kt`, `InstagramParsers.kt`, `ThreadsNativeResolver.kt`)
+- [x] Interceptação do botão Voltar do Android (`MainActivity.kt` + `App.tsx`) para fechar modais ou retornar à aba **Início** antes de sair do app
+- [x] Botão **Navegador** + deep link `devwolf://oauth-callback` para Reddit OAuth2 PKCE no navegador do dispositivo e sessão persistente em `InstagramSessionActivity.kt` / `AndroidManifest.xml`
+- [x] Polimento de UI (`Header.tsx`, `AddLinkModal.tsx`, `HistoryView.tsx`, `EnginesView.tsx`, `SettingsView.tsx`, `localQueue.ts`, `hybridOrchestrator.ts`) e bump para `v3.0.0-rc.5` (`versionCode 30005`)

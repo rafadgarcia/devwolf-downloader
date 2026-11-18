@@ -203,13 +203,28 @@ class DevwolfDownloadService : Service() {
             )
         }
 
+        internal fun initialEngineForPlatform(platform: String): String {
+            return when (platform.trim().lowercase()) {
+                "instagram", "threads" -> "dnr"
+                "pinterest", "reddit" -> "gallery-dl"
+                else -> "yt-dlp"
+            }
+        }
+
+        internal fun JSONObject.optCleanString(key: String): String? {
+            if (isNull(key)) return null
+            return optString(key, "")
+                .trim()
+                .takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+        }
+
         internal fun parseYtdlpMetadataLine(line: String): YtdlpMetadata? {
             val idx = line.indexOf(META_PREFIX)
             if (idx < 0) return null
             val jsonPart = line.substring(idx + META_PREFIX.length).trim()
             return try {
                 val obj = JSONObject(jsonPart)
-                val title = obj.optString("title").takeIf { it.isNotBlank() && it != "null" }
+                val title = obj.optCleanString("title")
                 val duration = if (obj.isNull("duration")) null else obj.optDouble("duration").takeIf { !it.isNaN() && it > 0 }
                 val width = if (obj.isNull("width")) null else obj.optInt("width").takeIf { it > 0 }
                 val height = if (obj.isNull("height")) null else obj.optInt("height").takeIf { it > 0 }
@@ -347,7 +362,7 @@ class DevwolfDownloadService : Service() {
         var processingMs = 0L
         var galleryPublishMs = 0L
         var httpRequestCount = 0
-        var activeEngineName = "dnr"
+        var activeEngineName = initialEngineForPlatform(initialPlatform)
         var activeEngineVersion: String? = null
         var activeStrategy: String? = null
         var resolvedTitle: String? = null
@@ -554,12 +569,29 @@ class DevwolfDownloadService : Service() {
                         }
 
                         EngineKind.YT_DLP -> {
-                            val initElapsed = LocalEngineManager.ensureYtdlpInitialized(applicationContext)
+                            val initElapsed = LocalEngineManager.ensureInitialized(applicationContext)
                             engineInitMs += initElapsed
                             activeEngineName = "yt-dlp"
                             activeEngineVersion = LocalEngineManager.getInstalledYtdlpVersion(applicationContext)
                                 ?: LocalEngineManager.getCachedYtdlpVersion(applicationContext)
                             activeStrategy = "yt-dlp-single-pass"
+
+                            currentSnapshot = buildSnapshot(
+                                jobId = jobId,
+                                url = targetUrl,
+                                platform = currentPlatform,
+                                engine = activeEngineName,
+                                engineVersion = activeEngineVersion,
+                                strategyUsed = activeStrategy,
+                                status = "resolving",
+                                phaseLabel = "Resolvendo publicação...",
+                                bytesDownloaded = 0L,
+                                totalBytes = null,
+                                percent = null,
+                                isIndeterminate = true,
+                                title = resolvedTitle,
+                            )
+                            publishSnapshot(currentSnapshot)
 
                             val dlStart = System.currentTimeMillis()
                             val ytdlpOutcome = executeSinglePassYtdlp(
@@ -868,7 +900,7 @@ class DevwolfDownloadService : Service() {
                     totalBytes = if (currentSnapshot.isNull("totalBytes")) null else currentSnapshot.optLong("totalBytes"),
                     percent = null,
                     isIndeterminate = false,
-                    title = resolvedTitle ?: currentSnapshot.optString("title").takeIf { it.isNotBlank() },
+                    title = resolvedTitle ?: currentSnapshot.optCleanString("title"),
                     error = resolvedErr.userMessage,
                     errorCode = resolvedErr.errorCode.name,
                     technicalReason = PerformanceTracker.sanitizeText(resolvedErr.technicalReason ?: e.message),
@@ -910,13 +942,55 @@ class DevwolfDownloadService : Service() {
                 if (meta != null) {
                     capturedMeta = meta
                     onTitleResolved(meta)
+                    onProgressSnapshot(
+                        buildSnapshot(
+                            jobId = jobId,
+                            url = url,
+                            platform = platform,
+                            engine = "yt-dlp",
+                            engineVersion = engineVersion,
+                            strategyUsed = "yt-dlp-single-pass",
+                            status = "downloading",
+                            phaseLabel = "Baixando mídia...",
+                            bytesDownloaded = lastBytes,
+                            totalBytes = lastTotal,
+                            percent = null,
+                            isIndeterminate = lastTotal == null,
+                            title = capturedMeta?.title,
+                        ),
+                    )
+                    return@execute
                 }
 
-                val parsed = parseYtdlpProgressLine(line) ?: return@execute
-                val pct = parsed.percent ?: if (progress >= 0f && parsed.totalBytes != null) progress.toDouble() else null
-                lastBytes = parsed.bytesDownloaded.coerceAtLeast(lastBytes)
-                lastTotal = parsed.totalBytes ?: lastTotal
-                val isIndet = lastTotal == null
+                if (line.contains("[Merger]", ignoreCase = true) || line.contains("[ExtractAudio]", ignoreCase = true)) {
+                    onProgressSnapshot(
+                        buildSnapshot(
+                            jobId = jobId,
+                            url = url,
+                            platform = platform,
+                            engine = "yt-dlp",
+                            engineVersion = engineVersion,
+                            strategyUsed = "yt-dlp-single-pass",
+                            status = "processing",
+                            phaseLabel = "Processando mídia...",
+                            bytesDownloaded = lastBytes,
+                            totalBytes = lastTotal,
+                            percent = 95.0,
+                            isIndeterminate = false,
+                            title = capturedMeta?.title,
+                        ),
+                    )
+                    return@execute
+                }
+
+                val parsed = parseYtdlpProgressLine(line)
+                if (parsed == null && progress < 0f) return@execute
+                val pct = parsed?.percent ?: if (progress >= 0f) progress.toDouble().coerceIn(0.0, 100.0) else null
+                if (parsed != null) {
+                    lastBytes = parsed.bytesDownloaded.coerceAtLeast(lastBytes)
+                    lastTotal = parsed.totalBytes ?: lastTotal
+                }
+                val isIndet = lastTotal == null && pct == null
 
                 val snap = buildSnapshot(
                     jobId = jobId,
@@ -931,8 +1005,8 @@ class DevwolfDownloadService : Service() {
                     totalBytes = lastTotal,
                     percent = pct,
                     isIndeterminate = isIndet,
-                    speedBytesPerSec = parsed.speedBytesPerSec,
-                    etaSeconds = parsed.etaSeconds ?: etaInSeconds.takeIf { it > 0 },
+                    speedBytesPerSec = parsed?.speedBytesPerSec,
+                    etaSeconds = parsed?.etaSeconds ?: etaInSeconds.takeIf { it > 0 },
                     title = capturedMeta?.title,
                 )
                 onProgressSnapshot(snap)
@@ -1167,7 +1241,7 @@ class DevwolfDownloadService : Service() {
                 igSession?.userAgent ?: platformSession?.userAgent,
             )
 
-            addOption("-o", "${workDir.absolutePath}/%(title).60B_%(id)s.%(ext)s")
+            addOption("-o", "${workDir.absolutePath}/media_%(id)s_%(autonumber)s.%(ext)s")
             addOption("--no-playlist")
             addOption("--no-mtime")
             addOption("--no-warnings")
@@ -1176,7 +1250,6 @@ class DevwolfDownloadService : Service() {
             addOption("--max-filesize", "500M")
             addOption("--newline")
             addOption("--progress")
-            addOption("--restrict-filenames")
             if (effectiveUserAgent != null) {
                 addOption("--user-agent", effectiveUserAgent)
             }
@@ -1285,20 +1358,21 @@ class DevwolfDownloadService : Service() {
 
     private fun markCancelled(jobId: String, url: String = "", platform: String = "unknown") {
         val existing = queueStore.getJob(jobId)
+        val effPlatform = existing?.optCleanString("platform") ?: platform
         val cancelled = buildSnapshot(
             jobId = jobId,
-            url = existing?.optString("url", url) ?: url,
-            platform = existing?.optString("platform", platform) ?: platform,
-            engine = existing?.optString("engine", "dnr") ?: "dnr",
-            engineVersion = existing?.optString("engineVersion")?.takeIf { it.isNotBlank() },
-            strategyUsed = existing?.optString("strategyUsed")?.takeIf { it.isNotBlank() },
+            url = existing?.optCleanString("url") ?: url,
+            platform = effPlatform,
+            engine = existing?.optCleanString("engine") ?: initialEngineForPlatform(effPlatform),
+            engineVersion = existing?.optCleanString("engineVersion"),
+            strategyUsed = existing?.optCleanString("strategyUsed"),
             status = "cancelled",
             phaseLabel = "Cancelado",
             bytesDownloaded = existing?.optLong("bytesDownloaded", 0L) ?: 0L,
             totalBytes = null,
             percent = null,
             isIndeterminate = false,
-            title = existing?.optString("title")?.takeIf { it.isNotBlank() },
+            title = existing?.optCleanString("title"),
             error = DevwolfErrorCode.CANCELLED.defaultMessagePtBr,
             errorCode = DevwolfErrorCode.CANCELLED.name,
         )
@@ -1430,16 +1504,16 @@ class DevwolfDownloadService : Service() {
         val types = HashSet<String>()
         for (i in 0 until files.length()) {
             val f = files.getJSONObject(i)
-            val uri = f.optString("mediaUri")
+            val uri = f.optCleanString("mediaUri").orEmpty()
             val isSegment = f.optBoolean("isSegment", false)
             val isOriginal = f.optBoolean("isOriginal", false)
             if (uri.isNotBlank() && (!isOriginal || isSegment || files.length() == 1 || !hasAnyNonOriginal(files))) {
                 uris.add(uri)
-                types.add(f.optString("type", "video"))
+                types.add(f.optCleanString("type") ?: "video")
             }
         }
         if (uris.isEmpty()) {
-            val fallbackUri = first.optString("mediaUri")
+            val fallbackUri = first.optCleanString("mediaUri").orEmpty()
             if (fallbackUri.isNotBlank()) uris.add(fallbackUri)
         }
         if (uris.isEmpty()) return
