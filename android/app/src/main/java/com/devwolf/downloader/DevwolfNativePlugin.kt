@@ -50,7 +50,7 @@ class DevwolfNativePlugin : Plugin() {
         val appCtx = context.applicationContext
         queueStore = LocalQueueStore(appCtx)
         secureVault = SecureVault(appCtx)
-        queueStore.markInterruptedJobsOnStartup()
+        queueStore.markInterruptedJobsOnStartup(isStillRunning = { jobId -> DevwolfDownloadService.isJobTracked(jobId) })
         DevwolfDownloadService.addProgressListener(progressListener)
         instance = this
         PerformanceTracker.markAppOpenCompleted()

@@ -2,6 +2,32 @@
 
 Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
+## [Não lançado] — Revisão de Consistência, Performance & Segurança
+
+### Corrigido
+- **Classificação de erros do `yt-dlp` (`ResolverContract.kt`)**: `429`/`404`/`410` só são reconhecidos com contexto (`HTTP Error 429`, `status code 404`...), evitando que IDs numéricos (ex.: TikTok `7340429…`) virem `RATE_LIMITED`/`MEDIA_UNAVAILABLE` terminais; `ffmpeg`/`ffprobe not found` agora é `EXTRACTION_FAILED` (falha local); padrões de rede mais precisos; `SecurityException` do guarda SSRF vira `UNSUPPORTED_MEDIA`.
+- **Cancelamento (`DevwolfDownloadService.kt`, `LocalQueueStore.kt`)**: cancelar não sobrescreve mais jobs já `ready`/`failed` nem duplica snapshots; jobs cancelados enquanto aguardam na fila não iniciam; `startService` de cancelamento não quebra em segundo plano (Android 8+).
+- **Jobs em execução marcados como falhos**: `markInterruptedJobsOnStartup` ignora jobs ainda ativos no processo quando a Activity/WebView é recriada.
+- **Progresso que voltava a 0%** em downloads `bestvideo+bestaudio`: progresso agregado e monotônico entre streams.
+- **Limite de 500 MB**: o `yt-dlp` pulava o arquivo silenciosamente; agora o job falha com mensagem explícita.
+- **Cookies do X**: arquivo de cookies do `yt-dlp` cobre `.x.com` e `.twitter.com`.
+
+### Performance
+- `LocalQueueStore` mantém a fila em memória (compartilhada entre serviço e plugin) e só grava em disco em mudanças de status ou a cada 1,5 s — antes regravava até ~1 MB (com miniaturas) a cada linha de progresso.
+- Eventos de progresso do `yt-dlp` limitados a 1 a cada 250 ms; gravação no `localStorage` do frontend limitada a 1 por segundo por job.
+- No máximo 2 downloads simultâneos (`MAX_CONCURRENT_DOWNLOADS`); os demais aparecem como **Na fila…**.
+
+### Segurança
+- HTTPS-only: `usesCleartextTraffic="false"` + `network_security_config.xml`; `SafeHttpClient` promove `http://` para `https://`.
+- `InstagramSessionActivity` deixou de ser exportada (removido deep link `devwolf://oauth-callback`, sem uso desde a rc.6).
+- Release só é assinado com keystore própria ou com opt-in explícito da chave de debug (`DEVWOLF_ALLOW_DEBUG_SIGNING=true` / `-PallowDebugSigning=true`).
+- SSRF: corrigidas faixas `192.0.0.0/24`, `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24` (antes bloqueava /16 inteiros ou deixava passar) e bloqueio de IPv4 embutido em IPv6 (NAT64, 6to4, IPv4-compatível, Teredo).
+- `SafeHttpClient.sanitizeForDiagnostics` remove o header `Cookie` inteiro e tokens do Reddit/Instagram (`token_v2`, `reddit_session`, `ds_user_id`...).
+
+### Alterado
+- Frontend alinhado ao `EngineRouter`: Instagram usa fallback só `yt-dlp`; plataforma desconhecida não se apresenta mais como Instagram; mensagens de `EXTRACTOR_OUTDATED`/`AUTH_REQUIRED` iguais no Kotlin e no TypeScript.
+- Documentação: `AGENTS.md` atualizado (métodos da bridge, exceção de fallback em `UNSUPPORTED_MEDIA`, invariantes novos); `docs/maintenance.md` e `docs/troubleshooting.md` reescritos para o app Android; removidos `docs/deployment.md`, `frontend/Dockerfile` (preservados em `archive/vps-hybrid`) e testes de exemplo do Capacitor.
+
 ## [3.0.0-rc.6] — Deduplicação com Verificação na Galeria, Limpeza de Histórico, Login Direto Reddit/SPA & Ícones SVG
 
 ### Adicionado

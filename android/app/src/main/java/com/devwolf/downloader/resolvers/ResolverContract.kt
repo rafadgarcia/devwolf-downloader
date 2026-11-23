@@ -44,7 +44,7 @@ enum class DevwolfErrorCode(
     ),
     EXTRACTOR_OUTDATED(
         isTerminal = false,
-        defaultMessagePtBr = "Extrator local desatualizado para esta plataforma. Atualize o motor nos Ajustes.",
+        defaultMessagePtBr = "Motor de extração desatualizado. Atualize o motor na aba Motores.",
     ),
     EXTRACTION_FAILED(
         isTerminal = false,
@@ -196,7 +196,7 @@ object ErrorClassifier {
         return when (platform?.trim()?.lowercase()) {
             "reddit" -> "O Reddit exigiu autenticação para acessar esta mídia. Conecte sua conta do Reddit em Contas e Sessões."
             "threads" -> "Esta publicação exige sessão no Threads. Conecte sua conta do Threads em Contas e Sessões."
-            "instagram" -> "Esta publicação exige login no Instagram. Conecte sua conta do Instagram em Contas e Sessões."
+            "instagram" -> "Esta publicação exige login no Instagram. Você pode conectar uma sessão opcional nos Ajustes."
             else -> DevwolfErrorCode.AUTH_REQUIRED.defaultMessagePtBr
         }
     }
@@ -216,7 +216,13 @@ object ErrorClassifier {
             lower.contains("captcha") || lower.contains("checkpoint_required") || lower.contains("challenge_required") ->
                 DevwolfErrorCode.CAPTCHA_REQUIRED to DevwolfErrorCode.CAPTCHA_REQUIRED.defaultMessagePtBr
 
-            lower.contains("429") || lower.contains("too many requests") || lower.contains("rate limit") || lower.contains("wait a few minutes") ->
+            // Local runtime failures (missing FFmpeg/ffprobe binaries) must never look like removed media.
+            YTDLP_LOCAL_RUNTIME_REGEX.containsMatchIn(lower) ->
+                DevwolfErrorCode.EXTRACTION_FAILED to "FFmpeg indisponível no dispositivo para processar esta mídia. Reinicie o app ou atualize o motor na aba Motores."
+
+            // HTTP status codes are matched only with explicit context so numeric media IDs
+            // (e.g. TikTok "7340429...") never trigger false terminal classifications.
+            YTDLP_RATE_LIMIT_REGEX.containsMatchIn(lower) ->
                 DevwolfErrorCode.RATE_LIMITED to DevwolfErrorCode.RATE_LIMITED.defaultMessagePtBr
 
             lower.contains("account is private") || lower.contains("private account") || lower.contains("this video is private") || lower.contains("private post") ->
@@ -225,13 +231,13 @@ object ErrorClassifier {
             lower.contains("login required") || lower.contains("sign in to confirm") || lower.contains("authentication required") || lower.contains("use --cookies") || lower.contains("cookies-from-browser") ->
                 DevwolfErrorCode.AUTH_REQUIRED to DevwolfErrorCode.AUTH_REQUIRED.defaultMessagePtBr
 
-            lower.contains("404") || lower.contains("not found") || lower.contains("unavailable") || lower.contains("has been removed") || lower.contains("deleted") || lower.contains("does not exist") ->
+            YTDLP_NOT_FOUND_STATUS_REGEX.containsMatchIn(lower) || lower.contains("not found") || lower.contains("unavailable") || lower.contains("has been removed") || lower.contains("deleted") || lower.contains("does not exist") ->
                 DevwolfErrorCode.MEDIA_UNAVAILABLE to DevwolfErrorCode.MEDIA_UNAVAILABLE.defaultMessagePtBr
 
             lower.contains("drm") || lower.contains("no video could be found") || lower.contains("unsupported url") ->
                 DevwolfErrorCode.UNSUPPORTED_MEDIA to DevwolfErrorCode.UNSUPPORTED_MEDIA.defaultMessagePtBr
 
-            lower.contains("timed out") || lower.contains("timeout") || lower.contains("unknownhost") || lower.contains("connect") || lower.contains("network") || lower.contains("ssl") || lower.contains("socket") ->
+            YTDLP_NETWORK_REGEX.containsMatchIn(lower) ->
                 DevwolfErrorCode.NETWORK_ERROR to DevwolfErrorCode.NETWORK_ERROR.defaultMessagePtBr
 
             hasExplicitAgeWarning ||
@@ -243,6 +249,22 @@ object ErrorClassifier {
                 DevwolfErrorCode.EXTRACTION_FAILED to (cleanReason.take(260).ifBlank { DevwolfErrorCode.EXTRACTION_FAILED.defaultMessagePtBr })
         }
     }
+
+    private val YTDLP_LOCAL_RUNTIME_REGEX = Regex(
+        """\b(ffmpeg|ffprobe)\b[^|]*\b(not found|not installed|is not available)\b|postprocessing:\s*(ffmpeg|ffprobe)""",
+    )
+
+    private val YTDLP_RATE_LIMIT_REGEX = Regex(
+        """(http error|status code|status|code|error)[\s:=]*429\b|\b429[\s:]+too many|too many requests|rate[\s_-]?limit|wait a few minutes""",
+    )
+
+    private val YTDLP_NOT_FOUND_STATUS_REGEX = Regex(
+        """(http error|status code|status|code|error)[\s:=]*(404|410)\b|\b(404|410)[\s:]+(not found|gone)""",
+    )
+
+    private val YTDLP_NETWORK_REGEX = Regex(
+        """timed out|timeout|unknownhost|unable to connect|failed to connect|connection (reset|refused|aborted|closed)|network is unreachable|temporary failure in name resolution|getaddrinfo|nodename nor servname|remote end closed|incompleteread|connectionreseterror|unable to resolve host|no address associated with hostname|handshake|connection abort|\bssl\b|sslerror|certificate verify failed|socket""",
+    )
 
     private val YTDLP_AGE_WARNING_REGEX = Regex(
         """your yt-dlp version.*older than 90 days|yt-dlp is more than 90 days old""",
@@ -264,6 +286,20 @@ object ErrorClassifier {
         }
         if (error is InterruptedException) {
             return DevwolfErrorCode.CANCELLED to DevwolfErrorCode.CANCELLED.defaultMessagePtBr
+        }
+        // SSRF DNS guard (UrlExtractor.validateDnsPublicIp) throws SecurityException from OkHttp's Dns.
+        if (error is SecurityException || error.cause is SecurityException) {
+            return DevwolfErrorCode.UNSUPPORTED_MEDIA to "Destino bloqueado pela política de segurança (endereço não público)."
+        }
+        // Transport failures are classified by type (their messages rarely contain "network").
+        if (error is java.net.SocketTimeoutException ||
+            error is java.net.UnknownHostException ||
+            error is java.net.ConnectException ||
+            error is java.net.NoRouteToHostException ||
+            error is javax.net.ssl.SSLException ||
+            error is java.io.EOFException
+        ) {
+            return DevwolfErrorCode.NETWORK_ERROR to DevwolfErrorCode.NETWORK_ERROR.defaultMessagePtBr
         }
         val msg = error.message.orEmpty()
         val lower = msg.lowercase()

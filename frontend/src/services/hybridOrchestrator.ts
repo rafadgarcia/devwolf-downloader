@@ -54,8 +54,9 @@ export const PLATFORM_ROUTING_TABLE: PlatformEngineRoute[] = [
     platform: 'instagram',
     label: 'Instagram',
     primaryEngine: 'dnr',
-    fallbackEngines: ['yt-dlp', 'gallery-dl'],
-    routeDescription: 'DNR (fallback yt-dlp/gallery-dl)',
+    // Mantido em sincronia com EngineRouter.kt (Instagram -> DNR -> yt-dlp).
+    fallbackEngines: ['yt-dlp'],
+    routeDescription: 'DNR (fallback yt-dlp)',
     localSupported: true,
   },
   {
@@ -101,13 +102,14 @@ export interface ExecutionPlan {
 export function getPlatformEngineRoute(platform: PlatformId | string): PlatformEngineRoute {
   const found = PLATFORM_ROUTING_TABLE.find((entry) => entry.platform === platform);
   if (found) return found;
+  // Plataforma desconhecida: o EngineRouter nativo rejeita com UNSUPPORTED_MEDIA.
   return {
-    platform: 'instagram',
+    platform: String(platform) as PlatformId,
     label: String(platform),
     primaryEngine: 'yt-dlp',
     fallbackEngines: [],
-    routeDescription: 'yt-dlp',
-    localSupported: true,
+    routeDescription: 'não suportada',
+    localSupported: false,
   };
 }
 

@@ -14,6 +14,36 @@ import {
   upsertLocalJob,
 } from '../services/localQueue';
 
+describe('upsertLocalJob throttle de progresso', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('não regrava o localStorage a cada tick de progresso com o mesmo status', () => {
+    const base = createInitialLocalJob({
+      jobId: 'throttle-1',
+      url: 'https://www.youtube.com/watch?v=abc',
+      normalizedUrl: 'https://www.youtube.com/watch?v=abc',
+      platform: 'youtube',
+      format: 'auto',
+      quality: 'best',
+      statusMode: false,
+    });
+    const downloading = { ...base, status: 'downloading' as const, percent: 10 };
+    upsertLocalJob(downloading, { throttleProgress: true, now: 1_000 });
+    expect(getLocalJobs()[0].percent).toBe(10);
+
+    upsertLocalJob({ ...downloading, percent: 20 }, { throttleProgress: true, now: 1_200 });
+    expect(getLocalJobs()[0].percent).toBe(10);
+
+    upsertLocalJob({ ...downloading, percent: 30 }, { throttleProgress: true, now: 2_100 });
+    expect(getLocalJobs()[0].percent).toBe(30);
+
+    upsertLocalJob({ ...downloading, status: 'ready', percent: 100 }, { throttleProgress: true, now: 2_150 });
+    expect(getLocalJobs()[0].status).toBe('ready');
+  });
+});
+
 describe('localQueue, individual carousel items & local history', () => {
   beforeEach(() => {
     window.localStorage.clear();

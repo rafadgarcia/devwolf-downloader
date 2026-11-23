@@ -79,6 +79,9 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew testDebugUnitTest assembleDebug assembleRelease --no-daemon
+        env:
+          # CI artifacts are test builds: explicitly allow the debug key when no release keystore secret exists.
+          DEVWOLF_ALLOW_DEBUG_SIGNING: "true"
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4

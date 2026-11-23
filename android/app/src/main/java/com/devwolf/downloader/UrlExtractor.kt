@@ -424,6 +424,23 @@ object UrlExtractor {
                     val v4 = bytes.copyOfRange(12, 16)
                     return isPublicIpv4Bytes(v4)
                 }
+                // Deprecated IPv4-compatible ::a.b.c.d (::/96)
+                if ((0..11).all { bytes[it].toInt() == 0 }) return false
+                // NAT64 well-known prefix 64:ff9b::/96 and local-use 64:ff9b:1::/48 embed IPv4
+                val b1 = bytes[1].toInt() and 0xFF
+                val b2 = bytes[2].toInt() and 0xFF
+                val b3 = bytes[3].toInt() and 0xFF
+                if (first == 0x00 && b1 == 0x64 && b2 == 0xFF && b3 == 0x9B) {
+                    return isPublicIpv4Bytes(bytes.copyOfRange(12, 16))
+                }
+                // 6to4 2002::/16 embeds the IPv4 address in bytes 2..5
+                if (first == 0x20 && b1 == 0x02) {
+                    return isPublicIpv4Bytes(bytes.copyOfRange(2, 6))
+                }
+                // Teredo 2001:0000::/32 (tunnelled endpoint), documentation 2001:db8::/32
+                if (first == 0x20 && b1 == 0x01 && ((b2 == 0x00 && b3 == 0x00) || (b2 == 0x0D && b3 == 0xB8))) {
+                    return false
+                }
                 true
             }
             else -> false
@@ -442,11 +459,20 @@ object UrlExtractor {
         if (o0 == 169 && o1 == 254) return false
         // 172.16.0.0/12
         if (o0 == 172 && o1 in 16..31) return false
-        // 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16
-        if (o0 == 192 && (o1 == 168 || o1 == 0)) return false
-        // 198.18.0.0/15 (benchmark) & 198.51.100.0/24
-        if (o0 == 198 && (o1 == 18 || o1 == 19 || o1 == 51)) return false
-        // 203.0.113.0/24, >=224.0.0.0 (multicast/reserved)
+        val o2 = b[2].toInt() and 0xFF
+        // 192.168.0.0/16
+        if (o0 == 192 && o1 == 168) return false
+        // 192.0.0.0/24 (IETF protocol assignments) & 192.0.2.0/24 (TEST-NET-1)
+        if (o0 == 192 && o1 == 0 && (o2 == 0 || o2 == 2)) return false
+        // 192.88.99.0/24 (deprecated 6to4 relay anycast)
+        if (o0 == 192 && o1 == 88 && o2 == 99) return false
+        // 198.18.0.0/15 (benchmark)
+        if (o0 == 198 && (o1 == 18 || o1 == 19)) return false
+        // 198.51.100.0/24 (TEST-NET-2)
+        if (o0 == 198 && o1 == 51 && o2 == 100) return false
+        // 203.0.113.0/24 (TEST-NET-3)
+        if (o0 == 203 && o1 == 0 && o2 == 113) return false
+        // >=224.0.0.0 (multicast, reserved, broadcast)
         if (o0 >= 224) return false
         return true
     }

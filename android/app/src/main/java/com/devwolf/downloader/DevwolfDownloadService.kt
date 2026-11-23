@@ -32,6 +32,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -64,7 +66,19 @@ class DevwolfDownloadService : Service() {
 
         private const val META_PREFIX = "DEVWOLF_META:"
 
+        /** Maximum number of jobs executing simultaneously; extra jobs wait as `queued`. */
+        const val MAX_CONCURRENT_DOWNLOADS = 2
+
+        /** Minimum interval between progress snapshots emitted from yt-dlp output lines. */
+        const val PROGRESS_EMIT_INTERVAL_MS = 250L
+
+        private const val YTDLP_MAX_FILESIZE_ARG = "500M"
+        internal const val YTDLP_MAX_FILESIZE_LABEL = "500 MB"
+        internal val YTDLP_MAX_FILESIZE_REGEX = Regex("""larger than max-filesize""", RegexOption.IGNORE_CASE)
+
+        private val downloadSlots = Semaphore(MAX_CONCURRENT_DOWNLOADS)
         private val cancelledJobIds = ConcurrentHashMap.newKeySet<String>()
+        private val pendingOrRunningJobIds = ConcurrentHashMap.newKeySet<String>()
         private val listeners = CopyOnWriteArraySet<(JSONObject) -> Unit>()
 
         fun addProgressListener(listener: (JSONObject) -> Unit) {
@@ -112,12 +126,22 @@ class DevwolfDownloadService : Service() {
                 action = ACTION_CANCEL
                 putExtra(EXTRA_JOB_ID, jobId)
             }
-            context.startService(intent)
+            try {
+                context.startService(intent)
+            } catch (_: IllegalStateException) {
+                // Android 8+ forbids starting a background service when the app is idle. If the
+                // service is not running there is no in-flight job to cancel; stale active entries
+                // are reconciled by LocalQueueStore.markInterruptedJobsOnStartup().
+                if (jobId !in pendingOrRunningJobIds) cancelledJobIds.remove(jobId)
+            }
         }
 
         internal fun isJobCancelled(jobId: String): Boolean {
             return cancelledJobIds.contains(jobId) || Thread.currentThread().isInterrupted
         }
+
+        /** True while [jobId] is queued or running inside this process. */
+        fun isJobTracked(jobId: String): Boolean = pendingOrRunningJobIds.contains(jobId)
 
         internal fun resolveYtdlpUserAgent(
             platform: String,
@@ -270,7 +294,57 @@ class DevwolfDownloadService : Service() {
     private data class YtdlpExecutionOutcome(
         val meta: YtdlpMetadata?,
         val exitCode: Int,
+        val skippedForMaxFilesize: Boolean = false,
     )
+
+    data class AggregatedProgress(
+        val bytesDownloaded: Long,
+        val totalBytes: Long?,
+        val percent: Double?,
+    )
+
+    /**
+     * Aggregates yt-dlp progress across multiple streams (e.g. `bestvideo+bestaudio`) so the
+     * overall progress never jumps from 100% back to 0% when the second stream starts.
+     */
+    class YtdlpProgressAggregator {
+        private var completedBytes = 0L
+        private var currentBytes = 0L
+        private var currentTotal: Long? = null
+        private var lastPercent: Double? = null
+        var streamCount = 0
+            private set
+
+        fun onNewStream() {
+            if (streamCount > 0) {
+                completedBytes += maxOf(currentBytes, currentTotal ?: 0L)
+            }
+            currentBytes = 0L
+            currentTotal = null
+            streamCount++
+        }
+
+        fun onProgress(parsed: ProgressParseResult): AggregatedProgress {
+            if (streamCount == 0) streamCount = 1
+            currentBytes = parsed.bytesDownloaded.coerceAtLeast(currentBytes)
+            currentTotal = parsed.totalBytes ?: currentTotal
+            val overallBytes = completedBytes + currentBytes
+            val overallTotal = currentTotal?.let { completedBytes + it }
+            val rawPercent = when {
+                overallTotal != null && overallTotal > 0L ->
+                    (overallBytes.toDouble() * 100.0 / overallTotal.toDouble()).coerceIn(0.0, 100.0)
+                streamCount <= 1 -> parsed.percent
+                else -> null
+            }
+            val percent = if (rawPercent != null && lastPercent != null) {
+                maxOf(rawPercent, lastPercent!!)
+            } else {
+                rawPercent
+            }
+            if (percent != null) lastPercent = percent
+            return AggregatedProgress(overallBytes, overallTotal, percent)
+        }
+    }
 
     private class YtdlpFailureException(
         val resolverException: ResolverException,
@@ -302,6 +376,7 @@ class DevwolfDownloadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        queueStore.flush()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -315,8 +390,30 @@ class DevwolfDownloadService : Service() {
                 if (jobId.isBlank()) return START_NOT_STICKY
 
                 promoteForeground(jobId, "Preparando download…", null, true)
+                if (!pendingOrRunningJobIds.add(jobId)) {
+                    // Same job already queued or running: ignore duplicate enqueue.
+                    return START_NOT_STICKY
+                }
+                // Count queued jobs as active so the service is not stopped while they wait for a slot.
+                LocalEngineManager.incrementActiveDownloads()
+                if (downloadSlots.availablePermits == 0) {
+                    publishQueuedSnapshot(jobReq)
+                }
                 serviceScope.launch {
-                    runDownloadJob(jobReq)
+                    try {
+                        downloadSlots.withPermit {
+                            runDownloadJob(jobReq)
+                        }
+                    } finally {
+                        pendingOrRunningJobIds.remove(jobId)
+                        cancelledJobIds.remove(jobId)
+                        val remaining = LocalEngineManager.decrementActiveDownloads()
+                        if (remaining == 0) {
+                            queueStore.flush()
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            stopSelf()
+                        }
+                    }
                 }
             }
             ACTION_CANCEL -> {
@@ -328,10 +425,33 @@ class DevwolfDownloadService : Service() {
                     } catch (_: Throwable) {
                     }
                     markCancelled(jobId)
+                    if (jobId !in pendingOrRunningJobIds) {
+                        cancelledJobIds.remove(jobId)
+                    }
                 }
             }
         }
         return START_NOT_STICKY
+    }
+
+    private fun publishQueuedSnapshot(jobReq: JSONObject) {
+        val jobId = jobReq.optString("jobId")
+        val rawUrl = jobReq.optString("url")
+        val platform = UrlExtractor.detectPlatform(rawUrl)
+        publishSnapshot(
+            buildSnapshot(
+                jobId = jobId,
+                url = rawUrl,
+                platform = platform,
+                engine = initialEngineForPlatform(platform),
+                status = "queued",
+                phaseLabel = "Na fila…",
+                bytesDownloaded = 0L,
+                totalBytes = null,
+                percent = null,
+                isIndeterminate = true,
+            ),
+        )
     }
 
     private fun runDownloadJob(jobReq: JSONObject) {
@@ -349,12 +469,16 @@ class DevwolfDownloadService : Service() {
         val keepOriginal = jobReq.optBoolean("keepOriginal", false)
         val initialPlatform = UrlExtractor.detectPlatform(rawUrl)
 
+        if (isJobCancelled(jobId)) {
+            // Cancelled while waiting for a download slot: the cancel action already published it.
+            markCancelled(jobId, rawUrl, initialPlatform)
+            return
+        }
+
         val workDir = File(cacheDir, "jobs/$jobId").apply {
             if (exists()) deleteRecursively()
             mkdirs()
         }
-
-        LocalEngineManager.incrementActiveDownloads()
 
         var engineInitMs = 0L
         var resolutionMs = 0L
@@ -630,6 +754,14 @@ class DevwolfDownloadService : Service() {
                                     f.length() > 0L
                             }?.sortedBy { it.name }.orEmpty()
 
+                            if (rawFiles.isEmpty() && ytdlpOutcome.skippedForMaxFilesize) {
+                                throw ResolverException(
+                                    errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
+                                    userMessage = "A mídia excede o limite de ${YTDLP_MAX_FILESIZE_LABEL} por arquivo. Tente uma qualidade menor.",
+                                    technicalReason = "yt-dlp skipped download: File is larger than max-filesize",
+                                    strategyUsed = activeStrategy,
+                                )
+                            }
                             if (rawFiles.isEmpty()) {
                                 throw ResolverException(
                                     errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
@@ -910,13 +1042,9 @@ class DevwolfDownloadService : Service() {
                 publishSnapshot(failed)
             }
         } finally {
-            cancelledJobIds.remove(jobId)
+            // Active-download accounting, cancellation-set cleanup and service stop happen in
+            // onStartCommand's launcher so queued jobs (waiting for a slot) are also covered.
             workDir.deleteRecursively()
-            val remaining = LocalEngineManager.decrementActiveDownloads()
-            if (remaining == 0) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-            }
         }
     }
 
@@ -934,11 +1062,22 @@ class DevwolfDownloadService : Service() {
         val request = buildYoutubeDlRequest(url, platform, format, quality, workDir)
         var capturedMeta: YtdlpMetadata? = null
         var lastNotifMs = 0L
+        val aggregator = YtdlpProgressAggregator()
         var lastBytes = 0L
         var lastTotal: Long? = null
+        var lastProgressEmitMs = 0L
+        var skippedForMaxFilesize = false
 
         val response = try {
             YoutubeDL.getInstance().execute(request, jobId) { progress, etaInSeconds, line ->
+                if (YTDLP_MAX_FILESIZE_REGEX.containsMatchIn(line)) {
+                    skippedForMaxFilesize = true
+                    return@execute
+                }
+                if (line.contains("[download] Destination:")) {
+                    aggregator.onNewStream()
+                    return@execute
+                }
                 val meta = parseYtdlpMetadataLine(line)
                 if (meta != null) {
                     capturedMeta = meta
@@ -986,12 +1125,28 @@ class DevwolfDownloadService : Service() {
 
                 val parsed = parseYtdlpProgressLine(line)
                 if (parsed == null && progress < 0f) return@execute
-                val pct = parsed?.percent ?: if (progress >= 0f) progress.toDouble().coerceIn(0.0, 100.0) else null
+                val pct: Double?
                 if (parsed != null) {
-                    lastBytes = parsed.bytesDownloaded.coerceAtLeast(lastBytes)
-                    lastTotal = parsed.totalBytes ?: lastTotal
+                    val agg = aggregator.onProgress(parsed)
+                    lastBytes = agg.bytesDownloaded
+                    lastTotal = agg.totalBytes
+                    pct = agg.percent
+                } else {
+                    // Library callback without a parseable line: only trust it for single-stream jobs.
+                    pct = if (aggregator.streamCount <= 1 && progress >= 0f) {
+                        progress.toDouble().coerceIn(0.0, 100.0)
+                    } else {
+                        null
+                    }
                 }
                 val isIndet = lastTotal == null && pct == null
+
+                val emitNow = System.currentTimeMillis()
+                val isFinalTick = (pct ?: 0.0) >= 100.0
+                if (!isFinalTick && emitNow - lastProgressEmitMs < PROGRESS_EMIT_INTERVAL_MS) {
+                    return@execute
+                }
+                lastProgressEmitMs = emitNow
 
                 val snap = buildSnapshot(
                     jobId = jobId,
@@ -1050,7 +1205,11 @@ class DevwolfDownloadService : Service() {
                 rawErrorSanitized = sanitizedRaw,
             )
         }
-        return YtdlpExecutionOutcome(meta = capturedMeta, exitCode = response.exitCode)
+        return YtdlpExecutionOutcome(
+            meta = capturedMeta,
+            exitCode = response.exitCode,
+            skippedForMaxFilesize = skippedForMaxFilesize,
+        )
     }
 
     private fun prepareDownloadedNativeItems(
@@ -1248,7 +1407,7 @@ class DevwolfDownloadService : Service() {
             addOption("--no-warnings")
             addOption("--no-simulate")
             addOption("--print", """before_dl:${META_PREFIX}{"title":%(title)j,"duration":%(duration)j,"width":%(width)j,"height":%(height)j}""")
-            addOption("--max-filesize", "500M")
+            addOption("--max-filesize", YTDLP_MAX_FILESIZE_ARG)
             addOption("--newline")
             addOption("--progress")
             if (effectiveUserAgent != null) {
@@ -1290,7 +1449,7 @@ class DevwolfDownloadService : Service() {
             "facebook" -> listOf(".facebook.com")
             "tiktok" -> listOf(".tiktok.com")
             "youtube" -> listOf(".youtube.com")
-            "twitter" -> listOf(".x.com")
+            "twitter" -> listOf(".x.com", ".twitter.com")
             "reddit" -> listOf(".reddit.com")
             "pinterest" -> listOf(".pinterest.com")
             else -> return null
@@ -1377,10 +1536,19 @@ class DevwolfDownloadService : Service() {
             error = DevwolfErrorCode.CANCELLED.defaultMessagePtBr,
             errorCode = DevwolfErrorCode.CANCELLED.name,
         )
-        publishSnapshot(cancelled)
+        // Never overwrite a job that already finished (ready/failed) or was already marked
+        // cancelled: avoids "ready -> cancelled" regressions and duplicate cancel snapshots.
+        if (queueStore.upsertJobIfNotFinal(cancelled)) {
+            emitProgress(cancelled)
+        }
     }
 
     private fun publishSnapshot(snapshot: JSONObject) {
+        val status = snapshot.optString("status")
+        if (status in LocalQueueStore.ACTIVE_STATUSES && cancelledJobIds.contains(snapshot.optString("jobId"))) {
+            // Late progress tick after the user cancelled: never flip "cancelled" back to active.
+            return
+        }
         queueStore.upsertJob(snapshot)
         emitProgress(snapshot)
     }

@@ -57,6 +57,16 @@ class SafeHttpClient internal constructor(
         .readTimeout(readTimeoutSec, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * Cleartext traffic is disabled app-wide (network_security_config), so public `http://`
+     * URLs are transparently upgraded to `https://`. Loopback test servers keep plain HTTP.
+     */
+    internal fun upgradeToHttpsIfNeeded(url: String): String {
+        if (!url.regionMatches(0, "http://", 0, 7, ignoreCase = true)) return url
+        if (allowLoopbackForTesting && !UrlExtractor.isSafePublicHttpUrl(url)) return url
+        return "https://" + url.substring(7)
+    }
+
     fun isAllowedUrl(url: String): Boolean {
         if (UrlExtractor.isSafePublicHttpUrl(url)) return true
         if (!allowLoopbackForTesting) return false
@@ -93,6 +103,7 @@ class SafeHttpClient internal constructor(
             if (cancellationCheck()) {
                 throw ResolverException(DevwolfErrorCode.CANCELLED)
             }
+            currentUrl = upgradeToHttpsIfNeeded(currentUrl)
             if (!isAllowedUrl(currentUrl)) {
                 throw ResolverException(
                     errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
@@ -189,6 +200,7 @@ class SafeHttpClient internal constructor(
 
         while (true) {
             if (cancellationCheck()) throw ResolverException(DevwolfErrorCode.CANCELLED)
+            currentUrl = upgradeToHttpsIfNeeded(currentUrl)
             if (!isAllowedUrl(currentUrl)) {
                 throw ResolverException(
                     errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
@@ -245,6 +257,7 @@ class SafeHttpClient internal constructor(
 
         while (true) {
             if (cancellationCheck()) throw ResolverException(DevwolfErrorCode.CANCELLED)
+            currentUrl = upgradeToHttpsIfNeeded(currentUrl)
             if (!isAllowedUrl(currentUrl)) {
                 throw ResolverException(
                     errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
@@ -402,7 +415,13 @@ class SafeHttpClient internal constructor(
             if (raw.isNullOrBlank()) return ""
             return raw
                 .replace(Regex("""(?i)\bBearer\s+[A-Za-z0-9._\-+/=]+"""), "Bearer [REDACTED]")
-                .replace(Regex("""(?i)(cookie|authorization|x-csrftoken|sessionid|csrftoken|access_token|refresh_token)\s*[:=]\s*[^\s;,\r\n]+"""), "$1=[REDACTED]")
+                // Whole header values (all cookies of a Cookie header, not only the first pair).
+                .replace(Regex("""(?i)\b(set-cookie|cookie|authorization|x-csrftoken|x-ig-[a-z0-9-]+)\s*:\s*[^\r\n|]+"""), "$1: [REDACTED]")
+                // Individual well-known session/token pairs in any position.
+                .replace(
+                    Regex("""(?i)\b(sessionid|csrftoken|ds_user_id|mid|ig_did|rur|shbid|shbts|reddit_session|token_v2|loid|access_token|refresh_token|client_secret)\s*[=:]\s*[^\s;,&"'|\r\n]+"""),
+                    "$1=[REDACTED]",
+                )
                 .replace(Regex("""(https?://[^\s?]+)\?[^\s"']+"""), "$1?[REDACTED_QUERY]")
         }
     }

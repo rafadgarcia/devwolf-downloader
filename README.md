@@ -32,7 +32,7 @@ O **Devwolf Downloader** é um aplicativo Android nativo e 100% local (Capacitor
 - **`app-x86_64-release.apk`**: ~60,5 MiB (emuladores x86_64).
 - **`app-universal-release.apk`**: ~210,7 MiB (todas as ABIs).
 
-Todos os builds mantêm compatibilidade de assinatura com a `v2.0.0` quando compilados com a keystore padrão local, permitindo atualização direta via `adb install -r` sem perder fila nem sessões salvas.
+Para manter compatibilidade de assinatura com a `v2.0.0` (atualização direta via `adb install -r` sem perder fila nem sessões salvas), compile o release com a keystore de debug local habilitando-a explicitamente (`DEVWOLF_ALLOW_DEBUG_SIGNING=true`). Sem keystore própria e sem esse opt-in, o build de release falha de propósito — veja [`docs/maintenance.md`](docs/maintenance.md#3-build-e-assinatura-de-release).
 
 ---
 
@@ -50,7 +50,14 @@ npx cap sync android
 ### Android (JDK 21 + Android SDK 36)
 ```bash
 cd android
-./gradlew testDebugUnitTest assembleDebug assembleRelease
+# Com keystore própria: RELEASE_STORE_FILE / RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD
+# Ou, para assinar com a chave de debug local: DEVWOLF_ALLOW_DEBUG_SIGNING=true
+DEVWOLF_ALLOW_DEBUG_SIGNING=true ./gradlew testDebugUnitTest assembleDebug assembleRelease
+```
+
+No PowerShell:
+```powershell
+$env:DEVWOLF_ALLOW_DEBUG_SIGNING = "true"; .\gradlew.bat testDebugUnitTest assembleDebug assembleRelease
 ```
 
 Instalação direta no celular (`arm64-v8a` otimizado):
