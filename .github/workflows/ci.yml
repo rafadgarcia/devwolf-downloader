@@ -67,6 +67,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The legacy "tools" package (action default) no longer exists in cmdline-tools 16+;
+          # AGP installs the required platforms/build-tools on demand.
+          packages: 'platform-tools'
 
       - name: Install frontend deps & sync Capacitor Android
         run: |
