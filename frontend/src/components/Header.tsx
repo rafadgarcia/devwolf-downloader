@@ -6,23 +6,26 @@ import {
   HelpCircle,
   Home,
   KeyRound,
+  MessageCircle,
   MoreVertical,
   Settings,
   Zap,
 } from 'lucide-react';
 
-export type NavTab = 'home' | 'history' | 'engines' | 'settings';
+export type NavTab = 'home' | 'history' | 'statuses' | 'engines' | 'settings';
 
 interface HeaderProps {
   activeTab: NavTab;
   onNavigate: (tab: NavTab) => void;
   onOpenAccounts: () => void;
   onOpenHowTo: () => void;
+  showWhatsAppStatuses?: boolean;
 }
 
 const VIEW_TITLES: Record<NavTab, string> = {
   home: 'Devwolf',
   history: 'Baixados',
+  statuses: 'WhatsApp Status',
   engines: 'Motores',
   settings: 'Configurações',
 };
@@ -32,6 +35,7 @@ export function Header({
   onNavigate,
   onOpenAccounts,
   onOpenHowTo,
+  showWhatsAppStatuses = false,
 }: HeaderProps) {
   const triggerId = useId();
   const menuId = useId();
@@ -224,6 +228,21 @@ export function Header({
                 <Download className="h-4 w-4 shrink-0 text-[#7C5CFF] dark:text-[#A78BFA]" aria-hidden="true" />
                 <span>Baixados</span>
               </button>
+
+              {showWhatsAppStatuses && (
+                <button
+                  type="button"
+                  onClick={() => handleMenuAction(() => onNavigate('statuses'))}
+                  className={`min-h-[44px] w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition ${
+                    activeTab === 'statuses'
+                      ? 'bg-[#7C5CFF]/15 text-[#5E43F3] dark:text-[#C4B5FD]'
+                      : 'text-[#1E1940] hover:bg-[#7C5CFF]/12 dark:text-[#F5F3FF] dark:hover:bg-[#7C5CFF]/20'
+                  }`}
+                >
+                  <MessageCircle className="h-4 w-4 shrink-0 text-[#7C5CFF] dark:text-[#A78BFA]" aria-hidden="true" />
+                  <span>WhatsApp Status</span>
+                </button>
+              )}
 
               <button
                 type="button"

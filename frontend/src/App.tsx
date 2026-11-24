@@ -7,6 +7,7 @@ import { HomeView } from './components/HomeView';
 import { HowToDownloadModal } from './components/HowToDownloadModal';
 import { MultiUrlModal } from './components/MultiUrlModal';
 import { SettingsView } from './components/SettingsView';
+import { WhatsAppStatusesView } from './components/WhatsAppStatusesView';
 import { useClipboardAutoDetect } from './hooks/useClipboardAutoDetect';
 import { useJobProgress } from './hooks/useJobProgress';
 import { selectExecutionPlan } from './services/hybridOrchestrator';
@@ -45,7 +46,7 @@ import {
 } from './utils/url';
 
 const ONBOARDING_KEY = 'devwolf_onboarding_done_v2';
-const VALID_TABS: NavTab[] = ['home', 'history', 'engines', 'settings'];
+const VALID_TABS: NavTab[] = ['home', 'history', 'statuses', 'engines', 'settings'];
 
 declare global {
   interface Window {
@@ -616,6 +617,7 @@ export function App() {
           navigateToTab('settings');
         }}
         onOpenHowTo={() => setHowToOpen(true)}
+        showWhatsAppStatuses={isNativeAndroid && activeTab === 'home'}
       />
 
       <main className="mx-auto max-w-2xl px-4 pt-4">
@@ -655,6 +657,8 @@ export function App() {
             onClearAllHistory={handleClearAllHistory}
           />
         )}
+
+        {activeTab === 'statuses' && isNativeAndroid && <WhatsAppStatusesView />}
 
         {activeTab === 'engines' && (
           <EnginesView

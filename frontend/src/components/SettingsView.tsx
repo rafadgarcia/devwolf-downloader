@@ -93,11 +93,6 @@ export function SettingsView({
   const [diagReport, setDiagReport] = useState<DiagnosticsReport | null>(null);
   const [diagCopied, setDiagCopied] = useState(false);
   const [bubbleStatus, setBubbleStatus] = useState({ enabled: false, permissionGranted: false });
-  const [statusItems, setStatusItems] = useState<import('../services/nativeBridge').WhatsAppStatusItem[]>([]);
-  const [importingStatus, setImportingStatus] = useState<string | null>(null);
-  const [choosingStatusFolder, setChoosingStatusFolder] = useState(false);
-  const [statusFolderLinked, setStatusFolderLinked] = useState(false);
-  const [refreshingStatusFolder, setRefreshingStatusFolder] = useState(false);
 
   const loadSessions = useCallback(async () => {
     if (!isNativeAndroid) return;
@@ -158,52 +153,6 @@ export function SettingsView({
     if (isNativeAndroid) void nativeBridge.getClipboardBubbleStatus().then(setBubbleStatus).catch(() => undefined);
   }, [isNativeAndroid]);
 
-  useEffect(() => {
-    if (!isNativeAndroid) return;
-    let cancelled = false;
-    void nativeBridge.getWhatsAppStatuses().then((result) => {
-      if (cancelled) return;
-      setStatusFolderLinked(result.linked);
-      setStatusItems(result.items);
-    }).catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [isNativeAndroid]);
-
-  const refreshWhatsAppStatuses = async () => {
-    setRefreshingStatusFolder(true); setError(null); setNotice(null);
-    try {
-      const result = await nativeBridge.getWhatsAppStatuses();
-      setStatusFolderLinked(result.linked);
-      setStatusItems(result.items);
-      setNotice(result.linked
-        ? `${result.items.length} Status disponíveis. Toque em Baixar vídeo ou Salvar foto para copiar à galeria.`
-        : 'Escolha a pasta Statuses do WhatsApp para listar os arquivos.');
-    } catch (err) { setError(err instanceof Error ? err.message : 'Falha ao atualizar Status.'); }
-    finally { setRefreshingStatusFolder(false); }
-  };
-
-  const chooseWhatsAppStatuses = async (defaultLocation = false) => {
-    setError(null); setNotice(null); setStatusItems([]);
-    setChoosingStatusFolder(true);
-    try {
-      const result = await nativeBridge.pickWhatsAppStatusesFolder(defaultLocation);
-      if (!result.cancelled) {
-        setStatusFolderLinked(true);
-        setStatusItems(result.items);
-        setNotice(`${defaultLocation ? 'Pasta padrão selecionada. ' : 'Pasta selecionada. '}${result.items.length} Status disponíveis para importar.`);
-      }
-    } catch (err) { setError(err instanceof Error ? err.message : 'Falha ao abrir a pasta de Status.'); }
-    finally { setChoosingStatusFolder(false); }
-  };
-
-  const importStatus = async (item: import('../services/nativeBridge').WhatsAppStatusItem) => {
-    setImportingStatus(item.uri); setError(null);
-    try {
-      const result = await nativeBridge.importWhatsAppStatus(item.uri, item.mimeType);
-      setNotice(`${result.fileName} foi salvo em ${result.displayPath}.`);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Falha ao importar Status.'); }
-    finally { setImportingStatus(null); }
-  };
 
   useEffect(() => {
     if (diagnosticsOpen) {
@@ -478,40 +427,6 @@ export function SettingsView({
             }} className={toggleClass(bubbleStatus.enabled)}>
             {bubbleStatus.enabled ? 'ON' : 'OFF'}
           </button>
-        </div>
-        <div className="border-t border-[#7C5CFF]/15 pt-3">
-          <p className="text-sm font-semibold">Importar Status do WhatsApp</p>
-          <p className="mb-3 text-xs text-[#5B5482] dark:text-[#A5A1C8]">Padrão tenta abrir a pasta comum do WhatsApp. O Android ainda pede que você confirme a pasta. Use Escolher pasta para outro local. Só Status já carregados no aparelho aparecem.</p>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <button type="button" disabled={!isNativeAndroid || choosingStatusFolder} onClick={() => void chooseWhatsAppStatuses(true)}
-              className="dw-btn-primary min-h-[48px] rounded-xl px-4 text-xs font-semibold disabled:opacity-45">
-              {choosingStatusFolder ? 'Abrindo seletor…' : 'Padrão (WhatsApp)'}
-            </button>
-            <button type="button" disabled={!isNativeAndroid || choosingStatusFolder} onClick={() => void chooseWhatsAppStatuses(false)}
-              className="min-h-[48px] rounded-xl border border-[#7C5CFF]/35 bg-[#7C5CFF]/10 px-4 text-xs font-semibold text-[#5E43F3] transition-colors hover:bg-[#7C5CFF]/15 disabled:opacity-45 dark:text-[#C8BBFF]">
-              Escolher pasta
-            </button>
-          </div>
-          {statusFolderLinked && <div className="mt-3 rounded-xl bg-[#7C5CFF]/10 p-3 text-xs text-[#5B5482] dark:text-[#C8BBFF]">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span>Pasta Statuses vinculada. Os arquivos salvos aparecem na Galeria em Filmes ou Fotos → Devwolf Downloader.</span>
-              <button type="button" disabled={refreshingStatusFolder || choosingStatusFolder} onClick={() => void refreshWhatsAppStatuses()}
-                className="min-h-[48px] shrink-0 rounded-lg border border-[#7C5CFF]/35 px-3 font-semibold disabled:opacity-45">
-                {refreshingStatusFolder ? 'Atualizando…' : 'Atualizar lista'}
-              </button>
-            </div>
-          </div>}
-          {statusFolderLinked && statusItems.length === 0 && <p className="mt-3 text-xs text-[#5B5482] dark:text-[#A5A1C8]">
-            Nenhum Status carregado encontrado. Abra o Status no WhatsApp primeiro e depois toque em Atualizar lista.
-          </p>}
-          {statusItems.length > 0 && <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto">
-            {statusItems.map((item) => <li key={item.uri} className="flex items-center justify-between gap-2 rounded-xl bg-[#7C5CFF]/10 p-2 text-xs">
-              <span className="min-w-0 truncate">{item.name}</span>
-              <button type="button" disabled={importingStatus === item.uri} onClick={() => void importStatus(item)} className="min-h-[48px] shrink-0 rounded-lg bg-[#7C5CFF]/20 px-3 py-2 font-semibold text-[#5E43F3] disabled:opacity-50">
-                {importingStatus === item.uri ? 'Copiando…' : item.mimeType.startsWith('video/') ? 'Baixar vídeo' : 'Salvar foto'}
-              </button>
-            </li>)}
-          </ul>}
         </div>
       </section>
 

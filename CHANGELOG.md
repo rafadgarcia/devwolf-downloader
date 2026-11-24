@@ -2,6 +2,15 @@
 
 Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
+## [3.0.0-rc.10] — Tela de Status do WhatsApp e correção da leitura SAF
+
+### Corrigido
+- A listagem de Status agora serializa o `JSONArray` como JSON antes de entregar os itens ao `JSArray` do Capacitor, corrigindo o erro `not a primitive array`.
+
+### Alterado
+- A entrada **WhatsApp Status** foi movida para o menu de três pontos da tela inicial. A tela dedicada lista as mídias em grade, permite atualizar a pasta e salva a mídia selecionada diretamente na Galeria.
+- A vinculação da pasta padrão ou de uma pasta escolhida manualmente agora acontece na própria tela de Status.
+
 ## [3.0.0-rc.9] — Correções na Bolha, Status e Pinterest
 
 ### Corrigido

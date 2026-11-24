@@ -29,6 +29,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 
+internal fun whatsappStatusesToJsArray(items: JSONArray): JSArray = JSArray(items.toString())
+
 /**
  * Capacitor Native Bridge for Devwolf Downloader (`DevwolfNative`).
  * Exposes local DNR + yt-dlp/FFmpeg + gallery-dl engines, Status Mode, individual carousel
@@ -225,7 +227,7 @@ class DevwolfNativePlugin : Plugin() {
                     put("cancelled", false)
                     put("linked", true)
                     put("folderUri", uri.toString())
-                    put("items", JSArray(items))
+                    put("items", whatsappStatusesToJsArray(items))
                 })
             } catch (error: Throwable) {
                 call.reject("Não foi possível ler a pasta de status: ${error.message}")
@@ -271,7 +273,7 @@ class DevwolfNativePlugin : Plugin() {
                 call.resolve(JSObject().apply {
                     put("linked", true)
                     put("folderUri", uri.toString())
-                    put("items", JSArray(items))
+                    put("items", whatsappStatusesToJsArray(items))
                 })
             } catch (error: Throwable) {
                 call.reject("Não foi possível ler a pasta de status vinculada: ${error.message}")
