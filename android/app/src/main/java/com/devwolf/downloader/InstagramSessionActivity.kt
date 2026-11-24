@@ -639,7 +639,7 @@ class InstagramSessionActivity : AppCompatActivity() {
         const val REDDIT_OAUTH_BASE_URL = "https://oauth.reddit.com"
         const val REDDIT_LOGIN_URL = "https://www.reddit.com/login/"
         const val REDDIT_OAUTH_REDIRECT_URI = "https://localhost/devwolf-oauth-callback"
-        private const val REDDIT_OAUTH_USER_AGENT = "android:com.devwolf.downloader:v3.0.0-rc.6 (by /u/devwolf-app)"
+        private const val REDDIT_OAUTH_USER_AGENT = "android:com.devwolf.downloader:v3.0.0-rc.7 (by /u/devwolf-app)"
         private const val SESSION_POLL_INTERVAL_MS = 1200L
 
         private const val COLOR_BG_DEEP = 0xFF0D0B1E.toInt()
