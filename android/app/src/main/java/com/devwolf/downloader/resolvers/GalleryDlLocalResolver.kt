@@ -1059,9 +1059,9 @@ class GalleryDlLocalResolver(
         fun buildRedditApiUserAgent(username: String?): String {
             val cleanUser = username?.trim()?.removePrefix("/u/")?.removePrefix("u/")?.takeIf { it.isNotBlank() }
             return if (cleanUser != null) {
-                "android:com.devwolf.downloader:v3.0.0-rc.10 (by /u/$cleanUser)"
+                "android:com.devwolf.downloader:v3.0.0-rc.11 (by /u/$cleanUser)"
             } else {
-                "android:com.devwolf.downloader:v3.0.0-rc.10"
+                "android:com.devwolf.downloader:v3.0.0-rc.11"
             }
         }
 

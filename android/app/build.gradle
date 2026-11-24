@@ -18,8 +18,8 @@ android {
         applicationId "com.devwolf.downloader"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 30010
-        versionName "3.0.0-rc.10"
+        versionCode 30011
+        versionName "3.0.0-rc.11"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         aaptOptions {

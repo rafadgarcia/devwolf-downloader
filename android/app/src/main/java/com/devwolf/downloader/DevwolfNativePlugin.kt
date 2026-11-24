@@ -4,10 +4,16 @@ import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Point
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.media.MediaMetadataRetriever
+import android.util.Base64
+import android.util.Size
 import androidx.activity.result.ActivityResult
 import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
@@ -27,6 +33,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.ByteArrayOutputStream
 import java.util.UUID
 
 internal fun whatsappStatusesToJsArray(items: JSONArray): JSArray = JSArray(items.toString())
@@ -311,6 +318,106 @@ class DevwolfNativePlugin : Plugin() {
             }
         }
         return output
+    }
+
+    @PluginMethod
+    fun getWhatsAppStatusThumbnail(call: PluginCall) {
+        val sourceUri = call.getString("uri")?.let(Uri::parse)
+        if (sourceUri == null || sourceUri.scheme != "content") {
+            call.reject("URI de Status inválida.")
+            return
+        }
+        pluginScope.launch {
+            var bitmap: Bitmap? = null
+            try {
+                val prefs = context.getSharedPreferences(PREFS_FEATURES, Context.MODE_PRIVATE)
+                val linkedTree = prefs.getString(KEY_WHATSAPP_STATUSES_TREE_URI, null)?.let(Uri::parse)
+                    ?: error("Vincule novamente a pasta de Status do WhatsApp.")
+                val hasGrant = context.contentResolver.persistedUriPermissions.any {
+                    it.uri == linkedTree && it.isReadPermission
+                }
+                check(hasGrant) { "A autorização da pasta foi revogada. Vincule-a novamente." }
+                val rootDocumentId = DocumentsContract.getTreeDocumentId(linkedTree)
+                check(DocumentsContract.isDocumentUri(context, sourceUri)) { "O arquivo não pertence à pasta SAF." }
+                check(DocumentsContract.getTreeDocumentId(sourceUri) == rootDocumentId) {
+                    "O arquivo está fora da pasta Status vinculada."
+                }
+                val documentId = DocumentsContract.getDocumentId(sourceUri)
+                check(documentId.startsWith("${rootDocumentId.trimEnd('/')}/")) {
+                    "O arquivo está fora da pasta Status vinculada."
+                }
+                val mimeType = context.contentResolver.getType(sourceUri).orEmpty().lowercase()
+                check(mimeType.startsWith("image/") || mimeType.startsWith("video/")) {
+                    "Miniaturas só estão disponíveis para imagens e vídeos."
+                }
+                bitmap = createWhatsAppStatusThumbnail(sourceUri, mimeType)
+                    ?: error("O Android não conseguiu gerar a miniatura deste arquivo.")
+                val output = ByteArrayOutputStream()
+                bitmap!!.compress(Bitmap.CompressFormat.JPEG, 78, output)
+                call.resolve(JSObject().apply {
+                    put("thumbnailDataUrl", "data:image/jpeg;base64,${Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)}")
+                })
+            } catch (error: Throwable) {
+                call.reject("Não foi possível gerar a miniatura do Status: ${error.message}")
+            } finally {
+                bitmap?.recycle()
+            }
+        }
+    }
+
+    private fun createWhatsAppStatusThumbnail(uri: Uri, mimeType: String): Bitmap? {
+        val resolver = context.contentResolver
+        val targetSize = Point(480, 480)
+        val documentThumbnail = runCatching {
+            DocumentsContract.getDocumentThumbnail(resolver, uri, targetSize, null)
+        }.getOrNull()
+        if (documentThumbnail != null) return scaleStatusThumbnail(documentThumbnail)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val providerThumbnail = runCatching {
+                resolver.loadThumbnail(uri, Size(targetSize.x, targetSize.y), null)
+            }.getOrNull()
+            if (providerThumbnail != null) return scaleStatusThumbnail(providerThumbnail)
+        }
+
+        if (mimeType.startsWith("image/")) {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            var sampleSize = 1
+            while (maxOf(bounds.outWidth / (sampleSize * 2), bounds.outHeight / (sampleSize * 2)) >= targetSize.x) {
+                sampleSize *= 2
+            }
+            val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            return resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+                ?.let(::scaleStatusThumbnail)
+        }
+
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?.let(::scaleStatusThumbnail)
+        } catch (_: Throwable) {
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
+    private fun scaleStatusThumbnail(bitmap: Bitmap): Bitmap {
+        val maxDimension = 480
+        val largestDimension = maxOf(bitmap.width, bitmap.height)
+        if (largestDimension <= maxDimension) return bitmap
+        val ratio = maxDimension.toFloat() / largestDimension
+        val resized = Bitmap.createScaledBitmap(
+            bitmap,
+            (bitmap.width * ratio).toInt().coerceAtLeast(1),
+            (bitmap.height * ratio).toInt().coerceAtLeast(1),
+            true,
+        )
+        if (resized !== bitmap) bitmap.recycle()
+        return resized
     }
 
     @PluginMethod

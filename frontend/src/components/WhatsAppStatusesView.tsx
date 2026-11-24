@@ -1,6 +1,55 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Check, Film, Image as ImageIcon, Loader2, RefreshCw, FolderOpen } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Check, Film, Image as ImageIcon, Loader2, Play, RefreshCw, FolderOpen } from 'lucide-react';
 import { nativeBridge, type WhatsAppStatusItem } from '../services/nativeBridge';
+
+function StatusThumbnail({ item }: { item: WhatsAppStatusItem }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(false);
+  const [thumbnail, setThumbnail] = useState<string | null>(null);
+  const isVideo = item.mimeType.startsWith('video/');
+  const Icon = isVideo ? Film : ImageIcon;
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '160px' });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    void nativeBridge.getWhatsAppStatusThumbnail(item.uri)
+      .then((dataUrl) => { if (!cancelled) setThumbnail(dataUrl); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [item.uri, visible]);
+
+  return (
+    <div ref={containerRef} className="relative aspect-[3/4] w-full overflow-hidden bg-gradient-to-br from-[#362C63] to-[#120E29]">
+      {thumbnail ? (
+        <img src={thumbnail} alt={`Prévia de ${item.name}`} loading="lazy" className="h-full w-full object-cover" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-[#C4B5FF]">
+          <Icon className="h-10 w-10 opacity-80" aria-hidden="true" />
+        </div>
+      )}
+      {isVideo && <span className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white shadow" aria-label="Vídeo">
+        <Play className="ml-0.5 h-4 w-4 fill-current" aria-hidden="true" />
+      </span>}
+    </div>
+  );
+}
 
 export function WhatsAppStatusesView() {
   const [items, setItems] = useState<WhatsAppStatusItem[]>([]);
@@ -94,16 +143,16 @@ export function WhatsAppStatusesView() {
           : linked && <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {items.map((item) => {
               const isVideo = item.mimeType.startsWith('video/');
-              const Icon = isVideo ? Film : ImageIcon;
               const isSaving = savingUri === item.uri;
               const isSaved = Boolean(saved[item.uri]);
               return <button key={item.uri} type="button" disabled={isSaving} onClick={() => void save(item)}
-                className="dw-glass-card group flex min-h-40 flex-col items-center justify-center rounded-3xl p-4 text-center transition hover:border-[#7C5CFF]/50 hover:bg-[#7C5CFF]/10 disabled:opacity-60">
-                <span className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#7C5CFF]/15 text-[#7C5CFF] dark:text-[#C4B5FF]">
-                  {isSaving ? <Loader2 className="h-7 w-7 animate-spin" aria-hidden="true" /> : isSaved ? <Check className="h-7 w-7" aria-hidden="true" /> : <Icon className="h-7 w-7" aria-hidden="true" />}
+                className="dw-glass-card group overflow-hidden rounded-3xl text-left transition hover:border-[#7C5CFF]/50 hover:bg-[#7C5CFF]/10 disabled:opacity-60">
+                <StatusThumbnail item={item} />
+                <span className="block w-full truncate px-3 pt-2.5 text-xs font-semibold text-[#1E1940] dark:text-[#F5F3FF]">{item.name}</span>
+                <span className="flex min-h-9 items-center gap-1.5 px-3 pb-2 text-[11px] font-medium text-[#5B5482] dark:text-[#A5A1C8]">
+                  {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : isSaved ? <Check className="h-3.5 w-3.5 text-emerald-500" aria-hidden="true" /> : null}
+                  {isSaving ? 'Salvando…' : isSaved ? 'Salvo na Galeria' : isVideo ? 'Toque para salvar vídeo' : 'Toque para salvar foto'}
                 </span>
-                <span className="w-full truncate text-xs font-semibold text-[#1E1940] dark:text-[#F5F3FF]">{item.name}</span>
-                <span className="mt-1 text-[11px] text-[#5B5482] dark:text-[#A5A1C8]">{isSaving ? 'Salvando…' : isSaved ? 'Salvo na Galeria' : isVideo ? 'Salvar vídeo' : 'Salvar foto'}</span>
               </button>;
             })}
           </div>}

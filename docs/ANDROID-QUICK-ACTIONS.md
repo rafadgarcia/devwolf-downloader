@@ -10,14 +10,14 @@ O Android não oferece leitura silenciosa e contínua do clipboard em segundo pl
 
 Abra o menu de três pontos na tela inicial e toque em **WhatsApp Status**. Se ainda não houver uma pasta vinculada, use **Pasta padrão** para sugerir `Android/media/com.whatsapp/WhatsApp/Media/.Statuses` ou **Escolher pasta** para selecionar outro local. O Android ainda exige que você confirme a pasta e conceda acesso. Se o aparelho não reconhecer a localização padrão, navegue até `Statuses` manualmente. A permissão SAF de leitura fica restrita à árvore selecionada e pode ser revogada nas configurações do Android.
 
-O Devwolf mantém a pasta autorizada. A tela de Status lista as mídias em grade; toque em uma para salvar sem recompressão em `Movies/Devwolf Downloader` ou `Pictures/Devwolf Downloader`. Use **Atualizar** depois de abrir novos Status no WhatsApp. O app confirma o caminho do arquivo e marca a mídia salva. A origem permanece intacta. Tipos permitidos: JPEG, PNG, WebP, MP4, M4V, 3GP e WebM; limite de 500 MB por arquivo. Só são lidos arquivos já disponíveis nessa pasta; o recurso não busca status não carregados ou apagados do servidor.
+O Devwolf mantém a pasta autorizada. A tela de Status mostra miniaturas reais em grade; as prévias são carregadas sob demanda para os cartões visíveis. Toque em uma mídia para salvá-la sem recompressão em `Movies/Devwolf Downloader` ou `Pictures/Devwolf Downloader`. Use **Atualizar** depois de abrir novos Status no WhatsApp. O app confirma o caminho do arquivo e marca a mídia salva. A origem permanece intacta. Tipos permitidos: JPEG, PNG, WebP, MP4, M4V, 3GP e WebM; limite de 500 MB por arquivo. Só são lidos arquivos já disponíveis nessa pasta; o recurso não busca status não carregados ou apagados do servidor.
 
 Para WhatsApp Business, escolha manualmente a pasta `Statuses` da instalação correspondente, se o seletor a disponibilizar. A validação exige que a pasta escolhida termine em `Statuses`, sem depender de caminhos fixos.
 
 ## Implementação e validação
 
 - `MainActivity` exibe/remove a bolha `TYPE_APPLICATION_OVERLAY` segundo a preferência e a autorização.
-- `DevwolfNativePlugin` usa o seletor SAF (`ACTION_OPEN_DOCUMENT_TREE`), valida a pasta, lista itens recursivamente, copia para cache temporário e publica pela rotina MediaStore existente.
+- `DevwolfNativePlugin` usa o seletor SAF (`ACTION_OPEN_DOCUMENT_TREE`), valida a pasta, lista itens recursivamente, gera miniaturas limitadas a 480 px em chamadas sob demanda, copia para cache temporário e publica pela rotina MediaStore existente.
 - O resultado SAF (`JSONArray`) é serializado como JSON ao compor o `JSArray` da bridge Capacitor. A tela dedicada lista os itens e solicita cópia individual.
 - A bolha começa desligada. A árvore Status é escolhida sob demanda, sem varredura do armazenamento.
 

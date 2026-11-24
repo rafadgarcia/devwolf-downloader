@@ -2,6 +2,12 @@
 
 Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
+## [3.0.0-rc.11] — Miniaturas dos Status do WhatsApp
+
+### Adicionado
+- A tela **WhatsApp Status** agora mostra miniaturas reais de imagens e vídeos. As prévias são carregadas conforme os cartões se aproximam da tela, usando miniaturas SAF do Android e uma geração local como fallback.
+- As miniaturas são limitadas a 480 px e temporárias em memória; a mídia original só é copiada à Galeria quando o usuário toca no cartão.
+
 ## [3.0.0-rc.10] — Tela de Status do WhatsApp e correção da leitura SAF
 
 ### Corrigido

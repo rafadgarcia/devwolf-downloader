@@ -20,6 +20,7 @@ class AppUpdateManagerTest {
         assertTrue(v("3.0.0-rc.8") < v("3.0.0-rc.9"))
         assertTrue(v("3.0.0-rc.9") < v("3.0.0"))
         assertTrue(v("3.0.0-rc.10") > v("3.0.0-rc.9")) // numeric, not lexical
+        assertTrue(v("3.0.0-rc.11") > v("3.0.0-rc.10"))
         assertTrue(v("v3.0.0") > v("2.9.9"))
         assertTrue(v("3.1.0-beta") > v("3.0.5"))
         assertTrue(v("3.0.0-rc.1") > v("3.0.0-beta.9")) // "rc" > "beta" lexically
