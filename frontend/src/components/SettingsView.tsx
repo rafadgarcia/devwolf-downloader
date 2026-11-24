@@ -12,6 +12,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { nativeBridge } from '../services/nativeBridge';
+import { AppUpdatesSection } from './AppUpdatesSection';
 import type {
   DiagnosticsReport,
   JobResponse,
@@ -749,6 +750,12 @@ export function SettingsView({
           {cacheClearing ? 'Limpando…' : 'Limpar cache'}
         </button>
       </section>
+
+      <AppUpdatesSection
+        settings={settings}
+        isNativeAndroid={isNativeAndroid}
+        onUpdateSettings={onUpdateSettings}
+      />
 
       {/* Área de Diagnóstico e Performance (colapsável) */}
       <section className="dw-glass-card rounded-3xl">

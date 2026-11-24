@@ -99,3 +99,10 @@ Checklist de acompanhamento do projeto.
 - [x] Segurança: HTTPS-only (`network_security_config`), `InstagramSessionActivity` não exportada, assinatura de release com opt-in explícito de chave debug, faixas SSRF corrigidas (TEST-NETs, NAT64, 6to4, Teredo) e sanitização de cookies/tokens unificada
 - [x] Alinhar tabela de rotas/mensagens do frontend com o Kotlin, atualizar `AGENTS.md`, reescrever `docs/maintenance.md` / `docs/troubleshooting.md` e remover legado VPS (`docs/deployment.md`, `frontend/Dockerfile`) e testes de exemplo do Capacitor
 - [ ] Rodar `testDebugUnitTest` + build de APKs no CI e validar em aparelho real (cancelamento, fila, Modo Status)
+
+## Etapa 14 — Atualização do app pelo GitHub Releases (não lançado)
+- [x] `AppUpdateManager.kt`: consulta de releases públicos (SemVer + opção de pre-release), escolha do APK por ABI, download com progresso/cancelamento, verificação SHA-256/pacote/assinatura e APK guardado para reinstalar sem novo download
+- [x] Métodos `getAppUpdateState`/`checkAppUpdate`/`downloadAppUpdate`/`cancelAppUpdateDownload`/`deleteDownloadedAppUpdate`/`installAppUpdate` + evento `appUpdateProgress`; permissão `REQUEST_INSTALL_PACKAGES`
+- [x] Seção **Ajustes → Atualizações** (`AppUpdatesSection.tsx`) com retomada da instalação após conceder "Instalar apps desconhecidos"
+- [ ] Tornar o repositório público e publicar um release com assets no padrão `devwolf-downloader-<tag>-<abi>-release.apk`
+- [ ] Validar em aparelho real (permissão, instalador, APK mantido após cancelar a instalação)

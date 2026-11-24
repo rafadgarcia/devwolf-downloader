@@ -34,3 +34,22 @@ cd ../android && ./gradlew testDebugUnitTest assembleRelease
 ## 4. Versionamento
 
 A cada release, atualize juntos: `versionCode`/`versionName` em `android/app/build.gradle`, `version` em `frontend/package.json`, `REDDIT_OAUTH_USER_AGENT` em `InstagramSessionActivity.kt`, `CHANGELOG.md` e `TASKS.md`.
+
+## 5. Publicação de releases para a atualização no app
+
+A seção **Ajustes → Atualizações** lê os releases públicos do GitHub. Para um release ser oferecido:
+
+- A tag segue SemVer (`v3.0.0`, `v3.0.0-rc.7`). Pre-releases só aparecem com **Incluir versões de teste** ligado.
+- Os APKs são anexados como `devwolf-downloader-<tag>-<abi>-release.apk` (ex.: `-arm64-v8a-`, `-armeabi-v7a-`, `-x86_64-`) e `devwolf-downloader-<tag>-universal-release.apk`.
+- Todos os APKs são assinados com a **mesma chave** do app já instalado; caso contrário o app recusa a instalação.
+
+```bash
+TAG=v3.0.0-rc.7
+OUT=android/app/build/outputs/apk/release
+cp $OUT/app-arm64-v8a-release.apk   devwolf-downloader-$TAG-arm64-v8a-release.apk
+cp $OUT/app-universal-release.apk   devwolf-downloader-$TAG-universal-release.apk
+gh release create $TAG --prerelease --title "Devwolf Downloader $TAG" --notes-file notas.md \
+  devwolf-downloader-$TAG-arm64-v8a-release.apk devwolf-downloader-$TAG-universal-release.apk
+```
+
+O app escolhe o asset pelo **nome do arquivo**, por isso os APKs são copiados com o nome no padrão antes do upload.
