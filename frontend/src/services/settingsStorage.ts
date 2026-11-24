@@ -14,6 +14,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   auto_update_engines: true,
   update_channel: 'stable',
   notifications_enabled: true,
+  include_prerelease_updates: true,
 };
 
 export function loadLocalSettings(): UserSettings {
@@ -57,6 +58,10 @@ export function loadLocalSettings(): UserSettings {
         typeof parsed.notifications_enabled === 'boolean'
           ? parsed.notifications_enabled
           : DEFAULT_USER_SETTINGS.notifications_enabled,
+      include_prerelease_updates:
+        typeof parsed.include_prerelease_updates === 'boolean'
+          ? parsed.include_prerelease_updates
+          : DEFAULT_USER_SETTINGS.include_prerelease_updates,
     };
   } catch {
     return { ...DEFAULT_USER_SETTINGS };

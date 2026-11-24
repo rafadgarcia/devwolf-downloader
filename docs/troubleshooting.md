@@ -34,3 +34,9 @@ Mídias são salvas em `Movies/Devwolf Downloader`, `Pictures/Devwolf Downloader
 
 ### Exportar diagnóstico
 **Ajustes → Diagnóstico e Performance** gera um log local sanitizado (cookies, tokens e query strings assinadas são removidos) com plataforma, motor/versão, estratégias, `httpStatus`, `exitCode` e tempos.
+
+### Atualizações do app (Ajustes → Atualizações)
+- **"Repositório de releases não encontrado ou privado"**: a consulta usa apenas releases públicos do GitHub, sem token. O repositório precisa estar público.
+- **"Limite de consultas ao GitHub atingido"**: a API pública permite ~60 consultas por hora por IP. Aguarde alguns minutos.
+- **Instalação pede permissão**: o Android exige liberar **Instalar apps desconhecidos** para o Devwolf Downloader. Ao voltar ao app a instalação continua com o APK já baixado; se não continuar, toque em **Instalar**.
+- **"Assinado com outra chave"**: o APK do release não foi assinado com a mesma chave do app instalado e o Android recusaria a atualização. Assine os releases sempre com a mesma keystore (ou a mesma chave de debug com `DEVWOLF_ALLOW_DEBUG_SIGNING=true`).

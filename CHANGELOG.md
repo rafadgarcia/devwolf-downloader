@@ -4,6 +4,13 @@ Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
 ## [Não lançado] — Revisão de Consistência, Performance & Segurança
 
+### Adicionado
+- **Ajustes → Atualizações (`AppUpdateManager.kt`, `AppUpdatesSection.tsx`, `DevwolfNativePlugin.kt`, `nativeBridge.ts`)**:
+  - Compara a versão instalada com o release mais recente do GitHub (SemVer, `3.0.0-rc.6 < 3.0.0-rc.7 < 3.0.0`), com a opção **Incluir versões de teste** (pre-release, ligada por padrão) e verificação automática ao abrir a seção (no máximo a cada 6 h).
+  - **Baixar e instalar**: baixa o APK da ABI do aparelho (fallback universal) com progresso e cancelamento, confere SHA-256, pacote e assinatura e abre o instalador do Android.
+  - Se a permissão **Instalar apps desconhecidos** ainda não foi concedida, abre a tela de permissão e retoma a instalação ao voltar ao app; o APK baixado fica guardado para **Instalar** de novo sem baixar outra vez (ou **Excluir APK**). APKs já instalados/obsoletos são removidos ao abrir o app.
+  - Permissão `REQUEST_INSTALL_PACKAGES` no `AndroidManifest.xml`.
+
 ### Corrigido
 - **Classificação de erros do `yt-dlp` (`ResolverContract.kt`)**: `429`/`404`/`410` só são reconhecidos com contexto (`HTTP Error 429`, `status code 404`...), evitando que IDs numéricos (ex.: TikTok `7340429…`) virem `RATE_LIMITED`/`MEDIA_UNAVAILABLE` terminais; `ffmpeg`/`ffprobe not found` agora é `EXTRACTION_FAILED` (falha local); padrões de rede mais precisos; `SecurityException` do guarda SSRF vira `UNSUPPORTED_MEDIA`.
 - **Cancelamento (`DevwolfDownloadService.kt`, `LocalQueueStore.kt`)**: cancelar não sobrescreve mais jobs já `ready`/`failed` nem duplica snapshots; jobs cancelados enquanto aguardam na fila não iniciam; `startService` de cancelamento não quebra em segundo plano (Android 8+).

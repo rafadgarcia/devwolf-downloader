@@ -21,8 +21,8 @@ Normas permanentes de desenvolvimento, propriedade de arquivos, contratos entre 
 - **`@android-performance`**:
   - `android/app/build.gradle`, `android/build.gradle`, `android/gradle.properties`, `android/app/proguard-rules.pro`
   - `android/app/src/main/AndroidManifest.xml`
-  - `DevwolfDownloadService.kt`, `DevwolfNativePlugin.kt`, `LocalEngineManager.kt`, `LocalQueueStore.kt`, `MediaStoreHelper.kt`, `StatusModeProcessor.kt`, `PerformanceTracker.kt`
-  - `StatusModeProcessorTest.kt`, `PerformanceAndErrorContractTest.kt`
+  - `DevwolfDownloadService.kt`, `DevwolfNativePlugin.kt`, `LocalEngineManager.kt`, `LocalQueueStore.kt`, `MediaStoreHelper.kt`, `StatusModeProcessor.kt`, `PerformanceTracker.kt`, `AppUpdateManager.kt`
+  - `StatusModeProcessorTest.kt`, `PerformanceAndErrorContractTest.kt`, `AppUpdateManagerTest.kt`
   - `.github/workflows/ci.yml`, `AGENTS.md`, `TASKS.md`, `DECISIONS.md`, `CHANGELOG.md`, `README.md`, `graphify-out/**`
 - **`@frontend-integration`**:
   - `frontend/src/**`, `frontend/public/**`, `frontend/index.html`, `frontend/package.json`
@@ -54,7 +54,7 @@ Normas permanentes de desenvolvimento, propriedade de arquivos, contratos entre 
 - Arquivos `.zip` ou MIME desconhecidos são rejeitados pelo `MediaStoreHelper` e nunca registrados como vídeo.
 
 ### Bridge `DevwolfNative` e Telemetria Local
-- Métodos principais: `readClipboard`, `getPendingShareIntent`, `clearPendingShareIntent`, `returnToSourceApp`, `startLocalDownload`, `cancelLocalDownload`, `getLocalDownloadQueue`, `clearLocalDownloadHistory`, `checkMediaExists`, `saveToGallery`, `shareMedia`, `openMedia`, `deleteMedia`, `getLocalEngineStatus`, `updateLocalEngine`, `rollbackLocalEngine`, `getDiagnosticsReport`, `openInstagramLoginWebView`, `openPlatformLoginWebView`, `getPlatformSessions`, `savePlatformSession`, `revokePlatformSession`, `clearTempCache`.
+- Métodos principais: `readClipboard`, `getPendingShareIntent`, `clearPendingShareIntent`, `returnToSourceApp`, `startLocalDownload`, `cancelLocalDownload`, `getLocalDownloadQueue`, `clearLocalDownloadHistory`, `checkMediaExists`, `saveToGallery`, `shareMedia`, `openMedia`, `deleteMedia`, `getLocalEngineStatus`, `updateLocalEngine`, `rollbackLocalEngine`, `getDiagnosticsReport`, `openInstagramLoginWebView`, `openPlatformLoginWebView`, `getPlatformSessions`, `savePlatformSession`, `revokePlatformSession`, `clearTempCache`, `getAppUpdateState`, `checkAppUpdate`, `downloadAppUpdate`, `cancelAppUpdateDownload`, `deleteDownloadedAppUpdate`, `installAppUpdate` (evento `appUpdateProgress`).
 - Evento `localDownloadProgress`: emitido no máximo a cada 250 ms por job durante o download (`PROGRESS_EMIT_INTERVAL_MS`) e sempre em mudanças de status. A fila nativa (`LocalQueueStore`) é a fonte de verdade; o `localStorage` do frontend é apenas cache.
 - Um job em estado final (`ready`, `failed`, `cancelled`) nunca é sobrescrito por um cancelamento tardio.
 - `PerformanceTracker` registra apenas métricas locais (`appOpenMs`, `clipboardDetectMs`, `engineInitMs`, `resolutionMs`, `ttfbMs`, `transferMs`, `processingMs`, `galleryPublishMs`, `totalJobMs`, `httpRequestCount`, `engineUsed`, `strategyUsed`) e sanitiza logs antes de expor `sanitizedLog`.
@@ -66,3 +66,4 @@ Normas permanentes de desenvolvimento, propriedade de arquivos, contratos entre 
 - **Assinatura**: release só é assinado com keystore própria (`RELEASE_STORE_FILE` ...) ou com opt-in explícito da chave de debug (`DEVWOLF_ALLOW_DEBUG_SIGNING=true` / `-PallowDebugSigning=true`); caso contrário o build de release falha.
 - **Sessão e Cookies**: cookies armazenados apenas em `EncryptedSharedPreferences` + Android Keystore; enviados estritamente ao host de origem (nunca a CDNs terceiros ou logs); logout via WebView apaga `CookieManager`, `WebStorage` e cofre.
 - **Execução segura**: subprocessos (`ffmpeg`/`ffprobe`) sempre via lista de argumentos (`ProcessBuilder`, sem shell); arquivos temporários isolados em `cacheDir/jobs/<jobId>` e removidos no `finally`.
+- **Atualização do app (`AppUpdateManager`)**: consulta apenas os releases públicos de `rafadgarcia/devwolf-downloader` (sem token), baixa via `SafeHttpClient` para `filesDir/updates/`, confere o SHA-256 publicado (`digest`) e só entrega ao instalador do sistema um APK com o mesmo `packageName` e o mesmo certificado de assinatura do app instalado. O APK baixado é mantido até ser instalado (ou ficar obsoleto) para nunca exigir novo download. Assets de release devem seguir `devwolf-downloader-<tag>-<abi>-release.apk` (+ `-universal-`).

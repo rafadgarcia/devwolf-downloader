@@ -264,6 +264,8 @@ export interface UserSettings {
   auto_update_engines: boolean;
   update_channel: UpdateChannel;
   notifications_enabled: boolean;
+  /** Atualizações do app: considerar releases de teste (pre-release / rc). */
+  include_prerelease_updates: boolean;
 }
 
 export interface PendingSharePayload {
