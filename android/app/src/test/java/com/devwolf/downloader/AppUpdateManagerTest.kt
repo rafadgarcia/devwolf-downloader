@@ -17,7 +17,8 @@ class AppUpdateManagerTest {
     fun semverOrderingHandlesReleaseCandidates() {
         assertTrue(v("3.0.0-rc.6") < v("3.0.0-rc.7"))
         assertTrue(v("3.0.0-rc.7") < v("3.0.0-rc.8"))
-        assertTrue(v("3.0.0-rc.8") < v("3.0.0"))
+        assertTrue(v("3.0.0-rc.8") < v("3.0.0-rc.9"))
+        assertTrue(v("3.0.0-rc.9") < v("3.0.0"))
         assertTrue(v("3.0.0-rc.10") > v("3.0.0-rc.9")) // numeric, not lexical
         assertTrue(v("v3.0.0") > v("2.9.9"))
         assertTrue(v("3.1.0-beta") > v("3.0.5"))

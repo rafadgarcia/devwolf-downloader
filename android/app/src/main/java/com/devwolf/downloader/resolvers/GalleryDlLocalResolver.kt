@@ -369,9 +369,14 @@ class GalleryDlLocalResolver(
             val ogTypeVideo = doc.selectFirst("meta[property=og:type]")
                 ?.attr("content")?.contains("video", ignoreCase = true) == true
             val hasPinimgVideoRef = html.contains("v.pinimg.com/videos/", ignoreCase = true) ||
+                html.contains("pinimg.com/videos/", ignoreCase = true) ||
                 html.contains("v.pinimg.com\\/videos\\/", ignoreCase = true) ||
                 html.contains("v.pinimg.com\\u002Fvideos\\u002F", ignoreCase = true)
-            val isVideoPage = forceVideo || ogTypeVideo || ogVideo != null || domVideo != null || hasPinimgVideoRef
+            val hasStructuredVideoRef = Regex(
+                """(?is)(?:"video_list"\s*:|"is_video"\s*:\s*true|"block_type"\s*:\s*3|"@type"\s*:\s*"VideoObject"|"video_status"\s*:\s*"VIDEO_OK"|"videoDataV2"\s*:|"__typename"\s*:\s*"StoryPinVideoBlock"|"blockType"\s*:\s*3|"videoList(?:Mobile|720P|EXP\d+)"\s*:|"v_hlsv\d+_video_list"\s*:)""",
+            ).containsMatchIn(html)
+            val isVideoPage = forceVideo || ogTypeVideo || ogVideo != null || domVideo != null ||
+                hasPinimgVideoRef || hasStructuredVideoRef
 
             val directVideoUrl = listOfNotNull(ogVideo, domVideo)
                 .firstOrNull { isDirectMp4Url(it) }
@@ -729,7 +734,7 @@ class GalleryDlLocalResolver(
             val unescaped = rawText
                 .replace("\\/", "/")
                 .replace("\\u002F", "/", ignoreCase = true)
-            val matches = Regex("""https://v\.pinimg\.com/videos/[^\s"'<>\\]+\.mp4(?:\?[^\s"'<>\\]+)?""", RegexOption.IGNORE_CASE)
+            val matches = Regex("""https://v\d*\.pinimg\.com/videos/[^\s"'<>\\]+\.mp4(?:\?[^\s"'<>\\]+)?""", RegexOption.IGNORE_CASE)
                 .findAll(unescaped)
                 .map { it.value }
                 .distinct()
@@ -738,11 +743,11 @@ class GalleryDlLocalResolver(
             return matches.maxByOrNull { url ->
                 val lower = url.lowercase()
                 when {
-                    lower.contains("1080p") -> 1080
-                    lower.contains("720p") -> 720
-                    lower.contains("540p") -> 540
-                    lower.contains("480p") -> 480
-                    lower.contains("360p") -> 360
+                    lower.contains("1080p") || lower.contains("1080w") -> 1080
+                    lower.contains("720p") || lower.contains("720w") -> 720
+                    lower.contains("540p") || lower.contains("540w") -> 540
+                    lower.contains("480p") || lower.contains("480w") -> 480
+                    lower.contains("360p") || lower.contains("360w") -> 360
                     else -> 240
                 }
             }
@@ -1054,9 +1059,9 @@ class GalleryDlLocalResolver(
         fun buildRedditApiUserAgent(username: String?): String {
             val cleanUser = username?.trim()?.removePrefix("/u/")?.removePrefix("u/")?.takeIf { it.isNotBlank() }
             return if (cleanUser != null) {
-                "android:com.devwolf.downloader:v3.0.0-rc.8 (by /u/$cleanUser)"
+                "android:com.devwolf.downloader:v3.0.0-rc.9 (by /u/$cleanUser)"
             } else {
-                "android:com.devwolf.downloader:v3.0.0-rc.8"
+                "android:com.devwolf.downloader:v3.0.0-rc.9"
             }
         }
 

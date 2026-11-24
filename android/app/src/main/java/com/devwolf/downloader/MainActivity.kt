@@ -33,7 +33,11 @@ class MainActivity : BridgeActivity() {
         registerHardwareBackHandler()
         requestNotificationPermissionIfNeeded()
         showClipboardBubbleIfEnabled()
-        handleIncomingIntent(intent)
+        if (intent?.action == ACTION_CLIPBOARD_BUBBLE_TAP) {
+            DevwolfNativePlugin.instance?.emitClipboardBubbleTapped()
+        } else {
+            handleIncomingIntent(intent)
+        }
     }
 
     private fun registerHardwareBackHandler() {
@@ -97,7 +101,11 @@ class MainActivity : BridgeActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleIncomingIntent(intent)
+        if (intent.action == ACTION_CLIPBOARD_BUBBLE_TAP) {
+            DevwolfNativePlugin.instance?.emitClipboardBubbleTapped()
+        } else {
+            handleIncomingIntent(intent)
+        }
     }
 
     override fun onResume() {
@@ -123,13 +131,11 @@ class MainActivity : BridgeActivity() {
                 setBackgroundColor(Color.parseColor("#7C5CFF"))
                 elevation = 12f
                 setOnClickListener {
-                    val plugin = DevwolfNativePlugin.instance
-                    if (plugin != null) plugin.emitClipboardBubbleTapped()
-                    else {
-                        val launch = packageManager.getLaunchIntentForPackage(packageName)
-                        launch?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                        if (launch != null) startActivity(launch)
+                    val tapIntent = Intent(this@MainActivity, MainActivity::class.java).apply {
+                        action = ACTION_CLIPBOARD_BUBBLE_TAP
+                        addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     }
+                    startActivity(tapIntent)
                 }
             }
             val params = WindowManager.LayoutParams(
@@ -157,6 +163,10 @@ class MainActivity : BridgeActivity() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    companion object {
+        private const val ACTION_CLIPBOARD_BUBBLE_TAP = "com.devwolf.downloader.action.CLIPBOARD_BUBBLE_TAP"
+    }
 
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

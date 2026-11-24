@@ -132,7 +132,6 @@ class DevwolfNativePlugin : Plugin() {
             if (activity != null && !activity!!.isFinishing) {
                 activity!!.runOnUiThread {
                     notifyListeners("clipboardBubbleResult", JSObject(intent.toString()), true)
-                    activity!!.moveTaskToBack(true)
                 }
             } else {
                 LocalQueueStore(context.applicationContext).savePendingShareIntent(intent)
@@ -204,12 +203,6 @@ class DevwolfNativePlugin : Plugin() {
             call.resolve(JSObject().apply { put("cancelled", true); put("items", JSArray()) })
             return
         }
-        try {
-            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        } catch (_: SecurityException) {
-            call.reject("Não foi possível guardar a autorização de leitura da pasta escolhida.")
-            return
-        }
         pluginScope.launch {
             try {
                 val rootDoc = DocumentsContract.getTreeDocumentId(uri)
@@ -218,14 +211,70 @@ class DevwolfNativePlugin : Plugin() {
                     call.reject("Escolha a pasta Statuses do WhatsApp.")
                     return@launch
                 }
+                try {
+                    context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (_: SecurityException) {
+                    call.reject("Não foi possível guardar a autorização de leitura da pasta escolhida.")
+                    return@launch
+                }
                 val items = listStatusFiles(uri, rootDoc, maxItems = 200)
+                context.getSharedPreferences(PREFS_FEATURES, Context.MODE_PRIVATE).edit()
+                    .putString(KEY_WHATSAPP_STATUSES_TREE_URI, uri.toString())
+                    .apply()
                 call.resolve(JSObject().apply {
                     put("cancelled", false)
+                    put("linked", true)
                     put("folderUri", uri.toString())
                     put("items", JSArray(items))
                 })
             } catch (error: Throwable) {
                 call.reject("Não foi possível ler a pasta de status: ${error.message}")
+            }
+        }
+    }
+
+    @PluginMethod
+    fun getWhatsAppStatuses(call: PluginCall) {
+        pluginScope.launch {
+            val prefs = context.getSharedPreferences(PREFS_FEATURES, Context.MODE_PRIVATE)
+            var rawUri = prefs.getString(KEY_WHATSAPP_STATUSES_TREE_URI, null)
+            if (rawUri.isNullOrBlank()) {
+                // Recover SAF grants created by earlier app builds that did not save the URI string.
+                val previousGrant = context.contentResolver.persistedUriPermissions.firstOrNull { grant ->
+                    grant.isReadPermission && runCatching {
+                        val docId = DocumentsContract.getTreeDocumentId(grant.uri)
+                        docId.substringAfter(':', docId).trimEnd('/').substringAfterLast('/').removePrefix(".")
+                            .equals("Statuses", ignoreCase = true)
+                    }.getOrDefault(false)
+                }
+                rawUri = previousGrant?.uri?.toString()
+                if (!rawUri.isNullOrBlank()) {
+                    prefs.edit().putString(KEY_WHATSAPP_STATUSES_TREE_URI, rawUri).apply()
+                }
+            }
+            if (rawUri.isNullOrBlank()) {
+                call.resolve(JSObject().apply { put("linked", false); put("items", JSArray()) })
+                return@launch
+            }
+            val uri = Uri.parse(rawUri)
+            val hasGrant = context.contentResolver.persistedUriPermissions.any {
+                it.uri == uri && it.isReadPermission
+            }
+            if (!hasGrant) {
+                prefs.edit().remove(KEY_WHATSAPP_STATUSES_TREE_URI).apply()
+                call.resolve(JSObject().apply { put("linked", false); put("items", JSArray()) })
+                return@launch
+            }
+            try {
+                val rootDoc = DocumentsContract.getTreeDocumentId(uri)
+                val items = listStatusFiles(uri, rootDoc, maxItems = 200)
+                call.resolve(JSObject().apply {
+                    put("linked", true)
+                    put("folderUri", uri.toString())
+                    put("items", JSArray(items))
+                })
+            } catch (error: Throwable) {
+                call.reject("Não foi possível ler a pasta de status vinculada: ${error.message}")
             }
         }
     }
@@ -792,6 +841,9 @@ class DevwolfNativePlugin : Plugin() {
     }
 
     companion object {
+        private const val PREFS_FEATURES = "devwolf_features"
+        private const val KEY_WHATSAPP_STATUSES_TREE_URI = "whatsapp_statuses_tree_uri"
+
         @Volatile
         var instance: DevwolfNativePlugin? = null
             private set

@@ -166,7 +166,39 @@ class Rc3EnginesRegressionTest {
             assertEquals(DevwolfErrorCode.EXTRACTION_FAILED, e.errorCode)
         }
 
-        // 6. Genuine photo Story Pin gallery continues resolving fast locally
+        // 6. Video metadata outside the parsed Pin node still blocks an OpenGraph cover fallback.
+        val unmatchedVideoMetadataHtml = """
+            <html><head>
+              <meta property="og:image" content="https://i.pinimg.com/originals/video-cover.jpg" />
+            </head><body>
+              <script type="application/json">
+                {"resource_response":{"data":{"videos":{"video_list":{"V_HLS":{"url":"https://v.pinimg.com/videos/mc/hls/video.m3u8"}}}}}}
+              </script>
+            </body></html>
+        """.trimIndent()
+        try {
+            GalleryDlLocalResolver.parsePinterestHtml(unmatchedVideoMetadataHtml, "998877665")
+            fail("Expected video metadata to prevent returning the Pinterest cover image")
+        } catch (e: ResolverException) {
+            assertEquals(DevwolfErrorCode.EXTRACTION_FAILED, e.errorCode)
+        }
+
+        // 7. Pinterest Relay Story Pin response uses v1.pinimg.com and camelCase video fields.
+        val relayVideoHtml = """
+            <html><head>
+              <meta property="og:image" content="https://i.pinimg.com/736x/cover.jpg" />
+            </head><body>
+              <script data-relay-completed-request="true" type="text/javascript">
+                window.__PWS_RELAY_REGISTER_COMPLETED_REQUEST__("%7B%22pinId%22%3A%22639722322120866703%22%7D", {"data":{"storyPage":{"__typename":"StoryPinVideoBlock","videoDataV2":{"videoList720P":{"v720P":{"url":"https://v1.pinimg.com/videos/iht/expMp4/clip_720w.mp4"}}}}}});
+              </script>
+            </body></html>
+        """.trimIndent()
+        val relayVideo = GalleryDlLocalResolver.parsePinterestHtml(relayVideoHtml, "639722322120866703")
+        assertNotNull(relayVideo)
+        assertEquals(MediaItemType.VIDEO, relayVideo!!.items.single().type)
+        assertEquals("https://v1.pinimg.com/videos/iht/expMp4/clip_720w.mp4", relayVideo.items.single().url)
+
+        // 8. Genuine photo Story Pin gallery continues resolving fast locally
         val storyImagesHtml = """
             <html><body>
             <script id="__PWS_DATA__" type="application/json">

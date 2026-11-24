@@ -2,6 +2,13 @@
 
 Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
+## [3.0.0-rc.9] — Correções na Bolha, Status e Pinterest
+
+### Corrigido
+- Bolha do clipboard agora traz o Devwolf para frente e processa o link sem minimizar a própria tela.
+- Importador de Status mantém e recupera a pasta SAF vinculada, lista os arquivos ao reabrir Configurações e informa a pasta de destino; botões distinguem **Baixar vídeo** de **Salvar foto**.
+- Pins de vídeo do Pinterest agora reconhecem respostas Relay e URLs `v1.pinimg.com` em MP4; sinais de vídeo sem stream direto não podem concluir salvando apenas a capa e seguem para o yt-dlp.
+
 ## [3.0.0-rc.8] — Atalho para a Pasta Padrão de Status
 
 ### Alterado

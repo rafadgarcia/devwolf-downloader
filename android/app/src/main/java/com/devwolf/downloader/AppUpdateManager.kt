@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * In-app updater backed by the public GitHub Releases of [REPO_OWNER]/[REPO_NAME].
  *
  * - Compares the installed `versionName` with the newest release (optionally including
- *   pre-releases) using SemVer ordering (`3.0.0-rc.7 < 3.0.0-rc.8 < 3.0.0`).
+ *   pre-releases) using SemVer ordering (`3.0.0-rc.8 < 3.0.0-rc.9 < 3.0.0`).
  * - Downloads the APK matching the device ABI (fallback: universal) into `filesDir/updates/`,
  *   verifying the GitHub `sha256` digest when published, and keeps it so installation can be
  *   retried later (e.g. after granting "install unknown apps") without downloading again.
