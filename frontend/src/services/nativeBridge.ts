@@ -21,6 +21,13 @@ export interface ShareIntentPayload {
   autoStart: boolean;
 }
 
+export interface WhatsAppStatusItem {
+  uri: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number | null;
+}
+
 export interface LocalOutputFile {
   id: string;
   index?: number;
@@ -101,6 +108,10 @@ export interface LocalDownloadSnapshot {
 
 export interface DevwolfNativePlugin {
   readClipboard(): Promise<{ text: string | null }>;
+  setClipboardBubbleEnabled(opts: { enabled: boolean }): Promise<{ enabled: boolean }>;
+  getClipboardBubbleStatus(): Promise<{ enabled: boolean; permissionGranted: boolean }>;
+  pickWhatsAppStatusesFolder(): Promise<{ cancelled: boolean; items: WhatsAppStatusItem[] }>;
+  importWhatsAppStatus(opts: { uri: string; mimeType: string }): Promise<{ mediaUri: string; fileName: string }>;
   getPendingShareIntent(): Promise<{ intent: ShareIntentPayload | null }>;
   clearPendingShareIntent(opts: { id: string }): Promise<void>;
   returnToSourceApp(): Promise<{ returned: boolean }>;
@@ -182,6 +193,10 @@ export interface DevwolfNativePlugin {
     listenerFunc: (event: ShareIntentPayload) => void
   ): Promise<PluginListenerHandle>;
   addListener(
+    eventName: 'clipboardBubbleResult',
+    listenerFunc: (event: { id?: string; url?: string; error?: string }) => void
+  ): Promise<PluginListenerHandle>;
+  addListener(
     eventName: 'localDownloadProgress',
     listenerFunc: (event: LocalDownloadProgressEvent) => void
   ): Promise<PluginListenerHandle>;
@@ -230,6 +245,35 @@ export const nativeBridge = {
       }
     }
     return null;
+  },
+
+  async setClipboardBubbleEnabled(enabled: boolean): Promise<boolean> {
+    if (!isNativeAndroid()) return false;
+    const result = await DevwolfNative.setClipboardBubbleEnabled({ enabled });
+    return result.enabled;
+  },
+
+  async getClipboardBubbleStatus(): Promise<{ enabled: boolean; permissionGranted: boolean }> {
+    if (!isNativeAndroid()) return { enabled: false, permissionGranted: false };
+    return DevwolfNative.getClipboardBubbleStatus();
+  },
+
+  async pickWhatsAppStatusesFolder(): Promise<{ cancelled: boolean; items: WhatsAppStatusItem[] }> {
+    if (!isNativeAndroid()) throw new Error('Importação de Status disponível no Android.');
+    return DevwolfNative.pickWhatsAppStatusesFolder();
+  },
+
+  async importWhatsAppStatus(uri: string, mimeType: string): Promise<{ mediaUri: string; fileName: string }> {
+    if (!isNativeAndroid()) throw new Error('Importação de Status disponível no Android.');
+    return DevwolfNative.importWhatsAppStatus({ uri, mimeType });
+  },
+
+  async onClipboardBubbleResult(
+    callback: (event: { id?: string; url?: string; error?: string }) => void
+  ): Promise<() => void> {
+    if (!isNativeAndroid()) return () => undefined;
+    const handle = await DevwolfNative.addListener('clipboardBubbleResult', callback);
+    return () => { void handle.remove(); };
   },
 
   async getPendingShareIntent(): Promise<ShareIntentPayload | null> {

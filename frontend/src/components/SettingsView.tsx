@@ -91,6 +91,9 @@ export function SettingsView({
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [diagReport, setDiagReport] = useState<DiagnosticsReport | null>(null);
   const [diagCopied, setDiagCopied] = useState(false);
+  const [bubbleStatus, setBubbleStatus] = useState({ enabled: false, permissionGranted: false });
+  const [statusItems, setStatusItems] = useState<import('../services/nativeBridge').WhatsAppStatusItem[]>([]);
+  const [importingStatus, setImportingStatus] = useState<string | null>(null);
 
   const loadSessions = useCallback(async () => {
     if (!isNativeAndroid) return;
@@ -146,6 +149,30 @@ export function SettingsView({
   useEffect(() => {
     void loadSessions();
   }, [loadSessions]);
+
+  useEffect(() => {
+    if (isNativeAndroid) void nativeBridge.getClipboardBubbleStatus().then(setBubbleStatus).catch(() => undefined);
+  }, [isNativeAndroid]);
+
+  const chooseWhatsAppStatuses = async () => {
+    setError(null); setNotice(null); setStatusItems([]);
+    try {
+      const result = await nativeBridge.pickWhatsAppStatusesFolder();
+      if (!result.cancelled) {
+        setStatusItems(result.items);
+        setNotice(`${result.items.length} Status(s) disponíveis para importar.`);
+      }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Falha ao abrir a pasta de Status.'); }
+  };
+
+  const importStatus = async (item: import('../services/nativeBridge').WhatsAppStatusItem) => {
+    setImportingStatus(item.uri); setError(null);
+    try {
+      const result = await nativeBridge.importWhatsAppStatus(item.uri, item.mimeType);
+      setNotice(`${result.fileName} foi copiado para a galeria.`);
+    } catch (err) { setError(err instanceof Error ? err.message : 'Falha ao importar Status.'); }
+    finally { setImportingStatus(null); }
+  };
 
   useEffect(() => {
     if (diagnosticsOpen) {
@@ -401,6 +428,42 @@ export function SettingsView({
       </section>
 
       {/* Preferências gerais + Tema (exclusivo das Configurações) */}
+      <section className="dw-glass-card space-y-3 rounded-3xl p-4">
+        <h3 className="text-sm font-bold text-[#1E1940] dark:text-[#F5F3FF]">Atalhos do Android</h3>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold">Bolha do clipboard</p>
+            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">Toque na bolha para verificar o link copiado. O Android pedirá autorização de sobreposição.</p>
+          </div>
+          <button type="button" role="switch" aria-label="Bolha do clipboard" aria-checked={bubbleStatus.enabled}
+            disabled={!isNativeAndroid || savingKey === 'clipboard_bubble_enabled'}
+            onClick={() => {
+              setSavingKey('clipboard_bubble_enabled'); setError(null);
+              void nativeBridge.setClipboardBubbleEnabled(!bubbleStatus.enabled).then(async (enabled) => {
+                setBubbleStatus(await nativeBridge.getClipboardBubbleStatus());
+                await patch('clipboard_bubble_enabled', { clipboard_bubble_enabled: enabled });
+              }).catch((err) => setError(err instanceof Error ? err.message : 'Não foi possível ativar a bolha.'))
+                .finally(() => setSavingKey(null));
+            }} className={toggleClass(bubbleStatus.enabled)}>
+            {bubbleStatus.enabled ? 'ON' : 'OFF'}
+          </button>
+        </div>
+        <div className="border-t border-[#7C5CFF]/15 pt-3">
+          <p className="text-sm font-semibold">Importar Status do WhatsApp</p>
+          <p className="mb-2 text-xs text-[#5B5482] dark:text-[#A5A1C8]">Escolha a pasta Statuses. Só Status já carregados no aparelho aparecem; fotos e vídeos são copiados à galeria.</p>
+          <button type="button" disabled={!isNativeAndroid} onClick={() => void chooseWhatsAppStatuses()}
+            className="dw-btn-primary min-h-[42px] rounded-xl px-4 text-xs font-semibold disabled:opacity-45">Escolher pasta de Status</button>
+          {statusItems.length > 0 && <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto">
+            {statusItems.map((item) => <li key={item.uri} className="flex items-center justify-between gap-2 rounded-xl bg-[#7C5CFF]/10 p-2 text-xs">
+              <span className="min-w-0 truncate">{item.name}</span>
+              <button type="button" disabled={importingStatus === item.uri} onClick={() => void importStatus(item)} className="shrink-0 rounded-lg bg-[#7C5CFF]/20 px-3 py-2 font-semibold text-[#5E43F3] disabled:opacity-50">
+                {importingStatus === item.uri ? 'Copiando…' : 'Salvar'}
+              </button>
+            </li>)}
+          </ul>}
+        </div>
+      </section>
+
       <section className="dw-glass-card divide-y divide-[#7C5CFF]/15 rounded-3xl">
         <div className="flex items-center justify-between gap-4 p-4">
           <div>

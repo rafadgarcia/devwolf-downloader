@@ -49,6 +49,7 @@ Normas permanentes de desenvolvimento, propriedade de arquivos, contratos entre 
 
 ### Bridge `DevwolfNative` e Telemetria Local
 - Métodos principais: `readClipboard`, `getPendingShareIntent`, `clearPendingShareIntent`, `returnToSourceApp`, `startLocalDownload`, `cancelLocalDownload`, `getLocalDownloadQueue`, `saveToGallery`, `shareMedia`, `openMedia`, `deleteMedia`, `getLocalEngineStatus`, `updateLocalEngine`, `rollbackLocalEngine`, `getDiagnosticsReport`, `openInstagramLoginWebView`, `getPlatformSessions`, `savePlatformSession`, `revokePlatformSession`, `clearTempCache`.
+- Utilitários Android: `setClipboardBubbleEnabled` / `getClipboardBubbleStatus` controlam a bolha autorizada pelo usuário (clipboard só é lido ao toque); `pickWhatsAppStatusesFolder` e `importWhatsAppStatus` usam URI SAF persistente, limitam a leitura à pasta `Statuses` e importam somente mídia de imagem/vídeo suportada.
 - `PerformanceTracker` registra apenas métricas locais (`appOpenMs`, `clipboardDetectMs`, `engineInitMs`, `resolutionMs`, `ttfbMs`, `transferMs`, `processingMs`, `galleryPublishMs`, `totalJobMs`, `httpRequestCount`, `engineUsed`, `strategyUsed`) e sanitiza logs antes de expor `sanitizedLog`.
 
 ## 4. Invariantes de Segurança

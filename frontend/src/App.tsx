@@ -350,7 +350,6 @@ export function App() {
 
         const nativeIntent = await nativeBridge.getPendingShareIntent();
         if (mounted && nativeIntent) {
-          await nativeBridge.clearPendingShareIntent(nativeIntent.id);
           setPendingShare({
             id: nativeIntent.id,
             url: nativeIntent.url,
@@ -383,7 +382,6 @@ export function App() {
 
     const handleNativeShare = (intent: ShareIntentPayload) => {
       if (cancelled) return;
-      void nativeBridge.clearPendingShareIntent(intent.id);
       setPendingShare({
         id: intent.id,
         url: intent.url,
@@ -403,6 +401,23 @@ export function App() {
       cancelled = true;
       unsubscribe?.();
     };
+  }, [isNativeAndroid]);
+
+  useEffect(() => {
+    if (!isNativeAndroid) return;
+    let cancelled = false;
+    let unsubscribe: (() => void) | null = null;
+    void nativeBridge.onClipboardBubbleResult((result) => {
+      if (cancelled) return;
+      if (result.url) {
+        setPendingShare({ id: result.id, url: result.url, text: '', title: '', autoStart: true, fromNativeIntent: true });
+      } else if (result.error) {
+        setStatusNotice(result.error);
+      }
+    }).then((unsub) => {
+      if (cancelled) unsub(); else unsubscribe = unsub;
+    });
+    return () => { cancelled = true; unsubscribe?.(); };
   }, [isNativeAndroid]);
 
   useEffect(() => {
@@ -685,6 +700,15 @@ export function App() {
       />
 
       <HowToDownloadModal open={howToOpen} onClose={() => setHowToOpen(false)} />
+
+      {statusNotice && (
+        <div role="status" className="fixed bottom-24 left-4 right-4 z-50 mx-auto max-w-lg rounded-2xl border border-[#7C5CFF]/30 bg-[#17132E] px-4 py-3 text-sm text-white shadow-xl">
+          <div className="flex items-center justify-between gap-3">
+            <span>{statusNotice}</span>
+            <button type="button" aria-label="Fechar aviso" className="shrink-0 rounded-lg px-2 py-1" onClick={() => setStatusNotice(null)}>Fechar</button>
+          </div>
+        </div>
+      )}
 
       <MultiUrlModal
         candidates={multiCandidates}

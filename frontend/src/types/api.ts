@@ -264,6 +264,7 @@ export interface UserSettings {
   auto_update_engines: boolean;
   update_channel: UpdateChannel;
   notifications_enabled: boolean;
+  clipboard_bubble_enabled: boolean;
 }
 
 export interface PendingSharePayload {

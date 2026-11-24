@@ -5,6 +5,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import androidx.activity.result.ActivityResult
 import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
@@ -23,6 +26,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 
 /**
@@ -100,6 +104,181 @@ class DevwolfNativePlugin : Plugin() {
             PerformanceTracker.recordClipboardDetect(System.currentTimeMillis() - startMs)
             call.resolve(JSObject().apply { put("text", JSONObject.NULL) })
         }
+    }
+
+    fun emitClipboardBubbleTapped() {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val raw = runCatching {
+            cm?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
+        }.getOrNull()
+        val url = UrlExtractor.extractFirstValidUrl(raw)
+        val intent = if (url != null) JSONObject().apply {
+            put("id", UUID.randomUUID().toString())
+            put("url", url)
+            put("rawText", "")
+            put("title", JSONObject.NULL)
+            put("receivedAt", java.time.Instant.now().toString())
+            put("autoStart", true)
+        } else JSONObject().apply { put("error", "Nenhum link compatível encontrado na área de transferência.") }
+        try {
+            if (activity != null && !activity!!.isFinishing) {
+                activity!!.runOnUiThread {
+                    notifyListeners("clipboardBubbleResult", JSObject(intent.toString()), true)
+                    activity!!.moveTaskToBack(true)
+                }
+            } else {
+                LocalQueueStore(context.applicationContext).savePendingShareIntent(intent)
+                val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                launch?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                if (launch != null) context.startActivity(launch)
+            }
+        } catch (_: Throwable) { }
+    }
+
+    @PluginMethod
+    fun setClipboardBubbleEnabled(call: PluginCall) {
+        val enabled = call.getBoolean("enabled") ?: false
+        context.getSharedPreferences("devwolf_features", Context.MODE_PRIVATE)
+            .edit().putBoolean("clipboard_bubble_enabled", enabled).apply()
+        val act = activity
+        if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !android.provider.Settings.canDrawOverlays(context)) {
+            if (act == null) { call.reject("Abra o Devwolf no Android para autorizar a bolha."); return }
+            val intent = Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+            startActivityForResult(call, intent, "handleClipboardOverlayPermission")
+        } else {
+            call.resolve(JSObject().apply { put("enabled", enabled) })
+            act?.recreate()
+        }
+    }
+
+    @ActivityCallback
+    private fun handleClipboardOverlayPermission(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        val granted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && android.provider.Settings.canDrawOverlays(context)
+        context.getSharedPreferences("devwolf_features", Context.MODE_PRIVATE).edit()
+            .putBoolean("clipboard_bubble_enabled", granted).apply()
+        call.resolve(JSObject().apply { put("enabled", granted) })
+        activity?.recreate()
+    }
+
+    @PluginMethod
+    fun getClipboardBubbleStatus(call: PluginCall) {
+        val requested = context.getSharedPreferences("devwolf_features", Context.MODE_PRIVATE)
+            .getBoolean("clipboard_bubble_enabled", false)
+        val allowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || android.provider.Settings.canDrawOverlays(context)
+        call.resolve(JSObject().apply { put("enabled", requested && allowed); put("permissionGranted", allowed) })
+    }
+
+    @PluginMethod
+    fun pickWhatsAppStatusesFolder(call: PluginCall) {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            // The WhatsApp media directory is app-specific and varies across installs.
+            // Let the user choose it through SAF instead of constructing a brittle URI.
+        }
+        startActivityForResult(call, intent, "handleWhatsAppStatusesFolder")
+    }
+
+    @ActivityCallback
+    private fun handleWhatsAppStatusesFolder(call: PluginCall?, result: ActivityResult) {
+        if (call == null) return
+        val uri = result.data?.data
+        if (result.resultCode != Activity.RESULT_OK || uri == null) {
+            call.resolve(JSObject().apply { put("cancelled", true); put("items", JSArray()) })
+            return
+        }
+        try {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: SecurityException) {
+            call.reject("Não foi possível guardar a autorização de leitura da pasta escolhida.")
+            return
+        }
+        pluginScope.launch {
+            try {
+                val rootDoc = DocumentsContract.getTreeDocumentId(uri)
+                if (rootDoc.substringAfter(':', rootDoc).trimEnd('/').substringAfterLast('/').removePrefix(".")
+                        .equals("Statuses", ignoreCase = true).not()) {
+                    call.reject("Escolha a pasta Statuses do WhatsApp.")
+                    return@launch
+                }
+                val items = listStatusFiles(uri, rootDoc, maxItems = 200)
+                call.resolve(JSObject().apply {
+                    put("cancelled", false)
+                    put("folderUri", uri.toString())
+                    put("items", JSArray(items))
+                })
+            } catch (error: Throwable) {
+                call.reject("Não foi possível ler a pasta de status: ${error.message}")
+            }
+        }
+    }
+
+    private fun listStatusFiles(treeUri: Uri, parentId: String, maxItems: Int): JSONArray {
+        val output = JSONArray()
+        val resolver = context.contentResolver
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
+        resolver.query(children, arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE), null, null, null)?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val mimeCol = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            val sizeCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+            while (cursor.moveToNext() && output.length() < maxItems) {
+                val documentId = cursor.getString(idCol) ?: continue
+                val name = cursor.getString(nameCol).orEmpty()
+                val mime = cursor.getString(mimeCol).orEmpty().lowercase()
+                if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    val nested = listStatusFiles(treeUri, documentId, maxItems - output.length())
+                    for (i in 0 until nested.length()) output.put(nested.getJSONObject(i))
+                } else if ((mime.startsWith("image/") || mime.startsWith("video/")) && !name.startsWith(".")) {
+                    val ext = name.substringAfterLast('.', "").lowercase()
+                    if (ext !in setOf("jpg", "jpeg", "png", "webp", "mp4", "m4v", "3gp", "webm")) continue
+                    val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+                    output.put(JSONObject().apply {
+                        put("uri", childUri.toString()); put("name", name); put("mimeType", mime)
+                        put("sizeBytes", if (sizeCol >= 0 && !cursor.isNull(sizeCol)) cursor.getLong(sizeCol) else JSONObject.NULL)
+                    })
+                }
+            }
+        }
+        return output
+    }
+
+    @PluginMethod
+    fun importWhatsAppStatus(call: PluginCall) {
+        val sourceUri = call.getString("uri")?.let(Uri::parse)
+        val mime = call.getString("mimeType").orEmpty().lowercase()
+        if (sourceUri == null || !(mime.startsWith("image/") || mime.startsWith("video/"))) {
+            call.reject("Status inválido: só são aceitos arquivos de imagem e vídeo.")
+            return
+        }
+        pluginScope.launch {
+            var tempFile: File? = null
+            try {
+                val name = queryDisplayName(sourceUri).ifBlank { "status_${System.currentTimeMillis()}${if (mime.startsWith("image/")) ".jpg" else ".mp4"}" }
+                val ext = name.substringAfterLast('.', "").lowercase()
+                require(ext in setOf("jpg", "jpeg", "png", "webp", "mp4", "m4v", "3gp", "webm")) { "Formato de Status não suportado." }
+                tempFile = File(context.cacheDir, "status_${UUID.randomUUID()}.$ext")
+                val input = context.contentResolver.openInputStream(sourceUri) ?: error("Arquivo de Status indisponível.")
+                input.use { stream -> FileOutputStream(tempFile).use { output -> stream.copyTo(output) } }
+                if (tempFile.length() !in 1..500L * 1024 * 1024) error("Arquivo vazio ou maior que 500 MB.")
+                val saved = MediaStoreHelper.saveFileToGallery(context.applicationContext, tempFile, mime, name)
+                call.resolve(JSObject().apply {
+                    put("mediaUri", saved.mediaUri); put("displayPath", saved.displayPath)
+                    put("fileName", saved.fileName); put("sizeBytes", saved.sizeBytes); put("mimeType", saved.mimeType)
+                })
+            } catch (error: Throwable) {
+                call.reject("Falha ao importar Status: ${error.message}")
+            } finally { tempFile?.delete() }
+        }
+    }
+
+    private fun queryDisplayName(uri: Uri): String {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) return cursor.getString(0).orEmpty()
+        }
+        return ""
     }
 
     @PluginMethod

@@ -12,6 +12,8 @@ O **Devwolf Downloader** é um aplicativo Android nativo e 100% local (Capacitor
 
 - **Motor Nativo para Instagram & Threads (`DNR`)**: resolve Reels, vídeos, fotos e carrosséis mistos diretamente em Kotlin (`InstagramNativeResolver` e `ThreadsNativeResolver`) sem inicializar Python/yt-dlp, com fallback automático para `yt-dlp` apenas em falhas recuperáveis.
 - **Carrosséis Individuais na Galeria (`MediaStore`)**: cada foto e vídeo de um carrossel é baixado e salvo individualmente em `Pictures/Devwolf Downloader` e `Movies/Devwolf Downloader`, preservando ordem (`01`, `02`, ...), resolução e ações individuais (**Abrir**, **Compartilhar** e **Compartilhar todos**).
+- **Bolha flutuante de clipboard (opcional)**: atalho lateral do Android; só lê a área de transferência quando tocado e envia links compatíveis ao fluxo normal. Requer autorização de sobreposição.
+- **Importador de Status do WhatsApp**: selecionar a pasta `Statuses` pelo seletor de documentos do Android e copiar fotos/vídeos existentes para o álbum do Devwolf. Não busca status no servidor.
 - **Resolvedores Locais Multi-Plataforma**:
   - **Instagram & Threads**: `DNR` (primário) -> `yt-dlp` (fallback recuperável).
   - **Pinterest & Reddit**: resolvedor Kotlin local -> `yt-dlp` (vídeos HLS no Pinterest e DASH `v.redd.it` no Reddit).

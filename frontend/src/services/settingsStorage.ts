@@ -14,6 +14,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   auto_update_engines: true,
   update_channel: 'stable',
   notifications_enabled: true,
+  clipboard_bubble_enabled: false,
 };
 
 export function loadLocalSettings(): UserSettings {
@@ -57,6 +58,10 @@ export function loadLocalSettings(): UserSettings {
         typeof parsed.notifications_enabled === 'boolean'
           ? parsed.notifications_enabled
           : DEFAULT_USER_SETTINGS.notifications_enabled,
+      clipboard_bubble_enabled:
+        typeof parsed.clipboard_bubble_enabled === 'boolean'
+          ? parsed.clipboard_bubble_enabled
+          : DEFAULT_USER_SETTINGS.clipboard_bubble_enabled,
     };
   } catch {
     return { ...DEFAULT_USER_SETTINGS };
