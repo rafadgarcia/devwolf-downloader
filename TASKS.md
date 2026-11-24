@@ -1,4 +1,4 @@
-# TASKS.md — DropLink
+# TASKS.md — Devwolf Downloader
 
 Checklist de acompanhamento do projeto.
 
@@ -90,3 +90,19 @@ Checklist de acompanhamento do projeto.
 - [x] Remover botão **Navegador** de `InstagramSessionActivity.kt`, aplicar tema Purple Glass, adicionar captura SPA (`doUpdateVisitedHistory` + poll `1200ms`) + `isAuthenticatedRedditCookie` (`reddit_session` / `token_v2` `t2_...`) e alinhar `resolveYtdlpUserAgent` para `reddit` em `DevwolfDownloadService.kt`
 - [x] Substituir abreviações de plataforma por ícones SVG (`PlatformIcon.tsx`) e simplificar `SettingsView.tsx` removendo caixa técnica OAuth2/`localhost` e rodapé redundante
 - [x] Bump para `v3.0.0-rc.6` (`versionCode 30006`), `npx cap sync android`, suítes de testes (`vitest` + `testDebugUnitTest`), build de APKs assinados, `graphify update .` e prerelease no GitHub
+
+## Etapa 13 — Revisão de Consistência, Performance & Segurança (pós rc.6, não lançado)
+- [x] `ErrorClassifier.fromYtdlpOutput`: códigos HTTP só com contexto explícito (sem falsos `RATE_LIMITED`/`MEDIA_UNAVAILABLE` por IDs numéricos), FFmpeg ausente como falha local e padrões de rede mais precisos
+- [x] `LocalQueueStore` com cache em memória compartilhado e persistência só em mudança de status ou a cada 1,5 s; throttle de 250 ms nos eventos de progresso do `yt-dlp`; throttle de gravação no `localStorage`
+- [x] Limite de 2 downloads simultâneos com estado `queued`, cancelamento sem sobrescrever jobs finalizados e jobs em execução preservados ao recriar a Activity
+- [x] Progresso agregado entre streams (`bestvideo+bestaudio`) e mensagem explícita para o limite de 500 MB
+- [x] Segurança: HTTPS-only (`network_security_config`), `InstagramSessionActivity` não exportada, assinatura de release com opt-in explícito de chave debug, faixas SSRF corrigidas (TEST-NETs, NAT64, 6to4, Teredo) e sanitização de cookies/tokens unificada
+- [x] Alinhar tabela de rotas/mensagens do frontend com o Kotlin, atualizar `AGENTS.md`, reescrever `docs/maintenance.md` / `docs/troubleshooting.md` e remover legado VPS (`docs/deployment.md`, `frontend/Dockerfile`) e testes de exemplo do Capacitor
+- [ ] Rodar `testDebugUnitTest` + build de APKs no CI e validar em aparelho real (cancelamento, fila, Modo Status)
+
+## Etapa 14 — Atualização do app pelo GitHub Releases (não lançado)
+- [x] `AppUpdateManager.kt`: consulta de releases públicos (SemVer + opção de pre-release), escolha do APK por ABI, download com progresso/cancelamento, verificação SHA-256/pacote/assinatura e APK guardado para reinstalar sem novo download
+- [x] Métodos `getAppUpdateState`/`checkAppUpdate`/`downloadAppUpdate`/`cancelAppUpdateDownload`/`deleteDownloadedAppUpdate`/`installAppUpdate` + evento `appUpdateProgress`; permissão `REQUEST_INSTALL_PACKAGES`
+- [x] Seção **Ajustes → Atualizações** (`AppUpdatesSection.tsx`) com retomada da instalação após conceder "Instalar apps desconhecidos"
+- [ ] Tornar o repositório público e publicar um release com assets no padrão `devwolf-downloader-<tag>-<abi>-release.apk`
+- [ ] Validar em aparelho real (permissão, instalador, APK mantido após cancelar a instalação)

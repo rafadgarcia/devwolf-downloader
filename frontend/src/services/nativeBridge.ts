@@ -106,6 +106,52 @@ export interface LocalDownloadSnapshot {
   updatedAt?: string;
 }
 
+export interface AppUpdateRelease {
+  tag: string;
+  version: string;
+  name: string;
+  notes: string;
+  htmlUrl: string;
+  publishedAt: string | null;
+  isPreRelease: boolean;
+  assetName: string;
+  assetUrl: string;
+  assetSizeBytes: number;
+  assetSha256: string | null;
+}
+
+export interface AppUpdateDownloaded {
+  tag: string;
+  version: string;
+  fileName: string;
+  filePath: string;
+  sizeBytes: number;
+  sha256: string;
+  signatureMatches: boolean;
+  downloadedAt: number;
+}
+
+export interface AppUpdateState {
+  currentVersion: string;
+  latest: AppUpdateRelease | null;
+  updateAvailable: boolean;
+  downloaded: AppUpdateDownloaded | null;
+  /** APK da versão mais recente já baixado e pronto para instalar (sem baixar de novo). */
+  downloadedReady: boolean;
+  downloading: boolean;
+  canRequestInstall: boolean;
+  lastCheckAt: number | null;
+  repository: string;
+}
+
+export interface AppUpdateProgressEvent {
+  tag: string;
+  status: 'downloading' | 'downloaded' | 'failed' | 'cancelled';
+  bytesDownloaded: number;
+  totalBytes: number | null;
+  percent: number | null;
+}
+
 export interface DevwolfNativePlugin {
   readClipboard(): Promise<{ text: string | null }>;
   setClipboardBubbleEnabled(opts: { enabled: boolean }): Promise<{ enabled: boolean }>;
@@ -200,6 +246,16 @@ export interface DevwolfNativePlugin {
     eventName: 'localDownloadProgress',
     listenerFunc: (event: LocalDownloadProgressEvent) => void
   ): Promise<PluginListenerHandle>;
+  addListener(
+    eventName: 'appUpdateProgress',
+    listenerFunc: (event: AppUpdateProgressEvent) => void
+  ): Promise<PluginListenerHandle>;
+  getAppUpdateState(): Promise<AppUpdateState>;
+  checkAppUpdate(opts: { includePreReleases: boolean }): Promise<AppUpdateState>;
+  downloadAppUpdate(): Promise<AppUpdateState>;
+  cancelAppUpdateDownload(): Promise<{ cancelled: boolean }>;
+  deleteDownloadedAppUpdate(): Promise<AppUpdateState>;
+  installAppUpdate(): Promise<{ status: 'installer_opened' | 'permission_required' }>;
 }
 
 const DevwolfNative = registerPlugin<DevwolfNativePlugin>('DevwolfNative');
@@ -584,6 +640,59 @@ export const nativeBridge = {
       return () => undefined;
     }
     const handle = await DevwolfNative.addListener('localDownloadProgress', callback);
+    return () => {
+      void handle.remove();
+    };
+  },
+
+  // ---- Atualizações do app (GitHub Releases) ----
+
+  async getAppUpdateState(): Promise<AppUpdateState | null> {
+    if (!isNativePlatform()) return null;
+    try {
+      return await DevwolfNative.getAppUpdateState();
+    } catch {
+      return null;
+    }
+  },
+
+  async checkAppUpdate(includePreReleases: boolean): Promise<AppUpdateState> {
+    if (!isNativePlatform()) {
+      throw new Error('Atualização do app disponível apenas no aplicativo Android.');
+    }
+    return DevwolfNative.checkAppUpdate({ includePreReleases });
+  },
+
+  async downloadAppUpdate(): Promise<AppUpdateState> {
+    if (!isNativePlatform()) {
+      throw new Error('Atualização do app disponível apenas no aplicativo Android.');
+    }
+    return DevwolfNative.downloadAppUpdate();
+  },
+
+  async cancelAppUpdateDownload(): Promise<void> {
+    if (!isNativePlatform()) return;
+    await DevwolfNative.cancelAppUpdateDownload();
+  },
+
+  async deleteDownloadedAppUpdate(): Promise<AppUpdateState | null> {
+    if (!isNativePlatform()) return null;
+    return DevwolfNative.deleteDownloadedAppUpdate();
+  },
+
+  async installAppUpdate(): Promise<'installer_opened' | 'permission_required'> {
+    if (!isNativePlatform()) {
+      throw new Error('Atualização do app disponível apenas no aplicativo Android.');
+    }
+    const res = await DevwolfNative.installAppUpdate();
+    return res.status;
+  },
+
+  async onAppUpdateProgress(callback: (event: AppUpdateProgressEvent) => void): Promise<() => void> {
+    if (!isNativePlatform()) {
+      return () => undefined;
+    }
+    const handle = await DevwolfNative.addListener('appUpdateProgress', callback);
     return () => {
       void handle.remove();
     };

@@ -1,6 +1,15 @@
 apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 
+// Release signing policy:
+// - RELEASE_STORE_FILE (+ RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD) -> release keystore.
+// - Otherwise the debug keystore is used ONLY when explicitly allowed via
+//   DEVWOLF_ALLOW_DEBUG_SIGNING=true or -PallowDebugSigning=true (e.g. to stay update-compatible
+//   with APKs previously signed with the local debug key). Without either, release packaging fails.
+def releaseStorePath = System.getenv("RELEASE_STORE_FILE")
+def hasReleaseKeystore = releaseStorePath != null && !releaseStorePath.trim().isEmpty() && file(releaseStorePath).exists()
+def allowDebugSigning = (System.getenv("DEVWOLF_ALLOW_DEBUG_SIGNING") ?: project.findProperty("allowDebugSigning") ?: "false").toString().toBoolean()
+
 android {
     namespace = "com.devwolf.downloader"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -29,9 +38,8 @@ android {
 
     signingConfigs {
         releaseCustom {
-            def customStore = System.getenv("RELEASE_STORE_FILE")
-            if (customStore != null && !customStore.trim().isEmpty()) {
-                storeFile file(customStore)
+            if (hasReleaseKeystore) {
+                storeFile file(releaseStorePath)
                 storePassword System.getenv("RELEASE_STORE_PASSWORD")
                 keyAlias System.getenv("RELEASE_KEY_ALIAS")
                 keyPassword System.getenv("RELEASE_KEY_PASSWORD")
@@ -48,10 +56,9 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            def customStore = System.getenv("RELEASE_STORE_FILE")
-            if (customStore != null && !customStore.trim().isEmpty() && file(customStore).exists()) {
+            if (hasReleaseKeystore) {
                 signingConfig signingConfigs.releaseCustom
-            } else {
+            } else if (allowDebugSigning) {
                 signingConfig signingConfigs.debug
             }
         }
@@ -118,4 +125,19 @@ try {
     }
 } catch(Exception ignored) {
     logger.info("google-services.json not found, google-services plugin not applied.")
+}
+
+gradle.taskGraph.whenReady { graph ->
+    if (hasReleaseKeystore || allowDebugSigning) return
+    def releasePackaging = graph.allTasks.any { task ->
+        task.project == project &&
+            task.name.toLowerCase().contains("release") &&
+            (task.name.startsWith("assemble") || task.name.startsWith("bundle") || task.name.startsWith("package"))
+    }
+    if (releasePackaging) {
+        throw new GradleException(
+            "Build release sem keystore: defina RELEASE_STORE_FILE/RELEASE_STORE_PASSWORD/RELEASE_KEY_ALIAS/RELEASE_KEY_PASSWORD " +
+                "ou permita explicitamente a chave de debug com DEVWOLF_ALLOW_DEBUG_SIGNING=true (ou -PallowDebugSigning=true)."
+        )
+    }
 }

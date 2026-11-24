@@ -1,100 +1,55 @@
-# Guia de Manutenção, Atualizações e Backup — DropLink
+# Guia de Manutenção — Devwolf Downloader (Android `v3.x`)
 
-Este documento descreve a operação rotineira do Cobalt, dos motores do worker (`yt-dlp` e `gallery-dl`), além de backup e restauração do SQLite.
-
----
-
-## 1. Atualização Automática e Segura do Cobalt
-
-O repositório original `containrrr/watchtower` foi arquivado em **17/12/2025**. Por isso, o DropLink adota o script `ops/update-cobalt.sh` acionado por `systemd timer` no host (`ops/cobalt-update.timer`, a cada 30 minutos).
-
-### Como o fluxo funciona:
-1. **Execução única (`flock`)**: impede execuções sobrepostas.
-2. **Validação prévia**: recusa tag `latest` e valida `docker compose config` antes de qualquer ação.
-3. **Comparação de digest**: faz `docker compose pull` da tag major homologada (ex.: `ghcr.io/imputnet/cobalt:11`) e compara o ID/digest com o container em execução. **Se forem iguais, encerra sem reiniciar.**
-4. **Cooldown contra boot-loop**: se o digest baixado já foi rejeitado anteriormente por falha de boot, pula a atualização pelo período definido em `COBALT_REJECTED_COOLDOWN_HOURS` (padrão 24h).
-5. **Preservação e backup**: salva tags locais `droplink-rollback/cobalt:previous` e `:older` (nunca executa `docker image prune`) e copia `compose.yml`/`.env` do Cobalt para `backups/cobalt/`.
-6. **Manutenção e dreno**: publica `maintenance: true` atomicamente em `cobalt-updater-status.json` (lido em modo read-only pelo DropLink) e aguarda até `COBALT_DRAIN_TIMEOUT_SECONDS` para jobs ativos do Cobalt terminarem. Durante esse período, `yt-dlp` e `gallery-dl` continuam atendendo normalmente.
-7. **Recriação isolada**: executa `docker compose up -d --no-deps --pull never <COBALT_SERVICE>` — nenhum outro container ou volume é tocado.
-8. **Verificação e Rollback**: testa `GET /` (contrato JSON e versão) por até 90 segundos (`COBALT_READINESS_TIMEOUT_SECONDS`). Se falhar, cria um override temporário (`cobalt-rollback.override.yml`) apontando para `droplink-rollback/cobalt:previous`, recria o Cobalt, registra o digest rejeitado e publica o incidente no painel **Motores**.
-
-### Comandos úteis no host:
-```bash
-# Executar verificação manual imediata
-sudo systemctl start cobalt-update.service
-journalctl -u cobalt-update.service -n 100 --no-pager
-
-# Conferir agendamento ou ajustar intervalo (padrão *:0/30 = a cada 30 min)
-systemctl list-timers cobalt-update.timer
-# Para alterar o intervalo sem editar o arquivo versionado:
-sudo systemctl edit cobalt-update.timer
-# Adicione: [Timer] \n OnCalendar= \n OnCalendar=*:0/15
-
-# Forçar nova tentativa ignorando bloqueio de digest rejeitado
-FORCE_UPDATE=1 bash ops/update-cobalt.sh
-```
-
-> **Digest rejeitado:** quando um novo digest falha na verificação de saúde, ele fica bloqueado até que um **novo digest** seja publicado no registro ou que você libere manualmente com `FORCE_UPDATE=1` (evitando loops de reinício).
-
-> **Atualização de Major (ex.: v11 → v12):** o painel **Motores** sinaliza quando há uma nova release major no GitHub, mas a mudança de `COBALT_IMAGE_TAG` deve ser feita manualmente após revisar breaking changes e testar em staging.
+> O guia de manutenção da arquitetura híbrida (VPS, Cobalt, Docker, backup SQLite) está preservado na branch `archive/vps-hybrid` e na tag `v2.0.0`.
 
 ---
 
-## 2. Atualização de `yt-dlp` e `gallery-dl` (Worker)
+## 1. Atualização do motor `yt-dlp`
 
-Em produção, os containers **não** executam `pip install -U` no boot. As versões são fixadas no build para garantir reprodutibilidade e rollback imediato.
+- O `LocalEngineManager` verifica atualizações automaticamente ~15 s após abrir o app e depois a cada 24 h (canal `Stable` por padrão; `Nightly` é opt-in na aba **Motores**).
+- A atualização só é aplicada quando **não há downloads ativos ou na fila**. Após atualizar, o binário é validado (`YoutubeDL.version`); se a validação falhar, o rollback para a versão anterior é automático.
+- Atualização (**Verificar / Atualizar agora**) e rollback manuais ficam na aba **Motores**.
 
-```bash
-# 1. Consultar versões estáveis mais recentes (PyPI / GitHub / Codeberg)
-bash ops/check-engine-updates.sh
+## 2. Fila, histórico e arquivos temporários
 
-# Opcional: habilitar verificação diária automática no host
-sudo cp ops/worker-check.service ops/worker-check.timer /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now worker-check.timer
+- A fila nativa (`files/devwolf_local_queue.json`) é a fonte de verdade: mantém até 100 jobs (miniaturas apenas nos 24 mais recentes). Ela fica em memória e só é gravada em disco quando um job muda de status ou, para progresso puro, no máximo a cada 1,5 s.
+- O frontend mantém uma cópia em `localStorage` apenas como cache de exibição; na inicialização ela é reconciliada com a fila nativa (`getLocalDownloadQueue`).
+- No máximo **2 downloads** rodam ao mesmo tempo (`DevwolfDownloadService.MAX_CONCURRENT_DOWNLOADS`); os demais aparecem como **Na fila…**.
+- Arquivos temporários ficam em `cacheDir/jobs/<jobId>` e são removidos ao final de cada job. **Ajustes → Limpar cache** remove resíduos.
+- **Baixados → Limpar histórico** remove jobs concluídos/falhos/cancelados sem apagar mídias da Galeria.
 
-# 2. Atualizar worker com imagem isolada de staging, testes automatizados e dreno de fila
-bash ops/update-worker.sh --apply
-
-# Opcional: usar canal nightly do yt-dlp (somente opt-in quando houver quebra recente de plataforma)
-bash ops/update-worker.sh --apply --nightly
-
-# Reverter imediatamente para a imagem anterior do worker em caso de regressão
-bash ops/update-worker.sh --rollback
-```
-
----
-
-## 3. Backup e Restauração (SQLite WAL + Configurações)
-
-Nunca copie o arquivo `.db` diretamente com `cp` enquanto API e worker estiverem escrevendo no modo WAL. Use sempre o script `ops/backup.sh`, que utiliza a API de backup online nativa do SQLite (`sqlite3.Connection.backup`).
+## 3. Build e assinatura de release
 
 ```bash
-# Gerar backup consistente em backups/droplink-backup-YYYYMMDDTHHMMSSZ.tar.gz
-bash ops/backup.sh
+cd frontend && npm ci && npm test && npm run build && npx cap sync android
+cd ../android && ./gradlew testDebugUnitTest assembleRelease
 ```
 
-### Agendar backup diário via cron (exemplo):
-```cron
-15 3 * * * /opt/droplink/ops/backup.sh >> /var/log/droplink-backup.log 2>&1
+- Com keystore própria: defina `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS` e `RELEASE_KEY_PASSWORD`.
+- Sem keystore, o build de release **falha de propósito**. Para assinar com a chave de debug local (por exemplo, para manter compatibilidade de atualização com APKs antigos assinados com ela), habilite explicitamente:
+  - `DEVWOLF_ALLOW_DEBUG_SIGNING=true ./gradlew assembleRelease`, ou
+  - `./gradlew assembleRelease -PallowDebugSigning=true`.
+- O CI usa `DEVWOLF_ALLOW_DEBUG_SIGNING=true` porque seus APKs são artefatos de teste.
+
+## 4. Versionamento
+
+A cada release, atualize juntos: `versionCode`/`versionName` em `android/app/build.gradle`, `version` em `frontend/package.json`, `REDDIT_OAUTH_USER_AGENT` em `InstagramSessionActivity.kt`, `CHANGELOG.md` e `TASKS.md`.
+
+## 5. Publicação de releases para a atualização no app
+
+A seção **Ajustes → Atualizações** lê os releases públicos do GitHub. Para um release ser oferecido:
+
+- A tag segue SemVer (`v3.0.0`, `v3.0.0-rc.7`). Pre-releases só aparecem com **Incluir versões de teste** ligado.
+- Os APKs são anexados como `devwolf-downloader-<tag>-<abi>-release.apk` (ex.: `-arm64-v8a-`, `-armeabi-v7a-`, `-x86_64-`) e `devwolf-downloader-<tag>-universal-release.apk`.
+- Todos os APKs são assinados com a **mesma chave** do app já instalado; caso contrário o app recusa a instalação.
+
+```bash
+TAG=v3.0.0-rc.7
+OUT=android/app/build/outputs/apk/release
+cp $OUT/app-arm64-v8a-release.apk   devwolf-downloader-$TAG-arm64-v8a-release.apk
+cp $OUT/app-universal-release.apk   devwolf-downloader-$TAG-universal-release.apk
+gh release create $TAG --prerelease --title "Devwolf Downloader $TAG" --notes-file notas.md \
+  devwolf-downloader-$TAG-arm64-v8a-release.apk devwolf-downloader-$TAG-universal-release.apk
 ```
 
-### Procedimento de Restauração:
-1. Pare API e worker para evitar escritas concorrentes:
-   ```bash
-   docker compose stop droplink-api droplink-worker
-   ```
-2. Extraia o arquivo desejado em diretório temporário:
-   ```bash
-   mkdir -p /tmp/droplink-restore
-   tar -xzf backups/droplink-backup-YYYYMMDDTHHMMSSZ.tar.gz -C /tmp/droplink-restore
-   ```
-3. Substitua o banco (removendo eventuais `-wal` e `-shm` antigos do banco substituído):
-   ```bash
-   rm -f data/db/droplink.db-wal data/db/droplink.db-shm
-   cp /tmp/droplink-restore/*/droplink.db data/db/droplink.db
-   rm -rf /tmp/droplink-restore
-   ```
-4. Suba os serviços novamente:
-   ```bash
-   docker compose up -d
-   ```
+O app escolhe o asset pelo **nome do arquivo**, por isso os APKs são copiados com o nome no padrão antes do upload.

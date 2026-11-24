@@ -265,6 +265,8 @@ export interface UserSettings {
   update_channel: UpdateChannel;
   notifications_enabled: boolean;
   clipboard_bubble_enabled: boolean;
+  /** Atualizações do app: considerar releases de teste (pre-release / rc). */
+  include_prerelease_updates: boolean;
 }
 
 export interface PendingSharePayload {

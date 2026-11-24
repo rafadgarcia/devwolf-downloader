@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # Any base branch, so stacked PRs (base = another feature branch) are also validated.
   pull_request:
-    branches: [main]
 
 jobs:
   frontend-build-and-test:
@@ -67,6 +67,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The legacy "tools" package (action default) no longer exists in cmdline-tools 16+;
+          # AGP installs the required platforms/build-tools on demand.
+          packages: 'platform-tools'
 
       - name: Install frontend deps & sync Capacitor Android
         run: |
@@ -79,6 +83,9 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew testDebugUnitTest assembleDebug assembleRelease --no-daemon
+        env:
+          # CI artifacts are test builds: explicitly allow the debug key when no release keystore secret exists.
+          DEVWOLF_ALLOW_DEBUG_SIGNING: "true"
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4

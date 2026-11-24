@@ -15,6 +15,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   update_channel: 'stable',
   notifications_enabled: true,
   clipboard_bubble_enabled: false,
+  include_prerelease_updates: true,
 };
 
 export function loadLocalSettings(): UserSettings {
@@ -62,6 +63,10 @@ export function loadLocalSettings(): UserSettings {
         typeof parsed.clipboard_bubble_enabled === 'boolean'
           ? parsed.clipboard_bubble_enabled
           : DEFAULT_USER_SETTINGS.clipboard_bubble_enabled,
+      include_prerelease_updates:
+        typeof parsed.include_prerelease_updates === 'boolean'
+          ? parsed.include_prerelease_updates
+          : DEFAULT_USER_SETTINGS.include_prerelease_updates,
     };
   } catch {
     return { ...DEFAULT_USER_SETTINGS };

@@ -54,10 +54,18 @@ class DevwolfNativePlugin : Plugin() {
         val appCtx = context.applicationContext
         queueStore = LocalQueueStore(appCtx)
         secureVault = SecureVault(appCtx)
-        queueStore.markInterruptedJobsOnStartup()
+        queueStore.markInterruptedJobsOnStartup(isStillRunning = { jobId -> DevwolfDownloadService.isJobTracked(jobId) })
         DevwolfDownloadService.addProgressListener(progressListener)
         instance = this
         PerformanceTracker.markAppOpenCompleted()
+
+        // Drop downloaded app-update APKs that were already installed (or are stale).
+        pluginScope.launch {
+            try {
+                AppUpdateManager.cleanupObsoleteDownloads(appCtx)
+            } catch (_: Throwable) {
+            }
+        }
 
         // Non-blocking first-init / 24h yt-dlp update check delayed by 15s so startup/first download never race
         pluginScope.launch {
@@ -528,6 +536,87 @@ class DevwolfNativePlugin : Plugin() {
             lastUpdateAt = secureVault.lastUpdateAt,
         )
         call.resolve(JSObject(report.toString()))
+    }
+
+    // ---- Atualizações do app (GitHub Releases) ------------------------------------------------
+
+    private val appUpdateProgress: (JSONObject) -> Unit = { progress ->
+        try {
+            notifyListeners("appUpdateProgress", JSObject(progress.toString()), true)
+        } catch (_: Throwable) {
+        }
+    }
+
+    @PluginMethod
+    fun getAppUpdateState(call: PluginCall) {
+        call.resolve(JSObject(AppUpdateManager.getState(context.applicationContext).toString()))
+    }
+
+    @PluginMethod
+    fun checkAppUpdate(call: PluginCall) {
+        val includePreReleases = call.getBoolean("includePreReleases", true) ?: true
+        pluginScope.launch {
+            try {
+                val state = AppUpdateManager.checkForUpdate(context.applicationContext, includePreReleases)
+                call.resolve(JSObject(state.toString()))
+            } catch (e: Throwable) {
+                call.reject(updateErrorMessage(e, "Não foi possível verificar atualizações."))
+            }
+        }
+    }
+
+    @PluginMethod
+    fun downloadAppUpdate(call: PluginCall) {
+        pluginScope.launch {
+            try {
+                val state = AppUpdateManager.downloadLatest(context.applicationContext, appUpdateProgress)
+                call.resolve(JSObject(state.toString()))
+            } catch (e: Throwable) {
+                call.reject(updateErrorMessage(e, "Não foi possível baixar a atualização."))
+            }
+        }
+    }
+
+    @PluginMethod
+    fun cancelAppUpdateDownload(call: PluginCall) {
+        AppUpdateManager.cancelDownload()
+        call.resolve(JSObject().put("cancelled", true))
+    }
+
+    @PluginMethod
+    fun deleteDownloadedAppUpdate(call: PluginCall) {
+        AppUpdateManager.deleteDownloaded(context.applicationContext)
+        call.resolve(JSObject(AppUpdateManager.getState(context.applicationContext).toString()))
+    }
+
+    /**
+     * Opens the system installer for the downloaded APK. When "install unknown apps" is not yet
+     * allowed, opens that settings screen instead and resolves `permission_required`; the APK is
+     * kept so the user can retry without downloading again.
+     */
+    @PluginMethod
+    fun installAppUpdate(call: PluginCall) {
+        val appCtx = context.applicationContext
+        try {
+            if (!AppUpdateManager.canRequestPackageInstalls(appCtx)) {
+                val settingsIntent = AppUpdateManager.unknownSourcesSettingsIntent(appCtx)
+                if (settingsIntent != null) {
+                    (activity ?: context).startActivity(settingsIntent)
+                }
+                call.resolve(JSObject().put("status", "permission_required"))
+                return
+            }
+            val installIntent = AppUpdateManager.buildInstallIntent(appCtx)
+            (activity ?: context).startActivity(installIntent)
+            call.resolve(JSObject().put("status", "installer_opened"))
+        } catch (e: Throwable) {
+            call.reject(updateErrorMessage(e, "Não foi possível iniciar a instalação."))
+        }
+    }
+
+    private fun updateErrorMessage(e: Throwable, fallback: String): String {
+        val raw = (e as? com.devwolf.downloader.resolvers.ResolverException)?.userMessage ?: e.message
+        return raw?.takeIf { it.isNotBlank() }?.let { PerformanceTracker.sanitizeText(it) } ?: fallback
     }
 
     @PluginMethod

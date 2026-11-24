@@ -30,7 +30,7 @@ export function useJobProgress(initialJob: JobResponse | null) {
       return nextJob;
     });
 
-    upsertLocalJob(nextJob);
+    upsertLocalJob(nextJob, { throttleProgress: true });
 
     if (TERMINAL_STATES.has(nextJob.status)) {
       clearActiveJobById(nextJob.id);

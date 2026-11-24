@@ -54,7 +54,7 @@ describe('hybridOrchestrator (Exclusively Local Android Routing)', () => {
     });
     expect(igPlan.order).toEqual(['local']);
     expect(igPlan.primaryEngine).toBe('dnr');
-    expect(igPlan.fallbackEngines).toEqual(['yt-dlp', 'gallery-dl']);
+    expect(igPlan.fallbackEngines).toEqual(['yt-dlp']);
   });
 
   it('expõe tabela centralizada de roteamento para todas as 8 plataformas com yt-dlp como motor universal inicial', () => {
@@ -63,9 +63,10 @@ describe('hybridOrchestrator (Exclusively Local Android Routing)', () => {
     expect(PLATFORM_ROUTING_TABLE[0].primaryEngine).toBe('yt-dlp');
     expect(getPlatformEngineRoute('youtube').primaryEngine).toBe('yt-dlp');
     expect(getPlatformEngineRoute('tiktok').primaryEngine).toBe('yt-dlp');
-    expect(getPlatformEngineRoute('instagram').routeDescription).toBe(
-      'DNR (fallback yt-dlp/gallery-dl)'
-    );
+    expect(getPlatformEngineRoute('instagram').routeDescription).toBe('DNR (fallback yt-dlp)');
+    const unknown = getPlatformEngineRoute('vimeo');
+    expect(unknown.platform).toBe('vimeo');
+    expect(unknown.localSupported).toBe(false);
     expect(getPlatformEngineRoute('threads').routeDescription).toBe('DNR (fallback yt-dlp)');
     expect(getPlatformEngineRoute('pinterest').routeDescription).toBe('gallery-dl/nativo');
     expect(getPlatformEngineRoute('reddit').routeDescription).toBe('gallery-dl/yt-dlp');

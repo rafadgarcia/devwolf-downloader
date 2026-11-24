@@ -1,70 +1,42 @@
-# Diagnóstico de Problemas e Limitações Reais — DropLink
+# Diagnóstico de Problemas — Devwolf Downloader (Android `v3.x`)
+
+> O guia de diagnóstico da arquitetura híbrida (VPS, Cobalt, SSE, proxy reverso) está preservado na branch `archive/vps-hybrid` e na tag `v2.0.0`.
 
 ---
 
-## 1. Limitações Reais de Plataforma (Comportamento Esperado)
+## 1. Limitações reais (comportamento esperado)
 
-1. **Clipboard Web (`navigator.clipboard.readText`)**:
-   - Exige contexto seguro (**HTTPS** ou `localhost`), janela em foco e permissão do navegador.
-   - Alguns navegadores (especialmente **iOS Safari** e determinados navegadores móveis) exigem gesto explícito do usuário antes de liberar leitura da área de transferência.
-   - O DropLink não faz polling em segundo plano nem tenta contornar permissões. Quando bloqueado, o app exibe *"Toque em Colar para importar um link"* e mantém o fluxo manual plenamente funcional.
+- **Bloqueios de plataforma**: redes sociais mudam APIs, aplicam limite de requisições (`HTTP 429`), exigem login ou impõem CAPTCHA/DRM. Esses casos são **terminais** (`RATE_LIMITED`, `AUTH_REQUIRED`, `PRIVATE_MEDIA`, `CAPTCHA_REQUIRED`): o app para imediatamente e não tenta contornar a proteção.
+- **Login opcional**: Instagram, Threads e Reddit aceitam uma sessão opcional em **Ajustes → Contas e Sessões** (WebView oficial; cookies em `EncryptedSharedPreferences` + Android Keystore).
+- **Tamanho máximo**: o `yt-dlp` baixa no máximo **500 MB por arquivo**. Acima disso o job falha com uma mensagem explícita; tente uma qualidade menor.
+- **Somente HTTPS**: o app bloqueia tráfego HTTP sem criptografia; links `http://` são promovidos para `https://` automaticamente.
+- **SSRF**: os resolvedores nativos (DNR / resolvedor local) validam DNS público em cada redirecionamento. O `yt-dlp` faz suas próprias requisições e não passa por essa validação; ele só recebe URLs de plataformas suportadas já validadas.
 
-2. **Web Share Target (Menu Compartilhar do Sistema)**:
-   - Funciona em PWAs instaladas no **Android / Chrome** (e navegadores Chromium compatíveis).
-   - **iOS Safari não suporta Web Share Target** para receber compartilhamentos do sistema diretamente na PWA. No iOS, copie o link e use o botão **Colar** ou a colagem nativa no campo de URL.
-   - No Android, muitos apps enviam a URL dentro do campo `text` (ex.: `"Veja este vídeo https://..."`) e não em `url`. O DropLink trata ambos automaticamente.
+## 2. Problemas comuns
 
-3. **Conclusão em segundo plano e salvamento no aparelho**:
-   - O servidor conclui o job mesmo que você feche o app. Ao reabrir, o histórico e o card do job permitem baixar o arquivo pronto.
-   - O disparo automático de download no dispositivo só ocorre se a página estiver ativa e o navegador autorizar o download. O aplicativo nunca afirma que o arquivo foi salvo na galeria sem confirmação real do navegador.
+### "Motor de extração desatualizado"
+Atualize o `yt-dlp` na aba **Motores** (**Verificar / Atualizar agora**). Se a quebra for recente na plataforma, experimente o canal `Nightly`.
 
-4. **Bloqueios de plataformas externas**:
-   - Redes sociais mudam APIs, aplicam rate-limit (`HTTP 429`), exigem login ou impõem CAPTCHA/DRM.
-   - Erros de acesso privado, autorização ou CAPTCHA são tratados como **terminais** — o DropLink não tenta contornar login, DRM ou proteção anti-bot.
+### Download fica em "Na fila…"
+Já existem 2 downloads em execução. O job começa automaticamente quando um deles terminar; ele também pode ser cancelado da fila.
 
----
+### "FFmpeg indisponível no dispositivo"
+Falha local ao extrair/iniciar o FFmpeg (mescla de vídeo+áudio, Modo Status, MP3). Feche e reabra o app; se persistir, use **Motores → Verificar / Atualizar agora** e **Ajustes → Limpar cache**.
 
-## 2. Problemas Comuns e Soluções
+### "Download interrompido pelo sistema"
+O Android encerrou o processo durante o download (economia de bateria). Toque em **Repetir**. Desativar a otimização de bateria para o app reduz a ocorrência.
 
-### Erro de login / CSRF inválido após proxy reverso
-- Verifique se `APP_URL` no `.env` corresponde ao domínio HTTPS real usado no navegador.
-- Se estiver testando localmente em `http://localhost` sem HTTPS, configure `COOKIE_SECURE=false` no `.env`. Em produção HTTPS, mantenha `COOKIE_SECURE=true`.
-- Confirme que o proxy repassa `Host` e `X-Forwarded-Proto: https`.
+### Motor não atualiza
+O atualizador espera não haver downloads ativos ou na fila. Aguarde a conclusão ou cancele os downloads.
 
-### Progresso não atualiza em tempo real (SSE travado)
-- O frontend alterna automaticamente para polling (`GET /api/jobs/{id}`), mas para restaurar SSE instantâneo configure no proxy:
-  - Nginx: `proxy_buffering off;` e `proxy_read_timeout 600s;`
-  - Caddy: `flush_interval -1`
+### Galeria / Modo Status
+Mídias são salvas em `Movies/Devwolf Downloader`, `Pictures/Devwolf Downloader` e `Music/Devwolf Downloader` via `MediaStore`. Vídeos em codec incompatível (VP9/AV1/WebM) são transcodificados para MP4 (`H.264` + `AAC`) no Modo Status, preservando a proporção.
 
-### Cobalt aparece como "Offline" ou "Degradado" na aba Motores
-1. Verifique se o Cobalt está respondendo no host/rede configurada:
-   ```bash
-   docker compose exec droplink-worker python -c "import os, httpx; print(httpx.get(os.environ['COBALT_API_URL']).status_code)"
-   ```
-2. Confirme que `droplink-api` e `droplink-worker` estão conectados à mesma rede Docker do Cobalt (`COBALT_EXTERNAL_NETWORK`).
-3. Se o Cobalt usar chave (`Api-Key`), verifique `COBALT_API_KEY` no `.env`.
-4. Se o circuit breaker abriu após 3 falhas consecutivas de infraestrutura, ele permanece aberto por 5 minutos e reavalia automaticamente. Enquanto isso, `yt-dlp` e `gallery-dl` continuam processando rotas compatíveis.
+### Exportar diagnóstico
+**Ajustes → Diagnóstico e Performance** gera um log local sanitizado (cookies, tokens e query strings assinadas são removidos) com plataforma, motor/versão, estratégias, `httpStatus`, `exitCode` e tempos.
 
-### Túnel do Cobalt falha ao baixar mídia (`tunnel` / `redirect`)
-- Verifique a variável `API_URL` configurada **dentro do próprio container do Cobalt**: ela precisa ser alcançável pelo worker (ou usar o fluxo compatível configurado na instância).
-- Consulte os logs do worker:
-  ```bash
-  docker compose logs --tail=100 droplink-worker
-  ```
-
-### Rollback do Cobalt ocorreu ou atualização ficou em cooldown
-- Verifique o histórico de atualização:
-  ```bash
-  cat data/ops-status/cobalt-updater-status.json
-  journalctl -u cobalt-update.service -n 100 --no-pager
-  ```
-- Quando um digest falha no readiness check (90s), ele entra em cooldown (`rejected_until`) para evitar loop de reinício. Quando uma nova imagem for publicada no registro, a atualização voltará a ocorrer automaticamente (ou force manualmente com `FORCE_UPDATE=1 bash ops/update-cobalt.sh`).
-
-### Disco cheio ou novos jobs recusados
-- Por segurança, o worker recusa novos jobs quando o espaço livre cai abaixo de `MIN_FREE_DISK_MB` (padrão `2048` MB / 2 GB).
-- Verifique retenção (`FILE_RETENTION_HOURS=24`) e espaço em disco (`df -h`).
-
-### App Android (`com.devwolf.downloader`) — Diagnóstico Híbrido
-- **Motor Local não atualiza**: o atualizador do `yt-dlp` no Android bloqueia atualizações enquanto houver downloads ativos. Aguarde a conclusão ou cancele os downloads na fila.
-- **Conexão com VPS no app Android**: em `Ajustes`, configure o endereço HTTPS da VPS. O app utiliza autenticação por Bearer token (`Authorization: Bearer ...`) e `X-CSRF-Token` compatível com a origem `https://localhost` do Capacitor (`ALLOW_MOBILE_ORIGINS=true` no backend).
-- **Galeria / Modo Status**: mídias são salvas em `Movies/Devwolf Downloader`, `Pictures/Devwolf Downloader` e `Music/Devwolf Downloader` via `MediaStore`. Se um vídeo estiver em codec incompatível (ex.: VP9/AV1/WebM), o Modo Status transcodifica automaticamente para MP4 (`H.264` + `AAC`) preservando a proporção.
+### Atualizações do app (Ajustes → Atualizações)
+- **"Repositório de releases não encontrado ou privado"**: a consulta usa apenas releases públicos do GitHub, sem token. O repositório precisa estar público.
+- **"Limite de consultas ao GitHub atingido"**: a API pública permite ~60 consultas por hora por IP. Aguarde alguns minutos.
+- **Instalação pede permissão**: o Android exige liberar **Instalar apps desconhecidos** para o Devwolf Downloader. Ao voltar ao app a instalação continua com o APK já baixado; se não continuar, toque em **Instalar**.
+- **"Assinado com outra chave"**: o APK do release não foi assinado com a mesma chave do app instalado e o Android recusaria a atualização. Assine os releases sempre com a mesma keystore (ou a mesma chave de debug com `DEVWOLF_ALLOW_DEBUG_SIGNING=true`).

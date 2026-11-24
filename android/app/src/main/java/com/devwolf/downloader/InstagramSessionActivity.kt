@@ -303,17 +303,6 @@ class InstagramSessionActivity : AppCompatActivity() {
         super.onPause()
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        val callbackData = intent.data?.toString()
-        if (!callbackData.isNullOrBlank() &&
-            callbackData.startsWith(REDDIT_BROWSER_OAUTH_REDIRECT_URI, ignoreCase = true)
-        ) {
-            handleRedditOAuthCallback(callbackData)
-        }
-    }
-
     override fun onDestroy() {
         mainHandler.removeCallbacks(sessionPollRunnable)
         ioExecutor.shutdownNow()
@@ -650,7 +639,6 @@ class InstagramSessionActivity : AppCompatActivity() {
         const val REDDIT_OAUTH_BASE_URL = "https://oauth.reddit.com"
         const val REDDIT_LOGIN_URL = "https://www.reddit.com/login/"
         const val REDDIT_OAUTH_REDIRECT_URI = "https://localhost/devwolf-oauth-callback"
-        const val REDDIT_BROWSER_OAUTH_REDIRECT_URI = "devwolf://oauth-callback"
         private const val REDDIT_OAUTH_USER_AGENT = "android:com.devwolf.downloader:v3.0.0-rc.6 (by /u/devwolf-app)"
         private const val SESSION_POLL_INTERVAL_MS = 1200L
 

@@ -5,30 +5,68 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Thread-safe persistent JSON store for local Android download jobs so queue and history
  * survive app backgrounding or process restart.
+ *
+ * Jobs are kept in a process-wide in-memory cache (shared by every instance pointing to the
+ * same file) and persisted to disk only when a job changes status, or at most every
+ * [PROGRESS_PERSIST_INTERVAL_MS] for pure progress updates. This avoids rewriting the whole
+ * queue file (including base64 thumbnails) on every yt-dlp/HTTP progress tick.
  */
 class LocalQueueStore internal constructor(
     private val queueFile: File,
     private val shareFile: File,
+    private val clock: () -> Long = { System.currentTimeMillis() },
 ) {
     constructor(context: Context) : this(
         queueFile = File(context.applicationContext.filesDir, "devwolf_local_queue.json"),
         shareFile = File(context.applicationContext.filesDir, "devwolf_pending_share.json"),
     )
 
-    private val lock = Any()
+    private val state: StoreState = sharedStates.getOrPut(queueFile.absolutePath) { StoreState() }
+    private val lock: Any get() = state
 
     fun upsertJob(snapshot: JSONObject) {
         synchronized(lock) {
             val jobs = loadMapLocked()
             val jobId = snapshot.optString("jobId")
             if (jobId.isNotEmpty()) {
+                val previousStatus = jobs[jobId]?.optString("status")
                 snapshot.put("updatedAt", Instant.now().toString())
                 jobs[jobId] = snapshot
-                persistMapLocked(jobs)
+                val statusChanged = previousStatus != snapshot.optString("status")
+                if (statusChanged || clock() - state.lastPersistMs >= PROGRESS_PERSIST_INTERVAL_MS) {
+                    persistMapLocked(jobs)
+                } else {
+                    state.dirty = true
+                }
+            }
+        }
+    }
+
+    /**
+     * Atomically publishes [snapshot] only if the currently stored job is not already in a
+     * final state (`ready`/`completed`/`failed`/`cancelled`). Returns `true` when written.
+     */
+    fun upsertJobIfNotFinal(snapshot: JSONObject): Boolean {
+        synchronized(lock) {
+            val jobId = snapshot.optString("jobId")
+            if (jobId.isEmpty()) return false
+            val currentStatus = loadMapLocked()[jobId]?.optString("status")
+            if (currentStatus != null && currentStatus in FINAL_STATUSES) return false
+            upsertJob(snapshot)
+            return true
+        }
+    }
+
+    /** Forces pending (throttled) progress updates to disk. */
+    fun flush() {
+        synchronized(lock) {
+            if (state.dirty) {
+                persistMapLocked(loadMapLocked())
             }
         }
     }
@@ -43,20 +81,20 @@ class LocalQueueStore internal constructor(
         synchronized(lock) {
             val list = loadMapLocked().values.sortedByDescending { it.optString("updatedAt", "") }
             val arr = JSONArray()
-            for (item in list.take(100)) {
-                arr.put(item)
+            for (item in list.take(MAX_PERSISTED_JOBS)) {
+                arr.put(JSONObject(item.toString()))
             }
             return arr
         }
     }
 
-    fun markInterruptedJobsOnStartup() {
+    fun markInterruptedJobsOnStartup(isStillRunning: (String) -> Boolean = { false }) {
         synchronized(lock) {
             val jobs = loadMapLocked()
             var changed = false
             for ((_, job) in jobs) {
                 val status = job.optString("status")
-                if (status in ACTIVE_STATUSES) {
+                if (status in ACTIVE_STATUSES && !isStillRunning(job.optString("jobId"))) {
                     job.put("status", "failed")
                     job.put("phaseLabel", "Falhou")
                     job.put("error", "Download interrompido pelo sistema. Toque para tentar novamente.")
@@ -80,14 +118,15 @@ class LocalQueueStore internal constructor(
         synchronized(lock) {
             val jobs = loadMapLocked()
             if (jobs.isEmpty()) return 0
-            val remaining = if (keepActiveJobs) {
-                jobs.filterValues { it.optString("status") in ACTIVE_STATUSES }
+            val sizeBefore = jobs.size
+            if (keepActiveJobs) {
+                jobs.values.removeAll { it.optString("status") !in ACTIVE_STATUSES }
             } else {
-                emptyMap()
+                jobs.clear()
             }
-            val removedCount = jobs.size - remaining.size
+            val removedCount = sizeBefore - jobs.size
             if (removedCount > 0 || !keepActiveJobs) {
-                persistMapLocked(remaining)
+                persistMapLocked(jobs)
             }
             return removedCount
         }
@@ -125,26 +164,33 @@ class LocalQueueStore internal constructor(
     }
 
     private fun loadMapLocked(): MutableMap<String, JSONObject> {
+        state.cache?.let { return it }
         val result = LinkedHashMap<String, JSONObject>()
-        if (!queueFile.exists()) return result
-        try {
-            val arr = JSONArray(queueFile.readText(Charsets.UTF_8))
-            for (i in 0 until arr.length()) {
-                val obj = arr.optJSONObject(i) ?: continue
-                val id = obj.optString("jobId")
-                if (id.isNotEmpty()) {
-                    result[id] = obj
+        if (queueFile.exists()) {
+            try {
+                val arr = JSONArray(queueFile.readText(Charsets.UTF_8))
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val id = obj.optString("jobId")
+                    if (id.isNotEmpty()) {
+                        result[id] = obj
+                    }
                 }
+            } catch (_: Exception) {
+                // Corrupted store resets cleanly
             }
-        } catch (_: Exception) {
-            // Corrupted store resets cleanly
         }
+        state.cache = result
         return result
     }
 
-    private fun persistMapLocked(jobs: Map<String, JSONObject>) {
+    private fun persistMapLocked(jobs: MutableMap<String, JSONObject>) {
         val arr = JSONArray()
         val sorted = jobs.values.sortedByDescending { it.optString("updatedAt", "") }.take(MAX_PERSISTED_JOBS)
+        if (sorted.size < jobs.size) {
+            val keep = sorted.mapTo(HashSet()) { it.optString("jobId") }
+            jobs.keys.retainAll(keep)
+        }
         sorted.forEachIndexed { index, job ->
             if (index < MAX_JOBS_WITH_THUMBNAILS) {
                 arr.put(job)
@@ -153,6 +199,8 @@ class LocalQueueStore internal constructor(
             }
         }
         writeAtomically(queueFile, arr.toString())
+        state.lastPersistMs = clock()
+        state.dirty = false
     }
 
     private fun writeAtomically(target: File, content: String) {
@@ -165,10 +213,20 @@ class LocalQueueStore internal constructor(
         }
     }
 
+    private class StoreState {
+        var cache: MutableMap<String, JSONObject>? = null
+        var lastPersistMs: Long = 0L
+        var dirty: Boolean = false
+    }
+
     companion object {
+        private val sharedStates = ConcurrentHashMap<String, StoreState>()
+
+        const val PROGRESS_PERSIST_INTERVAL_MS = 1_500L
         const val MAX_PERSISTED_JOBS = 100
         const val MAX_JOBS_WITH_THUMBNAILS = 24
         internal val ACTIVE_STATUSES = setOf("queued", "resolving", "downloading", "processing")
+        internal val FINAL_STATUSES = setOf("ready", "completed", "failed", "cancelled")
 
         internal fun stripThumbnailsCopy(job: JSONObject): JSONObject {
             val copy = JSONObject(job.toString())

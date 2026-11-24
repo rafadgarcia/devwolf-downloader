@@ -402,15 +402,46 @@ export function snapshotToJobResponse(snapshot: LocalDownloadSnapshot): JobRespo
   };
 }
 
-export function upsertLocalJob(job: JobResponse): JobResponse[] {
+/** Intervalo mínimo entre gravações de progresso (mesmo status) de um job no localStorage. */
+export const PROGRESS_PERSIST_INTERVAL_MS = 1000;
+const ACTIVE_LOCAL_STATUSES = new Set(['queued', 'resolving', 'downloading', 'processing']);
+const lastProgressWriteAt = new Map<string, number>();
+
+/**
+ * Insere/atualiza um job no histórico local.
+ *
+ * Com `throttleProgress`, ticks de progresso que não mudam o status de um job ativo são
+ * gravados no máximo a cada {@link PROGRESS_PERSIST_INTERVAL_MS}: o estado React já recebe
+ * cada atualização e a fila nativa (`LocalQueueStore`) continua sendo a fonte de verdade.
+ */
+export function upsertLocalJob(
+  job: JobResponse,
+  options: { throttleProgress?: boolean; now?: number } = {}
+): JobResponse[] {
   const current = readStoredJobs();
   const idx = current.findIndex((item) => item.id === job.id);
+  const now = options.now ?? Date.now();
+  if (
+    options.throttleProgress &&
+    idx >= 0 &&
+    current[idx].status === job.status &&
+    ACTIVE_LOCAL_STATUSES.has(job.status) &&
+    now - (lastProgressWriteAt.get(job.id) ?? 0) < PROGRESS_PERSIST_INTERVAL_MS
+  ) {
+    current[idx] = { ...current[idx], ...job };
+    return current;
+  }
   if (idx >= 0) {
     current[idx] = { ...current[idx], ...job };
   } else {
     current.unshift(job);
   }
   writeStoredJobs(current);
+  if (ACTIVE_LOCAL_STATUSES.has(job.status)) {
+    lastProgressWriteAt.set(job.id, now);
+  } else {
+    lastProgressWriteAt.delete(job.id);
+  }
   return current;
 }
 
