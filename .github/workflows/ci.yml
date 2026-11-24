@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # Any base branch, so stacked PRs (base = another feature branch) are also validated.
   pull_request:
-    branches: [main]
 
 jobs:
   frontend-build-and-test:
