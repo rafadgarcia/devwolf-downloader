@@ -156,7 +156,7 @@ export interface DevwolfNativePlugin {
   readClipboard(): Promise<{ text: string | null }>;
   setClipboardBubbleEnabled(opts: { enabled: boolean }): Promise<{ enabled: boolean }>;
   getClipboardBubbleStatus(): Promise<{ enabled: boolean; permissionGranted: boolean }>;
-  pickWhatsAppStatusesFolder(): Promise<{ cancelled: boolean; items: WhatsAppStatusItem[] }>;
+  pickWhatsAppStatusesFolder(opts: { defaultLocation?: boolean }): Promise<{ cancelled: boolean; items: WhatsAppStatusItem[] }>;
   importWhatsAppStatus(opts: { uri: string; mimeType: string }): Promise<{ mediaUri: string; fileName: string }>;
   getPendingShareIntent(): Promise<{ intent: ShareIntentPayload | null }>;
   clearPendingShareIntent(opts: { id: string }): Promise<void>;
@@ -314,9 +314,9 @@ export const nativeBridge = {
     return DevwolfNative.getClipboardBubbleStatus();
   },
 
-  async pickWhatsAppStatusesFolder(): Promise<{ cancelled: boolean; items: WhatsAppStatusItem[] }> {
+  async pickWhatsAppStatusesFolder(defaultLocation = false): Promise<{ cancelled: boolean; items: WhatsAppStatusItem[] }> {
     if (!isNativeAndroid()) throw new Error('Importação de Status disponível no Android.');
-    return DevwolfNative.pickWhatsAppStatusesFolder();
+    return DevwolfNative.pickWhatsAppStatusesFolder({ defaultLocation });
   },
 
   async importWhatsAppStatus(uri: string, mimeType: string): Promise<{ mediaUri: string; fileName: string }> {

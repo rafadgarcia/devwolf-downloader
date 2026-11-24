@@ -181,8 +181,17 @@ class DevwolfNativePlugin : Plugin() {
     fun pickWhatsAppStatusesFolder(call: PluginCall) {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-            // The WhatsApp media directory is app-specific and varies across installs.
-            // Let the user choose it through SAF instead of constructing a brittle URI.
+            // This is only a starting location hint. SAF still requires an explicit user selection
+            // and grant; providers/devices that cannot resolve it may open their normal location.
+            if (call.getBoolean("defaultLocation", false) == true && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                putExtra(
+                    DocumentsContract.EXTRA_INITIAL_URI,
+                    DocumentsContract.buildDocumentUri(
+                        "com.android.externalstorage.documents",
+                        "primary:Android/media/com.whatsapp/WhatsApp/Media/.Statuses",
+                    ),
+                )
+            }
         }
         startActivityForResult(call, intent, "handleWhatsAppStatusesFolder")
     }

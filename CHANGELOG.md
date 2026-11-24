@@ -2,12 +2,17 @@
 
 Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
+## [3.0.0-rc.8] — Atalho para a Pasta Padrão de Status
+
+### Alterado
+- Importação de Status do WhatsApp agora oferece **Padrão (WhatsApp)**, que sugere ao seletor SAF `Android/media/com.whatsapp/WhatsApp/Media/.Statuses`, e **Escolher pasta** para selecionar outro local manualmente. A autorização continua sendo confirmada pelo usuário no seletor do Android.
+
 ## [3.0.0-rc.7] — Atualizações no App, Ações Rápidas e Revisão de Segurança
 
 ### Adicionado
 - **Bolha flutuante de área de transferência e Status do WhatsApp**: atalho opcional na borda da tela; a área de transferência só é lida quando o usuário toca na bolha. Importação de fotos e vídeos via seletor SAF, com acesso persistente à pasta `Statuses` e cópia para a Galeria. Detalhes em `docs/ANDROID-QUICK-ACTIONS.md`.
 - **Ajustes → Atualizações (`AppUpdateManager.kt`, `AppUpdatesSection.tsx`, `DevwolfNativePlugin.kt`, `nativeBridge.ts`)**:
-  - Compara a versão instalada com o release mais recente do GitHub (SemVer, `3.0.0-rc.6 < 3.0.0-rc.7 < 3.0.0`), com a opção **Incluir versões de teste** (pre-release, ligada por padrão) e verificação automática ao abrir a seção (no máximo a cada 6 h).
+  - Compara a versão instalada com o release mais recente do GitHub (SemVer), com a opção **Incluir versões de teste** (pre-release, ligada por padrão) e verificação automática ao abrir a seção (no máximo a cada 6 h).
   - **Baixar e instalar**: baixa o APK da ABI do aparelho (fallback universal) com progresso e cancelamento, confere SHA-256, pacote e assinatura e abre o instalador do Android.
   - Se a permissão **Instalar apps desconhecidos** ainda não foi concedida, abre a tela de permissão e retoma a instalação ao voltar ao app; o APK baixado fica guardado para **Instalar** de novo sem baixar outra vez (ou **Excluir APK**). APKs já instalados/obsoletos são removidos ao abrir o app.
   - Permissão `REQUEST_INSTALL_PACKAGES` no `AndroidManifest.xml`.

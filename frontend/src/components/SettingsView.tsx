@@ -95,6 +95,7 @@ export function SettingsView({
   const [bubbleStatus, setBubbleStatus] = useState({ enabled: false, permissionGranted: false });
   const [statusItems, setStatusItems] = useState<import('../services/nativeBridge').WhatsAppStatusItem[]>([]);
   const [importingStatus, setImportingStatus] = useState<string | null>(null);
+  const [choosingStatusFolder, setChoosingStatusFolder] = useState(false);
 
   const loadSessions = useCallback(async () => {
     if (!isNativeAndroid) return;
@@ -155,15 +156,17 @@ export function SettingsView({
     if (isNativeAndroid) void nativeBridge.getClipboardBubbleStatus().then(setBubbleStatus).catch(() => undefined);
   }, [isNativeAndroid]);
 
-  const chooseWhatsAppStatuses = async () => {
+  const chooseWhatsAppStatuses = async (defaultLocation = false) => {
     setError(null); setNotice(null); setStatusItems([]);
+    setChoosingStatusFolder(true);
     try {
-      const result = await nativeBridge.pickWhatsAppStatusesFolder();
+      const result = await nativeBridge.pickWhatsAppStatusesFolder(defaultLocation);
       if (!result.cancelled) {
         setStatusItems(result.items);
-        setNotice(`${result.items.length} Status(s) disponíveis para importar.`);
+        setNotice(`${defaultLocation ? 'Pasta padrão selecionada. ' : 'Pasta selecionada. '}${result.items.length} Status disponíveis para importar.`);
       }
     } catch (err) { setError(err instanceof Error ? err.message : 'Falha ao abrir a pasta de Status.'); }
+    finally { setChoosingStatusFolder(false); }
   };
 
   const importStatus = async (item: import('../services/nativeBridge').WhatsAppStatusItem) => {
@@ -451,9 +454,17 @@ export function SettingsView({
         </div>
         <div className="border-t border-[#7C5CFF]/15 pt-3">
           <p className="text-sm font-semibold">Importar Status do WhatsApp</p>
-          <p className="mb-2 text-xs text-[#5B5482] dark:text-[#A5A1C8]">Escolha a pasta Statuses. Só Status já carregados no aparelho aparecem; fotos e vídeos são copiados à galeria.</p>
-          <button type="button" disabled={!isNativeAndroid} onClick={() => void chooseWhatsAppStatuses()}
-            className="dw-btn-primary min-h-[42px] rounded-xl px-4 text-xs font-semibold disabled:opacity-45">Escolher pasta de Status</button>
+          <p className="mb-3 text-xs text-[#5B5482] dark:text-[#A5A1C8]">Padrão tenta abrir a pasta comum do WhatsApp. O Android ainda pede que você confirme a pasta. Use Escolher pasta para outro local. Só Status já carregados no aparelho aparecem.</p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button type="button" disabled={!isNativeAndroid || choosingStatusFolder} onClick={() => void chooseWhatsAppStatuses(true)}
+              className="dw-btn-primary min-h-[48px] rounded-xl px-4 text-xs font-semibold disabled:opacity-45">
+              {choosingStatusFolder ? 'Abrindo seletor…' : 'Padrão (WhatsApp)'}
+            </button>
+            <button type="button" disabled={!isNativeAndroid || choosingStatusFolder} onClick={() => void chooseWhatsAppStatuses(false)}
+              className="min-h-[48px] rounded-xl border border-[#7C5CFF]/35 bg-[#7C5CFF]/10 px-4 text-xs font-semibold text-[#5E43F3] transition-colors hover:bg-[#7C5CFF]/15 disabled:opacity-45 dark:text-[#C8BBFF]">
+              Escolher pasta
+            </button>
+          </div>
           {statusItems.length > 0 && <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto">
             {statusItems.map((item) => <li key={item.uri} className="flex items-center justify-between gap-2 rounded-xl bg-[#7C5CFF]/10 p-2 text-xs">
               <span className="min-w-0 truncate">{item.name}</span>

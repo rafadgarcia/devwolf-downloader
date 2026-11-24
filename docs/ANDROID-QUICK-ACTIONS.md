@@ -8,7 +8,7 @@ O Android não oferece leitura silenciosa e contínua do clipboard em segundo pl
 
 ## Importar Status
 
-Abra **Configurações → Atalhos do Android → Escolher pasta de Status**. No seletor do sistema, escolha a pasta `Statuses` do WhatsApp, normalmente sob `Android/media/com.whatsapp/WhatsApp/Media/.Statuses` ou localização equivalente. O caminho varia por instalação, versão do Android, fabricante e WhatsApp; o app não fixa um caminho. A permissão SAF de leitura fica restrita à árvore selecionada e pode ser revogada nas configurações do Android.
+Abra **Configurações → Atalhos do Android → Importar Status do WhatsApp**. **Padrão (WhatsApp)** tenta abrir o seletor do sistema em `Android/media/com.whatsapp/WhatsApp/Media/.Statuses`, o caminho mais comum. O Android ainda exige que você confirme a pasta e conceda acesso. **Escolher pasta** abre o seletor sem sugerir localização, para outro armazenamento ou WhatsApp Business. Se o aparelho não reconhecer a localização padrão, navegue até `Statuses` manualmente. A permissão SAF de leitura fica restrita à árvore selecionada e pode ser revogada nas configurações do Android.
 
 O Devwolf lista até 200 fotos e vídeos visíveis, inclusive em subpastas. Toque **Salvar** para copiar sem recompressão para `Pictures/Devwolf Downloader` ou `Movies/Devwolf Downloader`. A origem permanece intacta. Tipos permitidos: JPEG, PNG, WebP, MP4, M4V, 3GP e WebM; limite de 500 MB por arquivo. Só são lidos arquivos já disponíveis nessa pasta; o recurso não busca status não carregados ou apagados do servidor.
 
