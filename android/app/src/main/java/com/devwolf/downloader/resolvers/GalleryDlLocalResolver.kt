@@ -247,7 +247,7 @@ class GalleryDlLocalResolver(
         )
     }
 
-    /** Returns the first candidate that answers 2xx with a `video/*` body (range probe of 1 byte). */
+    /** Returns the first candidate that answers 2xx with a `video/...` body (range probe of 1 byte). */
     private fun probeFirstPlayableMp4(candidates: List<String>, request: ResolutionRequest): String? {
         for (url in candidates.distinct()) {
             if (request.cancellationCheck()) throw ResolverException(DevwolfErrorCode.CANCELLED)
