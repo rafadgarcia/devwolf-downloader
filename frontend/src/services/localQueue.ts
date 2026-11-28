@@ -295,9 +295,11 @@ export function applyLocalProgressToJob(
   const errorCode = cleanNullableString(event.errorCode) ?? cleanNullableString(existing?.error_code);
   const rawEventError = cleanNullableString(event.error) ?? cleanNullableString(existing?.error_message);
   const errorMessage =
-    status === 'failed' || errorCode || rawEventError
-      ? getUserFacingErrorMessage(errorCode, rawEventError, platform)
-      : null;
+    event.errorMessageSpecific && cleanNullableString(event.error)
+      ? cleanNullableString(event.error)
+      : status === 'failed' || errorCode || rawEventError
+        ? getUserFacingErrorMessage(errorCode, rawEventError, platform)
+        : null;
 
   return {
     id: event.jobId,
@@ -358,9 +360,11 @@ export function snapshotToJobResponse(snapshot: LocalDownloadSnapshot): JobRespo
   const errorCode = cleanNullableString(snapshot.errorCode);
   const rawError = cleanNullableString(snapshot.error);
   const errorMessage =
-    snapshot.status === 'failed' || errorCode || rawError
-      ? getUserFacingErrorMessage(errorCode, rawError, platform)
-      : null;
+    snapshot.errorMessageSpecific && rawError
+      ? rawError
+      : snapshot.status === 'failed' || errorCode || rawError
+        ? getUserFacingErrorMessage(errorCode, rawError, platform)
+        : null;
 
   return {
     id: snapshot.jobId,

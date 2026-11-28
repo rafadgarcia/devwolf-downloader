@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Atualização do app pelo release do GitHub (Ajustes → Atualizações) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -68,6 +69,16 @@
             android:name=".DevwolfDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- Bolha flutuante do clipboard (sobreposição arrastável sobre outros apps) -->
+        <service
+            android:name=".ClipboardBubbleService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Bolha flutuante sobre outros apps para iniciar o download do link copiado" />
+        </service>
 
         <receiver
             android:name=".NotificationActionReceiver"

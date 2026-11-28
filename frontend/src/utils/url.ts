@@ -168,8 +168,7 @@ function getRouteInfo(
     }
     if (pathname.startsWith('/stories/')) {
       return {
-        label: 'Instagram Stories (experimental)',
-        experimental: true,
+        label: 'Instagram Stories (requer login)',
         localSupported: true,
       };
     }
@@ -179,6 +178,9 @@ function getRouteInfo(
     return { label: 'Threads', localSupported: true };
   }
   if (platform === 'youtube') {
+    if (pathname.startsWith('/post/') || /\/(community|posts)$/.test(pathname.replace(/\/$/, ''))) {
+      return { label: 'YouTube Post (imagens)', localSupported: true };
+    }
     if (pathname.startsWith('/shorts/')) {
       return { label: 'YouTube Shorts', localSupported: true };
     }
@@ -298,7 +300,17 @@ export function parseAndValidateUrl(rawInput: string): ParsedPlatformUrl | null 
     return null;
   }
 
-  if (matchedRule.disallowPrefixes?.some((prefix) => pathname.startsWith(prefix))) {
+  // Posts da comunidade do YouTube (`/@canal/community?lb=<id>`, `/channel/<id>/posts?lb=<id>`)
+  // são publicações com imagens, não páginas de canal.
+  const isYouTubeCommunityPost =
+    matchedRule.platform === 'youtube' &&
+    (pathname.startsWith('/post/') ||
+      (/\/(community|posts)\/?$/.test(pathname) && Boolean(parsed.searchParams.get('lb'))));
+
+  if (
+    !isYouTubeCommunityPost &&
+    matchedRule.disallowPrefixes?.some((prefix) => pathname.startsWith(prefix))
+  ) {
     return null;
   }
 

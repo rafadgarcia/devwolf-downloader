@@ -1,8 +1,15 @@
 # Atalhos Android: bolha de link e Status do WhatsApp
 
-## Bolha de clipboard
+## Bolha flutuante
 
-Ative **Configurações → Atalhos do Android → Bolha do clipboard**. O Android abre a tela de autorização de sobreposição; ao conceder, aparece a bolha roxa “DW” na lateral. Ela fica sobre outros apps enquanto o Devwolf está ativo em segundo plano. Toque nela para ler naquele momento o primeiro item do clipboard, validar um link suportado e abrir o processamento normal do Devwolf. Sem URL compatível, o app mostra um aviso.
+Ative **Configurações → Atalhos do Android → Bolha flutuante** (começa desligada). O Android abre a tela de autorização de sobreposição; ao conceder, a bolha redonda com o ícone do Devwolf passa a aparecer **sobre outros apps sempre que o Devwolf estiver em segundo plano** (ela some enquanto o app está aberto).
+
+- **Tocar**: abre o Devwolf, que lê naquele momento o primeiro item do clipboard, valida um link suportado e inicia o download. Sem URL compatível, o app mostra um aviso.
+- **Arrastar**: a bolha acompanha o dedo, encosta na borda mais próxima ao soltar e lembra a posição.
+- **Fechar**: durante o arraste aparece um **✕** na parte de baixo da tela; solte a bolha sobre ele para fechá-la até a próxima vez que abrir o Devwolf. A notificação "Bolha do Devwolf ativa" também tem a ação **Fechar bolha**.
+- **Desativar de vez**: desligue a chave em Configurações.
+
+A bolha roda como serviço em primeiro plano de baixa prioridade (`ClipboardBubbleService`, tipo `specialUse`) para o Android não encerrá-la em segundo plano; por isso existe a notificação silenciosa.
 
 O Android não oferece leitura silenciosa e contínua do clipboard em segundo plano. Por isso não há monitoramento periódico: a leitura ocorre após o toque explícito. O usuário pode revogar a autorização nas configurações do sistema ou desligar o recurso no app.
 
@@ -16,7 +23,7 @@ Para WhatsApp Business, escolha manualmente a pasta `Statuses` da instalação c
 
 ## Implementação e validação
 
-- `MainActivity` exibe/remove a bolha `TYPE_APPLICATION_OVERLAY` segundo a preferência e a autorização.
+- `ClipboardBubbleService` exibe a bolha `TYPE_APPLICATION_OVERLAY` (arrastável, com alvo de fechar) quando a `MainActivity` sai da tela e a esconde quando ela volta; a leitura do clipboard ocorre só quando a `MainActivity` recebe foco.
 - `DevwolfNativePlugin` usa o seletor SAF (`ACTION_OPEN_DOCUMENT_TREE`), valida a pasta, lista itens recursivamente, gera miniaturas limitadas a 480 px em chamadas sob demanda, copia para cache temporário e publica pela rotina MediaStore existente.
 - O resultado SAF (`JSONArray`) é serializado como JSON ao compor o `JSArray` da bridge Capacitor. A tela dedicada lista os itens e solicita cópia individual.
 - A bolha começa desligada. A árvore Status é escolhida sob demanda, sem varredura do armazenamento.

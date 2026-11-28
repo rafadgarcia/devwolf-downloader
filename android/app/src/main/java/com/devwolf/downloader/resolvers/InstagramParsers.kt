@@ -712,6 +712,82 @@ object InstagramParsers {
         )
     }
 
+    private const val SHORTCODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+    /**
+     * Converts a post/reel shortcode to its numeric media id (public base-64 encoding used by
+     * Instagram URLs). Long shortcodes (private-account links) carry the id in the first 11 chars.
+     */
+    internal fun shortcodeToMediaId(shortcode: String): String? {
+        val code = shortcode.trim().take(11)
+        if (code.isEmpty()) return null
+        var acc = java.math.BigInteger.ZERO
+        val base = java.math.BigInteger.valueOf(64)
+        for (ch in code) {
+            val v = SHORTCODE_ALPHABET.indexOf(ch)
+            if (v < 0) return null
+            acc = acc.multiply(base).add(java.math.BigInteger.valueOf(v.toLong()))
+        }
+        return acc.toString()
+    }
+
+    /** `GET /api/v1/users/web_profile_info/?username=` → numeric user id. */
+    internal fun parseWebProfileUserId(jsonText: String): String? {
+        return try {
+            JSONObject(jsonText).optJSONObject("data")?.optJSONObject("user")
+                ?.optNonNullString("id")
+                ?.takeIf { id -> id.all { it.isDigit() } }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * `GET /api/v1/feed/reels_media/?reel_ids=<userId|highlight:id>` → ordered story items.
+     * When [storyId] is given, only that story is returned (matched by `pk` or `id` prefix).
+     */
+    internal fun parseStoryReelsJson(jsonText: String, storyId: String?, fallbackName: String): InstagramParsedMedia? {
+        val root = try { JSONObject(jsonText) } catch (_: Exception) { return null }
+        val reels = mutableListOf<JSONObject>()
+        root.optJSONArray("reels_media")?.let { arr ->
+            for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { reels += it }
+        }
+        if (reels.isEmpty()) {
+            root.optJSONObject("reels")?.let { obj ->
+                val keys = obj.keys()
+                while (keys.hasNext()) obj.optJSONObject(keys.next())?.let { reels += it }
+            }
+        }
+        var author: String? = null
+        val nodes = mutableListOf<JSONObject>()
+        for (reel in reels) {
+            if (author == null) author = reel.optJSONObject("user")?.optNonNullString("username")
+            val arr = reel.optJSONArray("items") ?: continue
+            for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { nodes += it }
+        }
+        val selected = if (storyId.isNullOrBlank()) {
+            nodes
+        } else {
+            nodes.filter { n ->
+                n.optNonNullString("pk") == storyId || n.optNonNullString("id")?.substringBefore('_') == storyId
+            }
+        }
+        if (selected.isEmpty()) return null
+        val name = "story_" + (author ?: fallbackName).replace(Regex("""[^A-Za-z0-9_.-]"""), "_")
+        val items = mutableListOf<ResolvedMediaItem>()
+        for (node in selected) {
+            extractSingleXdtItem(node, name, items.size + 1)?.let { items += it }
+        }
+        if (items.isEmpty()) return null
+        return InstagramParsedMedia(
+            shortcode = storyId ?: name,
+            mediaId = storyId,
+            title = author?.let { "Story de @$it" },
+            author = author,
+            items = items,
+        )
+    }
+
     /**
      * Sorts `video_versions` or `image_versions2.candidates` by pixel area (`width * height`) descending
      * and returns `(url, width, height)` for the highest-resolution candidate.

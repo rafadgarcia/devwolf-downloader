@@ -66,6 +66,23 @@ class DevwolfDownloadService : Service() {
 
         private const val META_PREFIX = "DEVWOLF_META:"
 
+        internal const val INSTAGRAM_PHOTO_NEEDS_SESSION_MESSAGE =
+            "Não foi possível ler este post do Instagram sem login (fotos e carrosséis não passam pelo yt-dlp). " +
+                "Conecte sua conta em Ajustes → Contas e Sessões e tente novamente."
+
+        /**
+         * A message is "specific" when a resolver wrote a curated pt-BR text instead of the default
+         * for its code. Raw extractor text (EXTRACTION_FAILED / no code) is never flagged.
+         */
+        internal fun isSpecificUserMessage(error: String?, errorCode: String?, platform: String): Boolean {
+            if (error.isNullOrBlank() || errorCode.isNullOrBlank()) return false
+            val code = runCatching { DevwolfErrorCode.valueOf(errorCode) }.getOrNull() ?: return false
+            if (code == DevwolfErrorCode.EXTRACTION_FAILED) return false
+            if (error == code.defaultMessagePtBr) return false
+            if (code == DevwolfErrorCode.AUTH_REQUIRED && error == ErrorClassifier.authRequiredMessageForPlatform(platform)) return false
+            return true
+        }
+
         /** Maximum number of jobs executing simultaneously; extra jobs wait as `queued`. */
         const val MAX_CONCURRENT_DOWNLOADS = 2
 
@@ -514,7 +531,7 @@ class DevwolfDownloadService : Service() {
         publishSnapshot(currentSnapshot)
 
         try {
-            val plan = EngineRouter.shared.route(rawUrl)
+            val plan = EngineRouter.shared.route(rawUrl, format)
             currentPlatform = plan.platform
             val targetUrl = plan.normalizedUrl
             val enginesToTry = listOf(plan.primaryEngine) + plan.fallbackEngines
@@ -1187,10 +1204,13 @@ class DevwolfDownloadService : Service() {
             val httpStatus = parseHttpStatusFromYtdlpError(rawErr)
             val exitCode = parseExitCodeFromYtdlpError(rawErr)
             val (code, classifiedMsg) = ErrorClassifier.fromYtdlpOutput(rawErr)
-            val userMsg = if (code == DevwolfErrorCode.AUTH_REQUIRED) {
-                ErrorClassifier.authRequiredMessageForPlatform(platform)
-            } else {
-                classifiedMsg
+            val userMsg = when {
+                code == DevwolfErrorCode.AUTH_REQUIRED -> ErrorClassifier.authRequiredMessageForPlatform(platform)
+                // yt-dlp only extracts Instagram videos: a photo/carousel post ends here when the
+                // native resolver could not read it anonymously.
+                code == DevwolfErrorCode.UNSUPPORTED_MEDIA && platform.equals("instagram", ignoreCase = true) ->
+                    INSTAGRAM_PHOTO_NEEDS_SESSION_MESSAGE
+                else -> classifiedMsg
             }
             throw YtdlpFailureException(
                 resolverException = ResolverException(
@@ -1594,6 +1614,9 @@ class DevwolfDownloadService : Service() {
             put("platform", platform)
             put("error", error ?: JSONObject.NULL)
             put("errorCode", errorCode ?: JSONObject.NULL)
+            // Tells the UI that `error` is a curated pt-BR message (e.g. "story expirou") that should
+            // be shown instead of the generic text for the error code.
+            put("errorMessageSpecific", isSpecificUserMessage(error, errorCode, platform))
             put("technicalReason", technicalReason ?: JSONObject.NULL)
             put("thumbnailDataUrl", thumbnailDataUrl ?: JSONObject.NULL)
             if (files != null) {

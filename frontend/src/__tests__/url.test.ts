@@ -131,8 +131,21 @@ describe('parseAndValidateUrl & normalizeUrl (100% Local)', () => {
     expect(parseAndValidateUrl('http://169.254.169.254/latest/meta-data')).toBeNull();
     expect(parseAndValidateUrl('https://youtube.com/playlist?list=PL123')).toBeNull();
     expect(parseAndValidateUrl('https://youtube.com/@canal')).toBeNull();
+    expect(parseAndValidateUrl('https://youtube.com/@canal/community')).toBeNull();
     expect(parseAndValidateUrl('https://example.com/video.mp4')).toBeNull();
     expect(parseAndValidateUrl('javascript:alert(1)')).toBeNull();
+  });
+
+  it('aceita posts da comunidade do YouTube (imagens)', () => {
+    const post = parseAndValidateUrl('https://www.youtube.com/post/UgkxT0Mc6a678mZ4nNjaxdB9WpTWuj09btZe');
+    expect(post?.platform).toBe('youtube');
+    expect(post?.routeLabel).toBe('YouTube Post (imagens)');
+    const lb = parseAndValidateUrl(
+      'https://www.youtube.com/@YouTube/community?lb=UgkxT0Mc6a678mZ4nNjaxdB9WpTWuj09btZe'
+    );
+    expect(lb?.platform).toBe('youtube');
+    expect(lb?.routeLabel).toBe('YouTube Post (imagens)');
+    expect(lb?.normalizedUrl).toContain('lb=UgkxT0Mc6a678mZ4nNjaxdB9WpTWuj09btZe');
   });
 });
 

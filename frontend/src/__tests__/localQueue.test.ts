@@ -14,6 +14,38 @@ import {
   upsertLocalJob,
 } from '../services/localQueue';
 
+describe('mensagens de erro específicas do nativo', () => {
+  const base = {
+    jobId: 'story-1',
+    url: 'https://www.instagram.com/stories/alice/3002/',
+    format: 'auto',
+    quality: 'best',
+    statusMode: false,
+    status: 'failed' as const,
+    phaseLabel: 'Falhou',
+    engine: 'dnr',
+    platform: 'instagram',
+    bytesDownloaded: 0,
+    totalBytes: null,
+    percent: null,
+    isIndeterminate: false,
+    speedBytesPerSec: null,
+    etaSeconds: null,
+    errorCode: 'MEDIA_UNAVAILABLE',
+    error: 'Este story expirou ou não está mais disponível (stories duram 24 h).',
+  };
+
+  it('mostra a mensagem curada quando o nativo marca errorMessageSpecific', () => {
+    const job = snapshotToJobResponse({ ...base, errorMessageSpecific: true });
+    expect(job.error_message).toBe('Este story expirou ou não está mais disponível (stories duram 24 h).');
+  });
+
+  it('mantém a mensagem padrão do código quando não é específica', () => {
+    const job = snapshotToJobResponse({ ...base, errorMessageSpecific: false });
+    expect(job.error_message).toBe('Publicação removida, indisponível ou link expirado.');
+  });
+});
+
 describe('upsertLocalJob throttle de progresso', () => {
   beforeEach(() => {
     window.localStorage.clear();

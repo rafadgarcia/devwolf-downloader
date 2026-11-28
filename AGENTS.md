@@ -21,7 +21,7 @@ Normas permanentes de desenvolvimento, propriedade de arquivos, contratos entre 
 - **`@android-performance`**:
   - `android/app/build.gradle`, `android/build.gradle`, `android/gradle.properties`, `android/app/proguard-rules.pro`
   - `android/app/src/main/AndroidManifest.xml`
-  - `DevwolfDownloadService.kt`, `DevwolfNativePlugin.kt`, `LocalEngineManager.kt`, `LocalQueueStore.kt`, `MediaStoreHelper.kt`, `StatusModeProcessor.kt`, `PerformanceTracker.kt`, `AppUpdateManager.kt`
+  - `DevwolfDownloadService.kt`, `DevwolfNativePlugin.kt`, `ClipboardBubbleService.kt`, `MainActivity.kt`, `LocalEngineManager.kt`, `LocalQueueStore.kt`, `MediaStoreHelper.kt`, `StatusModeProcessor.kt`, `PerformanceTracker.kt`, `AppUpdateManager.kt`
   - `StatusModeProcessorTest.kt`, `PerformanceAndErrorContractTest.kt`, `AppUpdateManagerTest.kt`
   - `.github/workflows/ci.yml`, `AGENTS.md`, `TASKS.md`, `DECISIONS.md`, `CHANGELOG.md`, `README.md`, `graphify-out/**`
 - **`@frontend-integration`**:
@@ -33,6 +33,7 @@ Normas permanentes de desenvolvimento, propriedade de arquivos, contratos entre 
 - **Instagram** (`/reel/`, `/reels/`, `/p/`, `/tv/`, `/stories/`, `/share/`): `DNR` primário (`EmbedCaptionedStrategy` -> `WebPageJsonStrategy` -> `AuthorizedWebApiStrategy`) -> fallback `yt-dlp` somente em erros recuperáveis.
 - **Pinterest** / **Reddit**: resolvedor local Kotlin (`GalleryDlLocalResolver`) -> fallback `yt-dlp` (ex.: DASH `v.redd.it`).
 - **YouTube / Shorts**, **TikTok**, **Facebook**, **Twitter/X**: `yt-dlp` em passo único (`--no-simulate --no-warnings --print before_dl:...`) com fallback para resolvedor local de imagens no Twitter/X.
+- **YouTube — imagens**: posts da comunidade (`/post/<id>`, `.../community?lb=<id>`) e links de vídeo com formato `image` (miniatura `maxresdefault` → `sddefault` → `hqdefault`) vão direto ao resolvedor local (`GALLERY_DL_LOCAL`), sem fallback (o `yt-dlp` só extrai vídeo). Imagens `yt3.ggpht.com` são pedidas em tamanho original (`=s0`) e o tipo real (JPEG/PNG/WebP/GIF) vem do `Content-Type`.
 - **Threads**: `ThreadsNativeResolver` (DNR) -> fallback `yt-dlp` somente em erros recuperáveis.
 - **Inicialização preguiçosa (`lazy`)**: `YoutubeDL`/Python e `FFmpeg` nunca são inicializados em jobs resolvidos pelo DNR ou resolvedores locais (exceto `FFmpeg` sob demanda se Modo Status estiver ativo para vídeo).
 - A tabela `PLATFORM_ROUTING_TABLE` (`frontend/src/services/hybridOrchestrator.ts`) deve espelhar exatamente `EngineRouter.CAPABILITY_TABLE`.
@@ -62,7 +63,8 @@ Normas permanentes de desenvolvimento, propriedade de arquivos, contratos entre 
 ## 4. Invariantes de Segurança
 - **SSRF**: validar `http`/`https`, proibir credenciais embutidas, IPs literais (IPv4/IPv6/hex/octal/inteiro), loopback, RFC1918, CGNAT, link-local (`169.254.0.0/16`), faixas de documentação/benchmark, IPv6 ULA e IPv4 embutido em IPv6 (mapeado, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`), e validar DNS público em cada salto de redirect (máx. 5 saltos). Limitação conhecida: requisições internas do `yt-dlp` não passam por essa validação.
 - **Somente HTTPS**: `usesCleartextTraffic="false"` + `network_security_config.xml`; o `SafeHttpClient` promove `http://` para `https://` antes de cada salto.
-- **Componentes exportados**: apenas `MainActivity` (launcher + `ACTION_SEND`). `InstagramSessionActivity` não é exportada.
+- **Componentes exportados**: apenas `MainActivity` (launcher + `ACTION_SEND`). `InstagramSessionActivity` e `ClipboardBubbleService` não são exportados.
+- **Bolha flutuante**: `ClipboardBubbleService` (FGS `specialUse`) só aparece com o app em segundo plano e nunca lê o clipboard por conta própria; o toque abre a `MainActivity`, que lê o clipboard ao receber foco (regra do Android 10+).
 - **Assinatura**: release só é assinado com keystore própria (`RELEASE_STORE_FILE` ...) ou com opt-in explícito da chave de debug (`DEVWOLF_ALLOW_DEBUG_SIGNING=true` / `-PallowDebugSigning=true`); caso contrário o build de release falha.
 - **Sessão e Cookies**: cookies armazenados apenas em `EncryptedSharedPreferences` + Android Keystore; enviados estritamente ao host de origem (nunca a CDNs terceiros ou logs); logout via WebView apaga `CookieManager`, `WebStorage` e cofre.
 - **Execução segura**: subprocessos (`ffmpeg`/`ffprobe`) sempre via lista de argumentos (`ProcessBuilder`, sem shell); arquivos temporários isolados em `cacheDir/jobs/<jobId>` e removidos no `finally`.

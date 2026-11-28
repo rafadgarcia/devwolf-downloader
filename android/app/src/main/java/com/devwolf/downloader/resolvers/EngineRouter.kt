@@ -39,7 +39,11 @@ class EngineRouter(
     private val threadsResolver: ThreadsNativeResolver = ThreadsNativeResolver(),
 ) {
 
-    fun route(rawUrl: String): EngineRoutePlan {
+    /**
+     * @param format requested format (`auto`/`video`/`audio`/`image`). YouTube community posts
+     *   always resolve locally (images); YouTube video links with `image` download the thumbnail.
+     */
+    fun route(rawUrl: String, format: String = "auto"): EngineRoutePlan {
         if (!UrlExtractor.isSafePublicHttpUrl(rawUrl)) {
             throw ResolverException(
                 errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
@@ -54,6 +58,19 @@ class EngineRouter(
                 errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
                 userMessage = "Plataforma não suportada pelo Devwolf Downloader.",
                 technicalReason = "Unknown platform host",
+            )
+        }
+
+        // yt-dlp only extracts YouTube videos: community-post images and thumbnails are local.
+        if (platform == "youtube" &&
+            (GalleryDlLocalResolver.isYouTubeCommunityPost(rawUrl) || format.equals("image", ignoreCase = true))
+        ) {
+            return EngineRoutePlan(
+                platform = platform,
+                normalizedUrl = normalized,
+                primaryEngine = EngineKind.GALLERY_DL_LOCAL,
+                fallbackEngines = emptyList(),
+                shouldInitializeYtdlpUpfront = false,
             )
         }
 
@@ -198,7 +215,7 @@ class EngineRouter(
                 platform = "youtube",
                 primaryEngine = EngineKind.YT_DLP,
                 fallbackEngines = emptyList(),
-                summaryPtBr = "YouTube / Shorts -> yt-dlp",
+                summaryPtBr = "YouTube / Shorts -> yt-dlp (imagens de posts e miniaturas: local)",
             ),
             PlatformRouteCapability(
                 platform = "tiktok",
