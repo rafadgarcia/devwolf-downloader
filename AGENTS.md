@@ -33,6 +33,7 @@ Normas permanentes de desenvolvimento, propriedade de arquivos, contratos entre 
 - **Instagram** (`/reel/`, `/reels/`, `/p/`, `/tv/`, `/stories/`, `/share/`): `DNR` primário (`EmbedCaptionedStrategy` -> `WebPageJsonStrategy` -> `AuthorizedWebApiStrategy`) -> fallback `yt-dlp` somente em erros recuperáveis.
 - **Pinterest** / **Reddit**: resolvedor local Kotlin (`GalleryDlLocalResolver`) -> fallback `yt-dlp` (ex.: DASH `v.redd.it`).
 - **YouTube / Shorts**, **TikTok**, **Facebook**, **Twitter/X**: `yt-dlp` em passo único (`--no-simulate --no-warnings --print before_dl:...`) com fallback para resolvedor local de imagens no Twitter/X.
+- **YouTube — imagens**: posts da comunidade (`/post/<id>`, `.../community?lb=<id>`) e links de vídeo com formato `image` (miniatura `maxresdefault` → `sddefault` → `hqdefault`) vão direto ao resolvedor local (`GALLERY_DL_LOCAL`), sem fallback (o `yt-dlp` só extrai vídeo). Imagens `yt3.ggpht.com` são pedidas em tamanho original (`=s0`) e o tipo real (JPEG/PNG/WebP/GIF) vem do `Content-Type`.
 - **Threads**: `ThreadsNativeResolver` (DNR) -> fallback `yt-dlp` somente em erros recuperáveis.
 - **Inicialização preguiçosa (`lazy`)**: `YoutubeDL`/Python e `FFmpeg` nunca são inicializados em jobs resolvidos pelo DNR ou resolvedores locais (exceto `FFmpeg` sob demanda se Modo Status estiver ativo para vídeo).
 - A tabela `PLATFORM_ROUTING_TABLE` (`frontend/src/services/hybridOrchestrator.ts`) deve espelhar exatamente `EngineRouter.CAPABILITY_TABLE`.

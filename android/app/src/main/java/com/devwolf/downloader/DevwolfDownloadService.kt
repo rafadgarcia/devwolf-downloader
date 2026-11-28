@@ -531,7 +531,7 @@ class DevwolfDownloadService : Service() {
         publishSnapshot(currentSnapshot)
 
         try {
-            val plan = EngineRouter.shared.route(rawUrl)
+            val plan = EngineRouter.shared.route(rawUrl, format)
             currentPlatform = plan.platform
             val targetUrl = plan.normalizedUrl
             val enginesToTry = listOf(plan.primaryEngine) + plan.fallbackEngines

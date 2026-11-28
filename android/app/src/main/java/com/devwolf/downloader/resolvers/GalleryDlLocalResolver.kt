@@ -25,6 +25,9 @@ internal sealed class PinterestApiMedia {
 
 internal data class PinterestApiParse(val title: String?, val media: List<PinterestApiMedia>)
 
+/** Images (original resolution) and text of a YouTube community post. */
+internal data class YouTubePost(val postId: String, val text: String?, val imageUrls: List<String>)
+
 /**
  * Local zero-bloat resolver for image platforms and galleries (Pinterest, Reddit galleries/images,
  * and Twitter/X image fallback), avoiding a duplicate Python runtime while preserving exact
@@ -36,6 +39,7 @@ class GalleryDlLocalResolver(
     private val redditBaseUrl: String? = null,
     private val twitterSyndicationBaseUrl: String = "https://cdn.syndication.twimg.com",
     private val oauthRedditBaseUrl: String? = null,
+    private val youtubeBaseUrl: String? = null,
 ) : MediaResolver {
 
     override val engineKind: EngineKind = EngineKind.GALLERY_DL_LOCAL
@@ -43,7 +47,7 @@ class GalleryDlLocalResolver(
     override val engineVersion: String = "3.0.0-native"
 
     override fun supports(url: String, platform: String): Boolean {
-        return platform in setOf("pinterest", "reddit", "twitter") && UrlExtractor.isSafePublicHttpUrl(url)
+        return platform in setOf("pinterest", "reddit", "twitter", "youtube") && UrlExtractor.isSafePublicHttpUrl(url)
     }
 
     override fun resolve(request: ResolutionRequest): ResolutionResult {
@@ -53,6 +57,7 @@ class GalleryDlLocalResolver(
             "pinterest" -> resolvePinterest(request, startMs)
             "reddit" -> resolveReddit(request, startMs)
             "twitter" -> resolveTwitterImages(request, startMs)
+            "youtube" -> resolveYouTubeImages(request, startMs)
             else -> throw ResolverException(
                 errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
                 technicalReason = "Plataforma $platform não suportada pelo resolvedor local de imagens",
@@ -245,6 +250,144 @@ class GalleryDlLocalResolver(
                 httpRequestCount = resp.httpRequests,
             ),
         )
+    }
+
+    /**
+     * YouTube images (yt-dlp only handles videos):
+     * - community posts (`/post/<id>`, `.../community?lb=<id>`): every attached image at original
+     *   resolution (`yt3.ggpht.com/...=s0`), in order;
+     * - video links with format "image": the highest available thumbnail.
+     * The real image type is read from the response so files get the right extension (GIF/WebP/PNG/JPEG).
+     */
+    private fun resolveYouTubeImages(request: ResolutionRequest, startMs: Long): ResolutionResult {
+        var totalReqs = 0
+        val headers = mapOf(
+            "User-Agent" to SafeHttpClient.DEFAULT_DESKTOP_CHROME_UA,
+            "Accept-Language" to "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+            // Consent cookie that only declines optional tracking, so EU consent walls are skipped.
+            "Cookie" to "SOCS=CAI",
+        )
+        fun metrics() = ResolutionMetrics(System.currentTimeMillis() - startMs, totalReqs)
+        try {
+            val postId = extractYouTubePostId(request.url)
+            val urls: List<String>
+            val title: String?
+            val shortcode: String
+            val strategy: String
+            if (postId != null) {
+                val base = (youtubeBaseUrl ?: "https://www.youtube.com").trimEnd('/')
+                val resp = httpClient.getText("$base/post/$postId", headers, cancellationCheck = request.cancellationCheck)
+                totalReqs += resp.httpRequests
+                if (resp.statusCode == 404) {
+                    throw ResolverException(DevwolfErrorCode.MEDIA_UNAVAILABLE, httpStatus = 404, metrics = metrics())
+                }
+                if (resp.statusCode == 429) {
+                    throw ResolverException(DevwolfErrorCode.RATE_LIMITED, httpStatus = 429, metrics = metrics())
+                }
+                val post = parseYouTubePost(resp.body, postId)
+                    ?: throw ResolverException(
+                        errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
+                        technicalReason = "YouTube post sem ytInitialData/backstagePostRenderer (HTTP ${resp.statusCode})",
+                        httpStatus = resp.statusCode,
+                        metrics = metrics(),
+                    )
+                if (post.imageUrls.isEmpty()) {
+                    throw ResolverException(
+                        errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
+                        userMessage = "Esta publicação do YouTube não tem imagens para baixar.",
+                        technicalReason = "YouTube post without image attachments",
+                        metrics = metrics(),
+                    )
+                }
+                urls = post.imageUrls
+                title = post.text
+                shortcode = postId
+                strategy = "YouTubeCommunityPostImages"
+            } else {
+                val videoId = extractYouTubeVideoId(request.url)
+                    ?: throw ResolverException(
+                        errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
+                        userMessage = "Link do YouTube sem vídeo ou publicação reconhecível.",
+                        technicalReason = "No YouTube video id or post id",
+                        metrics = metrics(),
+                    )
+                val thumb = youTubeThumbnailCandidates(videoId).firstOrNull { probeImage(it, request) != null }
+                    ?: throw ResolverException(
+                        errorCode = DevwolfErrorCode.MEDIA_UNAVAILABLE,
+                        technicalReason = "No YouTube thumbnail available for $videoId",
+                        metrics = metrics(),
+                    )
+                urls = listOf(thumb)
+                title = null
+                shortcode = videoId
+                strategy = "YouTubeThumbnail"
+            }
+
+            val items = urls.mapIndexed { i, url ->
+                val index = i + 1
+                val mime = probeImage(url, request) ?: InstagramParsers.guessImageMime(url)
+                val ext = when (mime) {
+                    "image/png" -> "png"
+                    "image/webp" -> "webp"
+                    "image/gif" -> "gif"
+                    else -> "jpg"
+                }
+                ResolvedMediaItem(
+                    index = index,
+                    id = "${shortcode}_$index",
+                    type = MediaItemType.IMAGE,
+                    url = url,
+                    fileName = "youtube_${shortcode.take(40)}_%02d.$ext".format(index),
+                    mimeType = mime,
+                    headers = mapOf("Referer" to "https://www.youtube.com/"),
+                )
+            }
+            totalReqs += items.size
+            return ResolutionResult(
+                platform = "youtube",
+                shortcode = shortcode,
+                title = title?.take(120),
+                engineUsed = "gallery-dl",
+                engineVersion = "3.0.0-native",
+                strategyUsed = strategy,
+                items = items,
+                metrics = ResolutionMetrics(
+                    resolutionMs = System.currentTimeMillis() - startMs,
+                    httpRequestCount = totalReqs,
+                    strategyAttempts = listOf(
+                        StrategyAttemptMetric(strategy, System.currentTimeMillis() - startMs, totalReqs, true),
+                    ),
+                ),
+            )
+        } catch (e: ResolverException) {
+            throw e
+        } catch (e: IOException) {
+            throw ResolverException(
+                errorCode = DevwolfErrorCode.NETWORK_ERROR,
+                technicalReason = "YouTube IO: ${e.message}",
+                metrics = metrics(),
+                cause = e,
+            )
+        }
+    }
+
+    /** Returns the `image/...` content type of [url] (1-byte range probe), or null when not an image. */
+    private fun probeImage(url: String, request: ResolutionRequest): String? {
+        return try {
+            httpClient.executeStreamingGet(
+                url = url,
+                headers = mapOf("User-Agent" to SafeHttpClient.DEFAULT_DESKTOP_CHROME_UA, "Range" to "bytes=0-0"),
+                cancellationCheck = request.cancellationCheck,
+            ) { response, _, _, _ ->
+                val type = response.header("Content-Type").orEmpty().substringBefore(';').trim().lowercase()
+                type.takeIf { response.code in 200..299 && it.startsWith("image/") }
+            }
+        } catch (e: ResolverException) {
+            if (e.errorCode == DevwolfErrorCode.CANCELLED) throw e
+            null
+        } catch (_: IOException) {
+            null
+        }
     }
 
     /** Returns the first candidate that answers 2xx with a `video/...` body (range probe of 1 byte). */
@@ -907,6 +1050,128 @@ class GalleryDlLocalResolver(
                     else -> 240
                 }
             }
+        }
+
+        // ---- YouTube images (unit-tested pure helpers) ---------------------------------------
+
+        private val YT_POST_PATH_REGEX = Regex("""/post/([A-Za-z0-9_-]{10,})""")
+        private val YT_LB_PARAM_REGEX = Regex("""[?&]lb=([A-Za-z0-9_-]{10,})""")
+        private val YT_VIDEO_ID_REGEX = Regex(
+            """(?:[?&]v=|youtu\.be/|/shorts/|/live/|/embed/|/v/)([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])""",
+        )
+
+        /** Community post id from `/post/<id>` or `.../community?lb=<id>` URLs. */
+        fun extractYouTubePostId(url: String): String? {
+            YT_POST_PATH_REGEX.find(url)?.let { return it.groupValues[1] }
+            if (url.contains("/community", ignoreCase = true) || url.contains("/posts", ignoreCase = true)) {
+                YT_LB_PARAM_REGEX.find(url)?.let { return it.groupValues[1] }
+            }
+            return null
+        }
+
+        fun isYouTubeCommunityPost(url: String): Boolean = extractYouTubePostId(url) != null
+
+        fun extractYouTubeVideoId(url: String): String? = YT_VIDEO_ID_REGEX.find(url)?.groupValues?.get(1)
+
+        fun youTubeThumbnailCandidates(videoId: String): List<String> = listOf(
+            "https://i.ytimg.com/vi/$videoId/maxresdefault.jpg",
+            "https://i.ytimg.com/vi/$videoId/sddefault.jpg",
+            "https://i.ytimg.com/vi/$videoId/hqdefault.jpg",
+        )
+
+        /** `yt3.ggpht.com/<key>=s1080-c-...` → `=s0` (original size and format, including GIF). */
+        fun toOriginalGgphtUrl(url: String): String {
+            val clean = url.trim().let { if (it.startsWith("//")) "https:$it" else it }
+            if (!clean.contains("ggpht.com/", ignoreCase = true) && !clean.contains("googleusercontent.com/", ignoreCase = true)) {
+                return clean
+            }
+            val eq = clean.lastIndexOf('=')
+            val slash = clean.lastIndexOf('/')
+            return if (eq > slash) clean.substring(0, eq) + "=s0" else "$clean=s0"
+        }
+
+        private fun extractJsonAssignment(html: String, marker: String): JSONObject? {
+            val start = html.indexOf(marker)
+            if (start < 0) return null
+            val braceStart = html.indexOf('{', start + marker.length)
+            if (braceStart < 0) return null
+            var depth = 0
+            var inString = false
+            var escaped = false
+            for (i in braceStart until html.length) {
+                val c = html[i]
+                if (inString) {
+                    when {
+                        escaped -> escaped = false
+                        c == '\\' -> escaped = true
+                        c == '"' -> inString = false
+                    }
+                    continue
+                }
+                when (c) {
+                    '"' -> inString = true
+                    '{' -> depth++
+                    '}' -> {
+                        depth--
+                        if (depth == 0) {
+                            return try { JSONObject(html.substring(braceStart, i + 1)) } catch (_: Exception) { null }
+                        }
+                    }
+                }
+            }
+            return null
+        }
+
+        private fun findBackstagePost(node: Any?, postId: String, depth: Int = 0): JSONObject? {
+            if (node == null || depth > 60) return null
+            when (node) {
+                is JSONObject -> {
+                    node.optJSONObject("backstagePostRenderer")?.let { r ->
+                        if (r.optString("postId") == postId) return r
+                    }
+                    val keys = node.keys()
+                    while (keys.hasNext()) findBackstagePost(node.opt(keys.next()), postId, depth + 1)?.let { return it }
+                }
+                is JSONArray -> for (i in 0 until node.length()) findBackstagePost(node.opt(i), postId, depth + 1)?.let { return it }
+            }
+            return null
+        }
+
+        private fun largestThumbnail(imageRenderer: JSONObject?): String? {
+            val thumbs = imageRenderer?.optJSONObject("image")?.optJSONArray("thumbnails") ?: return null
+            var best: String? = null
+            var bestArea = -1L
+            for (i in 0 until thumbs.length()) {
+                val t = thumbs.optJSONObject(i) ?: continue
+                val url = t.optString("url").takeIf { it.isNotBlank() } ?: continue
+                val area = t.optLong("width") * t.optLong("height")
+                if (area >= bestArea) {
+                    bestArea = area
+                    best = url
+                }
+            }
+            return best
+        }
+
+        /** Parses `ytInitialData` of `/post/<id>` into ordered original-resolution image URLs. */
+        internal fun parseYouTubePost(html: String, postId: String): YouTubePost? {
+            val data = extractJsonAssignment(html, "var ytInitialData =")
+                ?: extractJsonAssignment(html, "window[\"ytInitialData\"] =")
+                ?: extractJsonAssignment(html, "ytInitialData")
+                ?: return null
+            val post = findBackstagePost(data, postId) ?: return null
+            val text = post.optJSONObject("contentText")?.optJSONArray("runs")?.let { runs ->
+                (0 until runs.length()).joinToString("") { runs.optJSONObject(it)?.optString("text").orEmpty() }
+            }?.trim()?.takeIf { it.isNotBlank() }
+            val attachment = post.optJSONObject("backstageAttachment")
+            val images = mutableListOf<String>()
+            largestThumbnail(attachment?.optJSONObject("backstageImageRenderer"))?.let { images += it }
+            attachment?.optJSONObject("postMultiImageRenderer")?.optJSONArray("images")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    largestThumbnail(arr.optJSONObject(i)?.optJSONObject("backstageImageRenderer"))?.let { images += it }
+                }
+            }
+            return YouTubePost(postId, text, images.map { toOriginalGgphtUrl(it) }.distinct())
         }
 
         // ---- Pinterest PinResource API (unit-tested pure helpers) ---------------------------

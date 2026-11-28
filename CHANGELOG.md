@@ -4,6 +4,9 @@ Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
 ## [Não lançado] — Bolha flutuante, vídeo do Pinterest e Stories/fotos do Instagram
 
+### Adicionado
+- **Imagens do YouTube (`GalleryDlLocalResolver.kt`, `EngineRouter.kt`, `url.ts`)**: posts da comunidade (`youtube.com/post/<id>` e `.../community?lb=<id>`) baixam todas as imagens anexadas em resolução original (inclusive GIF), na ordem do post. Em links de vídeo, escolher o formato **Foto** baixa a miniatura na maior resolução disponível. O `yt-dlp` continua cuidando dos vídeos; posts só de texto retornam uma mensagem clara.
+
 ### Alterado
 - **Bolha flutuante (`ClipboardBubbleService.kt`, `MainActivity.kt`, `DevwolfNativePlugin.kt`, `AndroidManifest.xml`)**: a bolha agora é **redonda** (ícone do app), **arrastável**, encosta na borda mais próxima e lembra a posição. Ao arrastar aparece um **✕** embaixo; soltar ali fecha a bolha até a próxima abertura do app (também há **Fechar bolha** na notificação). Ela só aparece com o Devwolf em segundo plano e some quando o app está aberto. Roda como serviço em primeiro plano `specialUse` de baixa prioridade; ligar/desligar não recria mais a tela. Configuração renomeada para **Bolha flutuante**.
 - O toque na bolha só lê o clipboard depois que o Devwolf recebe foco (exigência do Android 10+), com nova tentativa em inicialização a frio.
