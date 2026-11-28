@@ -1085,8 +1085,10 @@ class GalleryDlLocalResolver(
             if (!clean.contains("ggpht.com/", ignoreCase = true) && !clean.contains("googleusercontent.com/", ignoreCase = true)) {
                 return clean
             }
-            val eq = clean.lastIndexOf('=')
+            // Size/crop options start at the FIRST '=' after the last path segment; the options
+            // themselves may contain '=' (e.g. `=s1080-c-fcrop64=1,0000...-rw-nd-v1`).
             val slash = clean.lastIndexOf('/')
+            val eq = clean.indexOf('=', startIndex = slash + 1)
             return if (eq > slash) clean.substring(0, eq) + "=s0" else "$clean=s0"
         }
 
