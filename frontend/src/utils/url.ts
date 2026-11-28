@@ -168,8 +168,7 @@ function getRouteInfo(
     }
     if (pathname.startsWith('/stories/')) {
       return {
-        label: 'Instagram Stories (experimental)',
-        experimental: true,
+        label: 'Instagram Stories (requer login)',
         localSupported: true,
       };
     }

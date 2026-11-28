@@ -38,7 +38,7 @@ const ACCOUNT_PLATFORMS: Array<{
     id: 'instagram',
     label: 'Instagram',
     description:
-      'Entre na sua conta para baixar mídias que exigem sessão autenticada. A sessão fica salva e criptografada no aparelho.',
+      'Necessária para Stories e destaques, e recomendada para fotos e carrosséis (o Instagram costuma bloquear esses posts sem login). A sessão fica salva e criptografada no aparelho.',
     cookiePlaceholder: 'sessionid=...; csrftoken=...',
   },
   {
@@ -407,15 +407,23 @@ export function SettingsView({
         </div>
       </section>
 
-      {/* Preferências gerais + Tema (exclusivo das Configurações) */}
+      {/* Atalhos do Android */}
       <section className="dw-glass-card space-y-3 rounded-3xl p-4">
         <h3 className="text-sm font-bold text-[#1E1940] dark:text-[#F5F3FF]">Atalhos do Android</h3>
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold">Bolha do clipboard</p>
-            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">Toque na bolha para verificar o link copiado. O Android pedirá autorização de sobreposição.</p>
+            <p className="text-sm font-semibold text-[#1E1940] dark:text-[#F5F3FF]">Bolha flutuante</p>
+            <p className="text-xs text-[#5B5482] dark:text-[#A5A1C8]">
+              Aparece sobre outros apps quando o Devwolf está em segundo plano. Copie um link e toque na
+              bolha para baixar. Arraste para mover; arraste até o ✕ para fechar até a próxima vez que abrir o app.
+            </p>
+            {bubbleStatus.enabled === false && !bubbleStatus.permissionGranted && settings.clipboard_bubble_enabled && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">
+                A permissão “Sobrepor a outros apps” foi removida. Ligue de novo para autorizar.
+              </p>
+            )}
           </div>
-          <button type="button" role="switch" aria-label="Bolha do clipboard" aria-checked={bubbleStatus.enabled}
+          <button type="button" role="switch" aria-label="Bolha flutuante" aria-checked={bubbleStatus.enabled}
             disabled={!isNativeAndroid || savingKey === 'clipboard_bubble_enabled'}
             onClick={() => {
               setSavingKey('clipboard_bubble_enabled'); setError(null);

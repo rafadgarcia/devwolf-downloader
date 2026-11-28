@@ -67,6 +67,8 @@ export interface LocalDownloadProgressEvent {
   platform?: string | null;
   error?: string | null;
   errorCode?: string | null;
+  /** Native resolver wrote a curated pt-BR message that should override the generic one. */
+  errorMessageSpecific?: boolean;
   technicalReason?: string | null;
   metrics?: JobPerformanceMetrics | null;
   thumbnailDataUrl?: string | null;
@@ -97,6 +99,8 @@ export interface LocalDownloadSnapshot {
   platform?: string | null;
   error?: string | null;
   errorCode?: string | null;
+  /** Native resolver wrote a curated pt-BR message that should override the generic one. */
+  errorMessageSpecific?: boolean;
   technicalReason?: string | null;
   metrics?: JobPerformanceMetrics | null;
   thumbnailDataUrl?: string | null;

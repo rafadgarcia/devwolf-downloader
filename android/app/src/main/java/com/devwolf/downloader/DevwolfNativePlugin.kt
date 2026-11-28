@@ -162,8 +162,8 @@ class DevwolfNativePlugin : Plugin() {
             val intent = Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
             startActivityForResult(call, intent, "handleClipboardOverlayPermission")
         } else {
+            if (enabled) ClipboardBubbleService.start(context) else ClipboardBubbleService.stop(context)
             call.resolve(JSObject().apply { put("enabled", enabled) })
-            act?.recreate()
         }
     }
 
@@ -173,8 +173,8 @@ class DevwolfNativePlugin : Plugin() {
         val granted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && android.provider.Settings.canDrawOverlays(context)
         context.getSharedPreferences("devwolf_features", Context.MODE_PRIVATE).edit()
             .putBoolean("clipboard_bubble_enabled", granted).apply()
+        if (granted) ClipboardBubbleService.start(context)
         call.resolve(JSObject().apply { put("enabled", granted) })
-        activity?.recreate()
     }
 
     @PluginMethod

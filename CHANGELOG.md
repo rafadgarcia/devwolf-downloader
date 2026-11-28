@@ -2,6 +2,18 @@
 
 Todas as mudanças notáveis do projeto são registradas neste arquivo.
 
+## [Não lançado] — Bolha flutuante, vídeo do Pinterest e Stories/fotos do Instagram
+
+### Alterado
+- **Bolha flutuante (`ClipboardBubbleService.kt`, `MainActivity.kt`, `DevwolfNativePlugin.kt`, `AndroidManifest.xml`)**: a bolha agora é **redonda** (ícone do app), **arrastável**, encosta na borda mais próxima e lembra a posição. Ao arrastar aparece um **✕** embaixo; soltar ali fecha a bolha até a próxima abertura do app (também há **Fechar bolha** na notificação). Ela só aparece com o Devwolf em segundo plano e some quando o app está aberto. Roda como serviço em primeiro plano `specialUse` de baixa prioridade; ligar/desligar não recria mais a tela. Configuração renomeada para **Bolha flutuante**.
+- O toque na bolha só lê o clipboard depois que o Devwolf recebe foco (exigência do Android 10+), com nova tentativa em inicialização a frio.
+
+### Corrigido
+- **Pinterest baixava só a imagem de vídeos (`GalleryDlLocalResolver.kt`)**: a página do Pin muitas vezes não traz dados do vídeo (só `og:image`). O resolvedor agora consulta a API pública `PinResource`, usa o MP4 publicado (`V_720P`) ou deriva o MP4 a partir do HLS (`expMp4/_720w`, `mc/720p`, `iht/720p`, verificados com uma requisição de 1 byte) e cobre Idea Pins (blocos de vídeo/imagem em ordem) e carrosséis de imagens. Sem MP4 alcançável, delega ao `yt-dlp` em vez de devolver a capa.
+- **Instagram — Stories com login (`InstagramNativeResolver.kt`, `InstagramParsers.kt`)**: Stories (`/stories/<usuário>/` e `/stories/<usuário>/<id>/`) e destaques (`/stories/highlights/<id>/`) passam a usar `web_profile_info` → `feed/reels_media` com a sessão conectada; sem sessão, a mensagem pede para conectar a conta.
+- **Instagram — fotos e carrosséis**: com sessão, o `media_id` é calculado a partir do shortcode e consultado em `/api/v1/media/<id>/info/` mesmo quando a página não traz dados. Sem sessão, se o post não puder ser lido e o `yt-dlp` (só vídeo) recusar, a mensagem explica que fotos exigem conectar a conta.
+- **Mensagens específicas apareciam genéricas**: o nativo marca `errorMessageSpecific` e a interface passa a exibir o texto curado (ex.: "story expirou", "stories exigem login") em vez do texto padrão do código.
+
 ## [3.0.0-rc.11] — Miniaturas dos Status do WhatsApp
 
 ### Adicionado

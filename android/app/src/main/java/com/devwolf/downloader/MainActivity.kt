@@ -5,14 +5,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
-import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
-import android.view.Gravity
-import android.view.View
 import android.view.WindowManager
-import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -24,7 +19,8 @@ import java.util.UUID
 
 class MainActivity : BridgeActivity() {
 
-    private var clipboardBubble: TextView? = null
+    /** Bubble tapped: read the clipboard only after this window gains focus (Android 10+ rule). */
+    private var pendingBubbleTap = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         registerPlugin(DevwolfNativePlugin::class.java)
@@ -32,9 +28,8 @@ class MainActivity : BridgeActivity() {
         applyPurpleSystemChrome()
         registerHardwareBackHandler()
         requestNotificationPermissionIfNeeded()
-        showClipboardBubbleIfEnabled()
         if (intent?.action == ACTION_CLIPBOARD_BUBBLE_TAP) {
-            DevwolfNativePlugin.instance?.emitClipboardBubbleTapped()
+            pendingBubbleTap = true
         } else {
             handleIncomingIntent(intent)
         }
@@ -102,70 +97,44 @@ class MainActivity : BridgeActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.action == ACTION_CLIPBOARD_BUBBLE_TAP) {
-            DevwolfNativePlugin.instance?.emitClipboardBubbleTapped()
+            pendingBubbleTap = true
+            if (hasWindowFocus()) consumePendingBubbleTap()
         } else {
             handleIncomingIntent(intent)
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        showClipboardBubbleIfEnabled()
+    override fun onStart() {
+        super.onStart()
+        // App visible: the floating bubble hides (it is meant for use over other apps).
+        ClipboardBubbleService.onAppVisible(this)
     }
 
-    override fun onDestroy() {
-        removeClipboardBubble()
-        super.onDestroy()
+    override fun onStop() {
+        ClipboardBubbleService.onAppHidden()
+        super.onStop()
     }
 
-    private fun showClipboardBubbleIfEnabled() {
-        val prefs = getSharedPreferences("devwolf_features", MODE_PRIVATE)
-        if (prefs.getBoolean("clipboard_bubble_enabled", false) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
-            if (clipboardBubble != null) return
-            val bubble = TextView(this).apply {
-                text = "DW"
-                textSize = 15f
-                setTextColor(Color.WHITE)
-                gravity = Gravity.CENTER
-                contentDescription = "Verificar link copiado no Devwolf"
-                setBackgroundColor(Color.parseColor("#7C5CFF"))
-                elevation = 12f
-                setOnClickListener {
-                    val tapIntent = Intent(this@MainActivity, MainActivity::class.java).apply {
-                        action = ACTION_CLIPBOARD_BUBBLE_TAP
-                        addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                    }
-                    startActivity(tapIntent)
-                }
-            }
-            val params = WindowManager.LayoutParams(
-                dp(54), dp(54),
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-                PixelFormat.TRANSLUCENT,
-            ).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; x = dp(8) }
-            try {
-                getSystemService(WindowManager::class.java).addView(bubble, params)
-                clipboardBubble = bubble
-            } catch (_: SecurityException) {
-                clipboardBubble = null
-            }
-        } else {
-            removeClipboardBubble()
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) consumePendingBubbleTap()
+    }
+
+    private fun consumePendingBubbleTap(attempt: Int = 0) {
+        if (!pendingBubbleTap) return
+        val plugin = DevwolfNativePlugin.instance
+        if (plugin == null) {
+            // Cold start: the plugin/WebView may not be ready yet when focus arrives.
+            if (attempt < 15) window.decorView.postDelayed({ consumePendingBubbleTap(attempt + 1) }, 200)
+            return
         }
+        pendingBubbleTap = false
+        // Small delay so the WebView listener is attached after a cold start.
+        window.decorView.postDelayed({ plugin.emitClipboardBubbleTapped() }, if (attempt == 0) 150 else 400)
     }
-
-    private fun removeClipboardBubble() {
-        clipboardBubble?.let { bubble ->
-            runCatching { getSystemService(WindowManager::class.java).removeView(bubble) }
-        }
-        clipboardBubble = null
-    }
-
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     companion object {
-        private const val ACTION_CLIPBOARD_BUBBLE_TAP = "com.devwolf.downloader.action.CLIPBOARD_BUBBLE_TAP"
+        const val ACTION_CLIPBOARD_BUBBLE_TAP = "com.devwolf.downloader.action.CLIPBOARD_BUBBLE_TAP"
     }
 
     private fun requestNotificationPermissionIfNeeded() {

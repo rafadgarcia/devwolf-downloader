@@ -16,6 +16,15 @@ data class LocalGalleryCapabilities(
     val pythonRuntimePresent: Boolean = false,
 )
 
+/** Media extracted from a Pinterest `PinResource` pin (see `GalleryDlLocalResolver.parsePinterestApiPin`). */
+internal sealed class PinterestApiMedia {
+    /** Ordered MP4 candidates (published MP4 first, then MP4s derived from the HLS URL). */
+    data class Video(val candidates: List<String>, val width: Int?, val height: Int?) : PinterestApiMedia()
+    data class Image(val url: String, val width: Int?, val height: Int?) : PinterestApiMedia()
+}
+
+internal data class PinterestApiParse(val title: String?, val media: List<PinterestApiMedia>)
+
 /**
  * Local zero-bloat resolver for image platforms and galleries (Pinterest, Reddit galleries/images,
  * and Twitter/X image fallback), avoiding a duplicate Python runtime while preserving exact
@@ -85,7 +94,34 @@ class GalleryDlLocalResolver(
             }
 
             val pinId = extractPinterestPinId(resp.finalUrl) ?: extractPinterestPinId(normalized) ?: "pin"
-            val parsed = parsePinterestHtml(resp.body, pinId, request.format)
+
+            // 1. Public PinResource JSON API: the pin page HTML frequently omits video data
+            //    entirely (only og:image), which used to make video Pins download the cover image.
+            resolvePinterestViaApi(pinId, request, startMs)?.let { apiResult ->
+                return apiResult.copy(
+                    metrics = apiResult.metrics.copy(httpRequestCount = apiResult.metrics.httpRequestCount + totalReqs),
+                )
+            }
+
+            // 2. Embedded page data (legacy path). HLS-only video pages get an MP4 derived from the
+            //    pinimg HLS URL before delegating to yt-dlp.
+            val parsed = try {
+                parsePinterestHtml(resp.body, pinId, request.format)
+            } catch (e: ResolverException) {
+                if (e.errorCode != DevwolfErrorCode.EXTRACTION_FAILED) throw e
+                val hls = PINIMG_HLS_REGEX.find(resp.body.replace("\\/", "/").replace("\\u002F", "/", ignoreCase = true))?.value
+                val mp4 = hls?.let { probeFirstPlayableMp4(derivePinimgMp4Candidates(it), request) }
+                    ?: throw e
+                ResolutionResult(
+                    platform = "pinterest",
+                    shortcode = pinId,
+                    title = null,
+                    engineUsed = "gallery-dl",
+                    engineVersion = "3.0.0-native",
+                    strategyUsed = "PinterestHlsDerivedMp4",
+                    items = listOf(pinterestVideoItem(pinId, 1, mp4, null, null)),
+                )
+            }
                 ?: throw ResolverException(
                     errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
                     technicalReason = "Pinterest HTML (HTTP ${resp.statusCode}) sem JSON/mídia reconhecida",
@@ -117,6 +153,126 @@ class GalleryDlLocalResolver(
                 cause = e,
             )
         }
+    }
+
+    /**
+     * Resolves a numeric Pin through the public `PinResource` endpoint (same data the Pinterest web
+     * app uses, no login). Returns `null` when the API is unavailable so the HTML path can try.
+     * Throws EXTRACTION_FAILED when the Pin is a video but no playable MP4 could be found, so the
+     * router falls back to yt-dlp instead of returning the cover image.
+     */
+    private fun resolvePinterestViaApi(pinId: String, request: ResolutionRequest, startMs: Long): ResolutionResult? {
+        if (!pinId.all { it.isDigit() } || pinId.length < 6) return null
+        val base = (pinterestBaseUrl ?: "https://www.pinterest.com").trimEnd('/')
+        val data = """{"options":{"id":"$pinId","field_set_key":"unauth_react_main_pin"},"context":{}}"""
+        val apiUrl = "$base/resource/PinResource/get/?source_url=" +
+            UrlExtractor.urlEncode("/pin/$pinId/") + "&data=" + UrlExtractor.urlEncode(data)
+        val resp = try {
+            httpClient.getText(
+                apiUrl,
+                mapOf(
+                    "User-Agent" to SafeHttpClient.DEFAULT_DESKTOP_CHROME_UA,
+                    "Accept" to "application/json, text/javascript, */*; q=0.01",
+                    "X-Requested-With" to "XMLHttpRequest",
+                    "X-Pinterest-PWS-Handler" to "www/pin/[id].js",
+                    "Accept-Language" to "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+                ),
+                cancellationCheck = request.cancellationCheck,
+            )
+        } catch (e: ResolverException) {
+            if (e.errorCode == DevwolfErrorCode.CANCELLED) throw e
+            return null
+        } catch (_: IOException) {
+            return null
+        }
+        // A 404 here is ambiguous (opaque/ad ids, API changes); the page request already
+        // classified truly removed Pins, so let the HTML path decide.
+        if (resp.statusCode == 429) {
+            throw ResolverException(
+                errorCode = DevwolfErrorCode.RATE_LIMITED,
+                httpStatus = 429,
+                metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, resp.httpRequests),
+            )
+        }
+        if (resp.statusCode !in 200..299) return null
+        val pinData = try {
+            JSONObject(resp.body).optJSONObject("resource_response")?.optJSONObject("data")
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        val parsed = parsePinterestApiPin(pinData) ?: return null
+        val forceVideo = request.format.equals("video", ignoreCase = true)
+
+        val items = mutableListOf<ResolvedMediaItem>()
+        var index = 1
+        var unresolvedVideo = false
+        for (media in parsed.media) {
+            when (media) {
+                is PinterestApiMedia.Video -> {
+                    val mp4 = probeFirstPlayableMp4(media.candidates, request)
+                    if (mp4 == null) {
+                        unresolvedVideo = true
+                    } else {
+                        items += pinterestVideoItem(pinId, index++, mp4, media.width, media.height)
+                    }
+                }
+                is PinterestApiMedia.Image -> {
+                    if (!forceVideo || parsed.media.none { it is PinterestApiMedia.Video }) {
+                        items += pinterestImageItem(pinId, index++, media.url, media.width, media.height)
+                    }
+                }
+            }
+        }
+        if (unresolvedVideo && items.none { it.type == MediaItemType.VIDEO }) {
+            throw ResolverException(
+                errorCode = DevwolfErrorCode.EXTRACTION_FAILED,
+                technicalReason = "Pinterest video Pin without reachable MP4 (HLS only); delegating to yt-dlp",
+                metrics = ResolutionMetrics(System.currentTimeMillis() - startMs, resp.httpRequests),
+            )
+        }
+        if (items.isEmpty()) return null
+        val hasVideo = items.any { it.type == MediaItemType.VIDEO }
+        return ResolutionResult(
+            platform = "pinterest",
+            shortcode = pinId,
+            title = parsed.title?.take(120),
+            engineUsed = "gallery-dl",
+            engineVersion = "3.0.0-native",
+            strategyUsed = if (hasVideo) "PinterestApiVideo" else "PinterestApiImage",
+            items = items,
+            metrics = ResolutionMetrics(
+                resolutionMs = System.currentTimeMillis() - startMs,
+                httpRequestCount = resp.httpRequests,
+            ),
+        )
+    }
+
+    /** Returns the first candidate that answers 2xx with a `video/*` body (range probe of 1 byte). */
+    private fun probeFirstPlayableMp4(candidates: List<String>, request: ResolutionRequest): String? {
+        for (url in candidates.distinct()) {
+            if (request.cancellationCheck()) throw ResolverException(DevwolfErrorCode.CANCELLED)
+            val ok = try {
+                httpClient.executeStreamingGet(
+                    url = url,
+                    headers = mapOf(
+                        "User-Agent" to SafeHttpClient.DEFAULT_DESKTOP_CHROME_UA,
+                        "Referer" to "https://www.pinterest.com/",
+                        "Range" to "bytes=0-0",
+                    ),
+                    cancellationCheck = request.cancellationCheck,
+                ) { response, _, _, _ ->
+                    response.code in 200..299 &&
+                        response.header("Content-Type").orEmpty().lowercase().startsWith("video/")
+                }
+            } catch (e: ResolverException) {
+                if (e.errorCode == DevwolfErrorCode.CANCELLED) throw e
+                false
+            } catch (_: IOException) {
+                false
+            }
+            if (ok) return url
+        }
+        return null
     }
 
     private fun resolveReddit(request: ResolutionRequest, startMs: Long): ResolutionResult {
@@ -751,6 +907,168 @@ class GalleryDlLocalResolver(
                     else -> 240
                 }
             }
+        }
+
+        // ---- Pinterest PinResource API (unit-tested pure helpers) ---------------------------
+
+        internal val PINIMG_HLS_REGEX = Regex(
+            """https://v\d*\.pinimg\.com/videos/[A-Za-z0-9/_-]+/hls/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{32}[^"'\s<>\\]*\.m3u8""",
+            RegexOption.IGNORE_CASE,
+        )
+        private val PINIMG_HASH_PATH_REGEX = Regex("""/([0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{32})""", RegexOption.IGNORE_CASE)
+
+        /**
+         * Pinterest serves the same video as MP4 under one of several paths depending on when it
+         * was encoded; the HLS URL exposes the hash used by all of them.
+         */
+        internal fun derivePinimgMp4Candidates(hlsUrl: String): List<String> {
+            val hashPath = PINIMG_HASH_PATH_REGEX.find(hlsUrl)?.groupValues?.get(1) ?: return emptyList()
+            val host = Regex("""^https://(v\d*\.pinimg\.com)/""", RegexOption.IGNORE_CASE).find(hlsUrl)?.groupValues?.get(1)
+                ?: "v1.pinimg.com"
+            return listOf(
+                "https://$host/videos/iht/expMp4/${hashPath}_720w.mp4",
+                "https://$host/videos/mc/720p/$hashPath.mp4",
+                "https://$host/videos/iht/720p/$hashPath.mp4",
+                "https://$host/videos/mc/expMp4/${hashPath}_t4.mp4",
+            )
+        }
+
+        private fun videoCandidatesFromList(videoList: JSONObject?): PinterestApiMedia.Video? {
+            if (videoList == null || videoList.length() == 0) return null
+            val mp4s = mutableListOf<Triple<String, Int?, Int?>>()
+            var hls: String? = null
+            var w: Int? = null
+            var h: Int? = null
+            val keys = videoList.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val entry = videoList.optJSONObject(key) ?: continue
+                val url = entry.optString("url")
+                if (url.isBlank()) continue
+                val ew = entry.optInt("width").takeIf { it > 0 }
+                val eh = entry.optInt("height").takeIf { it > 0 }
+                if (isDirectMp4Url(url)) {
+                    mp4s += Triple(url, ew, eh)
+                } else if (url.contains(".m3u8", ignoreCase = true) && hls == null) {
+                    hls = url
+                }
+                if (w == null || (ew != null && ew > w)) {
+                    w = ew
+                    h = eh
+                }
+            }
+            val ordered = mp4s.sortedByDescending { (it.second ?: 0) * (it.third ?: 0) }.map { it.first } +
+                (hls?.let { derivePinimgMp4Candidates(it) } ?: emptyList())
+            if (ordered.isEmpty()) return null
+            return PinterestApiMedia.Video(ordered, w, h)
+        }
+
+        private fun bestImageFrom(images: JSONObject?): PinterestApiMedia.Image? {
+            if (images == null) return null
+            for (key in listOf("orig", "originals")) {
+                images.optJSONObject(key)?.let { o ->
+                    val url = o.optString("url")
+                    if (url.startsWith("http")) {
+                        return PinterestApiMedia.Image(url, o.optInt("width").takeIf { it > 0 }, o.optInt("height").takeIf { it > 0 })
+                    }
+                }
+            }
+            var best: PinterestApiMedia.Image? = null
+            var bestArea = -1L
+            val keys = images.keys()
+            while (keys.hasNext()) {
+                val o = images.optJSONObject(keys.next()) ?: continue
+                val url = o.optString("url").takeIf { it.startsWith("http") } ?: continue
+                val w = o.optInt("width")
+                val hgt = o.optInt("height")
+                val area = w.toLong() * hgt.toLong()
+                if (area > bestArea) {
+                    bestArea = area
+                    best = PinterestApiMedia.Image(url, w.takeIf { it > 0 }, hgt.takeIf { it > 0 })
+                }
+            }
+            return best
+        }
+
+        /**
+         * Extracts ordered media from a `PinResource` pin: regular video Pins (`videos.video_list`),
+         * Idea/Story Pins (`story_pin_data.pages[].blocks[]` with video or image blocks), image
+         * carousels (`carousel_data.carousel_slots[]`) and finally the original image.
+         */
+        internal fun parsePinterestApiPin(pin: JSONObject): PinterestApiParse? {
+            val title = listOf("title", "grid_title", "seo_title")
+                .map { pin.optString(it) }
+                .firstOrNull { it.isNotBlank() && it != "null" }
+            val media = mutableListOf<PinterestApiMedia>()
+
+            videoCandidatesFromList(pin.optJSONObject("videos")?.optJSONObject("video_list"))?.let { media += it }
+
+            if (media.isEmpty()) {
+                val pages = pin.optJSONObject("story_pin_data")?.optJSONArray("pages")
+                if (pages != null) {
+                    for (p in 0 until pages.length()) {
+                        val blocks = pages.optJSONObject(p)?.optJSONArray("blocks") ?: continue
+                        for (b in 0 until blocks.length()) {
+                            val block = blocks.optJSONObject(b) ?: continue
+                            val video = videoCandidatesFromList(block.optJSONObject("video")?.optJSONObject("video_list"))
+                            if (video != null) {
+                                media += video
+                                continue
+                            }
+                            bestImageFrom(block.optJSONObject("image")?.optJSONObject("images"))?.let { media += it }
+                        }
+                    }
+                }
+            }
+
+            if (media.isEmpty()) {
+                val slots = pin.optJSONObject("carousel_data")?.optJSONArray("carousel_slots")
+                if (slots != null) {
+                    for (i in 0 until slots.length()) {
+                        bestImageFrom(slots.optJSONObject(i)?.optJSONObject("images"))?.let { media += it }
+                    }
+                }
+            }
+
+            if (media.isEmpty()) {
+                bestImageFrom(pin.optJSONObject("images"))?.let { media += it }
+            }
+            if (media.isEmpty()) return null
+            return PinterestApiParse(title, media)
+        }
+
+        internal fun pinterestVideoItem(pinId: String, index: Int, url: String, width: Int?, height: Int?) =
+            ResolvedMediaItem(
+                index = index,
+                id = "${pinId}_$index",
+                type = MediaItemType.VIDEO,
+                url = url,
+                fileName = "pinterest_${pinId}_%02d.mp4".format(index),
+                mimeType = "video/mp4",
+                width = width,
+                height = height,
+                headers = mapOf("Referer" to "https://www.pinterest.com/"),
+            )
+
+        internal fun pinterestImageItem(pinId: String, index: Int, url: String, width: Int?, height: Int?): ResolvedMediaItem {
+            val mime = InstagramParsers.guessImageMime(url)
+            val ext = when (mime) {
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                "image/gif" -> "gif"
+                else -> "jpg"
+            }
+            return ResolvedMediaItem(
+                index = index,
+                id = "${pinId}_$index",
+                type = MediaItemType.IMAGE,
+                url = url,
+                fileName = "pinterest_${pinId}_%02d.$ext".format(index),
+                mimeType = mime,
+                width = width,
+                height = height,
+                headers = mapOf("Referer" to "https://www.pinterest.com/"),
+            )
         }
 
         private fun extractBestPinterestVideo(videosObj: JSONObject?): Triple<String, Int?, Int?>? {

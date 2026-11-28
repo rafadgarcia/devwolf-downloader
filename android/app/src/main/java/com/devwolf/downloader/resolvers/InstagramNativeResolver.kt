@@ -68,6 +68,10 @@ class InstagramNativeResolver(
                 )
         }
 
+        if (parsed.kind == InstagramUrlKind.STORIES) {
+            return resolveStories(parsed, request, baseHeaders, overallStartMs, totalHttpRequests)
+        }
+
         val shortcode = parsed.shortcode
             ?: throw ResolverException(
                 errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
@@ -192,7 +196,11 @@ class InstagramNativeResolver(
 
         fun tryAuthorizedWebApi(): ResolutionResult? {
             val csrf = SecureVault.extractCookieValue(request.cookieHeader, "csrftoken") ?: lastPageContext.csrfToken
-            val canAttemptApi = hasSession || !csrf.isNullOrBlank() || !lastPageContext.mediaId.isNullOrBlank()
+            // With a session, the media id can be derived from the shortcode, so photos and
+            // carousels resolve even when the page HTML carries no media data.
+            val mediaId = lastPageContext.mediaId?.takeIf { it.isNotBlank() }
+                ?: if (hasSession) InstagramParsers.shortcodeToMediaId(shortcode) else null
+            val canAttemptApi = hasSession || !csrf.isNullOrBlank() || !mediaId.isNullOrBlank()
             if (!canAttemptApi) return null
 
             return runStrategy(
@@ -200,8 +208,8 @@ class InstagramNativeResolver(
                 isMainPage = false,
                 allowAuthWallPoison = false,
             ) {
-                val apiUrl = if (!lastPageContext.mediaId.isNullOrBlank()) {
-                    "$baseUrl/api/v1/media/${lastPageContext.mediaId}/info/"
+                val apiUrl = if (!mediaId.isNullOrBlank()) {
+                    "$baseUrl/api/v1/media/$mediaId/info/"
                 } else {
                     val seg = when (parsed.kind) {
                         InstagramUrlKind.REEL -> "reel"
@@ -216,7 +224,7 @@ class InstagramNativeResolver(
                     put("X-Requested-With", "XMLHttpRequest")
                     put("Referer", parsed.canonicalUrl)
                     if (!csrf.isNullOrBlank()) put("X-CSRFToken", csrf)
-                    lastPageContext.igAppId?.let { put("X-IG-App-ID", it) }
+                    put("X-IG-App-ID", lastPageContext.igAppId ?: INSTAGRAM_WEB_APP_ID)
                 }
 
                 val resp = httpClient.getText(apiUrl, apiHeaders, cancellationCheck = request.cancellationCheck)
@@ -248,6 +256,124 @@ class InstagramNativeResolver(
             strategyUsed = attempts.lastOrNull()?.strategyName,
             metrics = buildMetrics(),
         )
+    }
+
+    /**
+     * Stories always require the user's own Instagram session (connected in Ajustes → Contas):
+     * `web_profile_info` → user id → `feed/reels_media`. Highlights (`/stories/highlights/<id>/`)
+     * use `reel_ids=highlight:<id>`. A story id in the URL selects that single story.
+     */
+    private fun resolveStories(
+        parsed: ParsedInstagramUrl,
+        request: ResolutionRequest,
+        baseHeaders: Map<String, String>,
+        startMs: Long,
+        priorRequests: Int,
+    ): ResolutionResult {
+        var requests = priorRequests
+        fun metrics(success: Boolean, code: DevwolfErrorCode? = null, note: String? = null) = ResolutionMetrics(
+            resolutionMs = System.currentTimeMillis() - startMs,
+            httpRequestCount = requests,
+            strategyAttempts = listOf(
+                StrategyAttemptMetric("InstagramStoriesApiStrategy", System.currentTimeMillis() - startMs, requests, success, code, note),
+            ),
+        )
+        if (request.cookieHeader.isNullOrBlank()) {
+            throw ResolverException(
+                errorCode = DevwolfErrorCode.AUTH_REQUIRED,
+                userMessage = "Stories do Instagram só podem ser baixados com a sua conta conectada em Ajustes → Contas e Sessões.",
+                technicalReason = "Instagram stories without session",
+                strategyUsed = "InstagramStoriesApiStrategy",
+                metrics = metrics(false, DevwolfErrorCode.AUTH_REQUIRED),
+            )
+        }
+        val user = parsed.username.orEmpty()
+        val isHighlight = user.equals("highlights", ignoreCase = true)
+        val csrf = SecureVault.extractCookieValue(request.cookieHeader, "csrftoken")
+        val apiHeaders = LinkedHashMap(baseHeaders).apply {
+            put("Accept", "application/json, text/plain, */*")
+            put("X-Requested-With", "XMLHttpRequest")
+            put("X-IG-App-ID", INSTAGRAM_WEB_APP_ID)
+            put("Referer", parsed.canonicalUrl)
+            if (!csrf.isNullOrBlank()) put("X-CSRFToken", csrf)
+        }
+
+        fun fail(resp: HttpTextResponse, what: String): Nothing {
+            val code = when (resp.statusCode) {
+                401, 403 -> DevwolfErrorCode.AUTH_REQUIRED
+                404 -> DevwolfErrorCode.MEDIA_UNAVAILABLE
+                429 -> DevwolfErrorCode.RATE_LIMITED
+                in 500..599 -> DevwolfErrorCode.NETWORK_ERROR
+                else -> InstagramParsers.classifyFailure(resp.statusCode, resp.finalUrl, resp.body, true)
+            }
+            throw ResolverException(
+                errorCode = code,
+                userMessage = if (code == DevwolfErrorCode.AUTH_REQUIRED) {
+                    "A sessão do Instagram expirou ou não tem acesso a este story. Reconecte a conta em Ajustes → Contas e Sessões."
+                } else {
+                    code.defaultMessagePtBr
+                },
+                technicalReason = "Instagram stories: $what HTTP ${resp.statusCode}",
+                httpStatus = resp.statusCode,
+                strategyUsed = "InstagramStoriesApiStrategy",
+                metrics = metrics(false, code, "HTTP ${resp.statusCode}"),
+            )
+        }
+
+        val reelId = if (isHighlight) {
+            val highlightId = parsed.storyId
+                ?: throw ResolverException(
+                    errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
+                    technicalReason = "Highlight sem id na URL",
+                    metrics = metrics(false, DevwolfErrorCode.UNSUPPORTED_MEDIA),
+                )
+            "highlight:$highlightId"
+        } else {
+            if (user.isBlank()) {
+                throw ResolverException(
+                    errorCode = DevwolfErrorCode.UNSUPPORTED_MEDIA,
+                    technicalReason = "Story sem usuário na URL",
+                    metrics = metrics(false, DevwolfErrorCode.UNSUPPORTED_MEDIA),
+                )
+            }
+            val profileResp = httpClient.getText(
+                "$baseUrl/api/v1/users/web_profile_info/?username=${UrlExtractor.urlEncode(user)}",
+                apiHeaders,
+                cancellationCheck = request.cancellationCheck,
+            )
+            requests += profileResp.httpRequests
+            if (profileResp.statusCode !in 200..299) fail(profileResp, "web_profile_info")
+            InstagramParsers.parseWebProfileUserId(profileResp.body)
+                ?: throw ResolverException(
+                    errorCode = DevwolfErrorCode.MEDIA_UNAVAILABLE,
+                    userMessage = "Perfil do Instagram não encontrado ou indisponível.",
+                    technicalReason = "web_profile_info sem user.id",
+                    metrics = metrics(false, DevwolfErrorCode.MEDIA_UNAVAILABLE),
+                )
+        }
+
+        val reelsResp = httpClient.getText(
+            "$baseUrl/api/v1/feed/reels_media/?reel_ids=${UrlExtractor.urlEncode(reelId)}",
+            apiHeaders,
+            cancellationCheck = request.cancellationCheck,
+        )
+        requests += reelsResp.httpRequests
+        if (reelsResp.statusCode !in 200..299) fail(reelsResp, "reels_media")
+        val media = InstagramParsers.parseStoryReelsJson(
+            reelsResp.body,
+            storyId = if (isHighlight) null else parsed.storyId,
+            fallbackName = if (isHighlight) "highlight_${parsed.storyId}" else user,
+        ) ?: throw ResolverException(
+            errorCode = DevwolfErrorCode.MEDIA_UNAVAILABLE,
+            userMessage = if (parsed.storyId != null && !isHighlight) {
+                "Este story expirou ou não está mais disponível (stories duram 24 h)."
+            } else {
+                "Nenhum story ativo encontrado para este perfil."
+            },
+            technicalReason = "reels_media sem itens correspondentes",
+            metrics = metrics(false, DevwolfErrorCode.MEDIA_UNAVAILABLE),
+        )
+        return buildResult(parsed, media, "InstagramStoriesApiStrategy", metrics(true))
     }
 
     private fun buildResult(
@@ -289,3 +415,6 @@ class InstagramNativeResolver(
         return canonicalUrl.replaceFirst("https://www.instagram.com", trimmedBase)
     }
 }
+
+/** Public app id sent by instagram.com's own web client (required by the `/api/v1/` web endpoints). */
+internal const val INSTAGRAM_WEB_APP_ID = "936619743392459"
